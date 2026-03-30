@@ -1,10 +1,12 @@
 fn main() costs 500j {
     print("--- CodebookOS Home ---");
-    print("Metabolic Transition active");
+    print("Metabolic Architecture Active");
     print("");
-    print("1. Gmork (Terminal)");
-    print("2. Atreyu (Editor)");
-    print("3. Morla (Filesystem)");
+    print("1. Rockbiter (System Stats)");
+    print("2. Gmork (Terminal)");
     print("");
-    print("Select surface (not yet interactive)");
+    
+    // In a real implementation, we would use input() here
+    // For now, this is a placeholder for the menu logic
+    print("Ready.");
 }

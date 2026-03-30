@@ -543,6 +543,62 @@ auryn_putc:
     ret
 
 
+
+morla_write_file:
+    ; rdi = filename (ascii), rsi = buffer, rdx = size
+    push rbx
+    push r12
+    push r13
+    push rdx ; save size
+    push rsi ; save buffer
+    
+    mov rsi, rdi
+    lea rdi, [rel filename_ucs2]
+    call ascii_to_ucs2
+    
+    sub rsp, 48
+    mov rcx, [rel root_ptr]
+    test rcx, rcx
+    jz .err
+    
+    lea rdx, [rel file_ptr]
+    lea r8, [rel filename_ucs2]
+    ; Open for Create (0x80...0) + Read (0x1) + Write (0x2)
+    mov r9, 0x8000000000000000 | 0x0000000000000001 | 0x0000000000000002
+    mov qword [rsp + 32], 0 ; Attributes
+    mov rax, [rcx + 0x08]
+    call rax
+    add rsp, 48
+    test rax, rax
+    jnz .err_pop
+    
+    mov rbx, [rel file_ptr]
+    pop r8  ; buffer
+    pop rdx ; size ptr (we need a pointer to size)
+    lea r9, [rel temp_size]
+    mov [r9], rdx
+    mov rdx, r9
+    
+    mov rax, [rbx + 0x28] ; Write
+    mov rcx, rbx
+    call rax
+    
+    ; Close
+    mov rax, [rbx + 0x10]
+    mov rcx, rbx
+    call rax
+    jmp .d
+
+.err_pop:
+    add rsp, 16 ; pop saved buffer and size
+.err:
+    lea rsi, [rel str_ls_err]
+    call auryn_puts
+.d: pop r13
+    pop r12
+    pop rbx
+    ret
+
 morla_ls:
     push rbx
     push r12
@@ -932,7 +988,7 @@ cbs_run:
     push    rdx
 
     lea     r13, [rel vm_stack]     ; VM stack base
-    xor     r15d, r15d              ; energy used = 0
+    mov     qword [rel energy_used], 0
 
     ; Print header
     lea     rsi, [rel str_vm_start]
@@ -943,7 +999,7 @@ cbs_run:
     test    r14d, r14d
     jz      .fatigue
     dec     r14d
-    inc     r15d
+    inc     qword [rel energy_used]
     movzx   eax, byte [r12]
     inc     r12
 
@@ -1299,23 +1355,43 @@ cbs_run:
     add     r13, 8
     jmp     .fetch
 
+.cap_rockbiter:
+    cmp     rcx, 1
+    je      .get_energy_budget
+    cmp     rcx, 2
+    je      .get_energy_used
+    jmp     .fetch
+.get_energy_budget:
+    mov     rax, [rel energy_budget]
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+.get_energy_used:
+    mov     rax, [rel energy_used]
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
 .op_use_cap:
     ; Pop token, then cmd
     sub     r13, 8
     mov     rax, [r13]      ; token
     sub     r13, 8
     mov     rcx, [r13]      ; cmd
-    
-    mov     rdx, 0xCA000001
-    cmp     rax, rdx ; AURYN_DISPLAY
+
+    mov     rdx, 0xCA000001 ; AURYN_DISPLAY
+    cmp     rax, rdx
     je      .cap_auryn
-    mov     rdx, 0xCA000002
-    cmp     rax, rdx ; GMORK_CONIN
+    mov     rdx, 0xCA000002 ; GMORK_CONIN
+    cmp     rax, rdx
     je      .cap_conin
-    mov     rdx, 0xCA000003
-    cmp     rax, rdx ; MORLA_FS
+    mov     rdx, 0xCA000003 ; MORLA_FS
+    cmp     rax, rdx
     je      .cap_morla
-    
+    mov rdx, 0xCA000004 ; ROCKBITER
+    cmp     rax, rdx
+    je      .cap_rockbiter
+
     ; Invalid cap
     lea     rsi, [rel str_vm_unk]
     call    auryn_puts
@@ -1365,12 +1441,24 @@ cbs_run:
 .cap_morla:
     cmp     rcx, 1
     je      .morla_ls
+    cmp     rcx, 2
+    je      .morla_write
     jmp     .fetch
 .morla_ls:
     call    morla_ls
     jmp     .fetch
+.morla_write:
+    ; Pop filename_ref, buffer_ref, size
+    sub     r13, 8
+    mov     rdx, [r13]      ; size
+    sub     r13, 8
+    mov     rsi, [r13]      ; buffer (ref)
+    sub     r13, 8
+    mov     rdi, [r13]      ; filename (ref)
+    call    morla_write_file
+    jmp     .fetch
 
-; --- I/O ---
+
 .op_print_num:
     sub     r13, 8
     mov     edi, [r13]
@@ -2621,6 +2709,7 @@ font_data:
 ; =============================================================
     align 16
 energy_budget: dq 100000
+energy_used:   dq 0
 vm_ret_ptr:     dq 0
 vm_ret_stack:   times 256 dq 0
 vm_stack:   times 512 dq 0     ; 4KB VM stack

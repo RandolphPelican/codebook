@@ -1,0 +1,20 @@
+fn main() costs 100j {
+    print("--- Rockbiter Process Manager ---");
+    
+    let cap = 4; // ROCKBITER_METABOLIC
+    let token = grant_cap(cap);
+    
+    let cmd_budget = 1;
+    let budget = use_cap(token, cmd_budget);
+    
+    let cmd_used = 2;
+    let used = use_cap(token, cmd_used);
+    
+    print("Energy Budget: ");
+    print(budget);
+    print("Energy Used:   ");
+    print(used);
+    
+    print("");
+    print("System stable.");
+}

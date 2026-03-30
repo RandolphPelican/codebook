@@ -440,7 +440,27 @@ class AtreyuX86:
         elif t == 'call':
             for a in n['args']: self._expr(a)
             # Simple: inline call not supported yet, treat as error
-            print(f"Warning: function calls not yet supported in bytecode", file=sys.stderr)
+                        if n['name'] == 'grant_cap':
+                self._expr(n['args'][0])
+                e.emit(OP_GRANT_CAP)
+            elif n['name'] == 'use_cap':
+                # Our ASM pops: cmd, then token, then args
+                # So we push args, then token, then cmd
+                for a in n['args'][2:]: self._expr(a)
+                self._expr(n['args'][0]) # token
+                self._expr(n['args'][1]) # cmd
+                e.emit(OP_USE_CAP)
+            elif n['name'] == 'input':
+                # input() -> char
+                e.emit(OP_PUSH); e.emit_i32(2) # GMORK_CONIN
+                e.emit(OP_GRANT_CAP)
+                e.emit(OP_PUSH); e.emit_i32(1) # READ
+                e.emit(OP_USE_CAP)
+            else:
+                # Actual function call
+                for a in reversed(n['args']): self._expr(a)
+                e.emit(OP_PUSH); e.emit_i32(self.funcs[n['name']])
+                e.emit(OP_CALL)
 
 # === Demo Programs ===
 def demo_full():
