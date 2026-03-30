@@ -4,9 +4,7 @@ fn main() costs 500j {
     print("");
     print("1. Rockbiter (System Stats)");
     print("2. Gmork (Terminal)");
+    print("3. Atreyu (Editor)");
     print("");
-    
-    // In a real implementation, we would use input() here
-    // For now, this is a placeholder for the menu logic
     print("Ready.");
 }

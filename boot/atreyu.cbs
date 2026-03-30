@@ -1,0 +1,55 @@
+fn main() costs 1000j {
+    print("--- Atreyu Editor ---");
+    print("ESC to save/exit, Type to edit");
+    
+    let buf_cap = 5; // ATREYU_BUFFER
+    let buf_token = grant_cap(buf_cap);
+    
+    let disp_cap = 1; // AURYN_DISPLAY
+    let disp_token = grant_cap(disp_cap);
+    
+    let in_cap = 2; // GMORK_CONIN
+    let in_token = grant_cap(in_cap);
+    
+    let cursor = 0;
+    let running = 1;
+    
+    while running {
+        // Simple editor loop
+        let key = use_cap(in_token, 1); // READ
+        
+        if key == 27 { // ESC
+            running = 0;
+        } else {
+            if key == 8 { // BACKSPACE
+                if cursor > 0 {
+                    cursor = cursor - 1;
+                    use_cap(buf_token, 6, cursor); // DELETE
+                }
+            } else {
+                if key > 31 {
+                    use_cap(buf_token, 5, cursor, key); // INSERT
+                    cursor = cursor + 1;
+                }
+            }
+        }
+        
+        // Redraw buffer
+        use_cap(disp_token, 2, 0); // CLEAR
+        let i = 0;
+        let size = use_cap(buf_token, 1); // GET_SIZE
+        while i < size {
+            let c = use_cap(buf_token, 3, i); // GET_CHAR
+            use_cap(disp_token, 1, c); // PUTC
+            i = i + 1;
+        }
+    }
+    
+    print("Saving to USB...");
+    // Morla write placeholder
+    let fs_cap = 3;
+    let fs_token = grant_cap(fs_cap);
+    // use_cap(fs_token, 2, "atreyu.txt", buf_token, size);
+    
+    print("Exiting.");
+}

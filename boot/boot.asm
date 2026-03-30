@@ -1355,6 +1355,93 @@ cbs_run:
     add     r13, 8
     jmp     .fetch
 
+.cap_atreyu:
+    cmp     rcx, 1
+    je      .atreyu_get_size
+    cmp     rcx, 2
+    je      .atreyu_set_size
+    cmp     rcx, 3
+    je      .atreyu_get_char
+    cmp     rcx, 4
+    je      .atreyu_set_char
+    cmp     rcx, 5
+    je      .atreyu_insert
+    cmp     rcx, 6
+    je      .atreyu_delete
+    jmp     .fetch
+
+.atreyu_get_size:
+    mov     rax, [rel atreyu_size]
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.atreyu_set_size:
+    sub     r13, 8
+    mov     rax, [r13]
+    mov     [rel atreyu_size], rax
+    jmp     .fetch
+
+.atreyu_get_char:
+    sub     r13, 8
+    mov     rax, [r13] ; pos
+    lea     rbx, [rel external_prog_buf]
+    movzx   rax, byte [rbx + rax]
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.atreyu_set_char:
+    sub     r13, 8
+    mov     rax, [r13] ; char
+    sub     r13, 8
+    mov     rbx, [r13] ; pos
+    lea     rcx, [rel external_prog_buf]
+    mov     [rcx + rbx], al
+    jmp     .fetch
+
+.atreyu_insert:
+    ; Pop char, then pos
+    sub     r13, 8
+    mov     rax, [r13] ; char
+    sub     r13, 8
+    mov     rbx, [r13] ; pos
+    
+    ; Shift right: from atreyu_size down to pos
+    mov     rcx, [rel atreyu_size]
+    lea     rdx, [rel external_prog_buf]
+.atreyu_ins_loop:
+    cmp     rcx, rbx
+    jle     .atreyu_ins_done
+    mov     dl, [rdx + rcx - 1]
+    mov     [rdx + rcx], dl
+    dec     rcx
+    jmp     .atreyu_ins_loop
+.atreyu_ins_done:
+    mov     [rdx + rbx], al
+    inc     qword [rel atreyu_size]
+    jmp     .fetch
+
+.atreyu_delete:
+    sub     r13, 8
+    mov     rbx, [r13] ; pos
+    
+    ; Shift left: from pos+1 up to atreyu_size
+    mov     rcx, rbx
+    lea     rdx, [rel external_prog_buf]
+.atreyu_del_loop:
+    mov     rax, rcx
+    inc     rax
+    cmp     rax, [rel atreyu_size]
+    jge     .atreyu_del_done
+    mov     al, [rdx + rcx + 1]
+    mov     [rdx + rcx], al
+    inc     rcx
+    jmp     .atreyu_del_loop
+.atreyu_del_done:
+    dec     qword [rel atreyu_size]
+    jmp     .fetch
+
 .cap_rockbiter:
     cmp     rcx, 1
     je      .get_energy_budget
@@ -2205,6 +2292,7 @@ current_color: dd 0x00FFD700
 bastian_sel:   dd 1
 temp_size: dq 0
 ascii_buf: times 256 db 0
+atreyu_size:    dq 0
 external_prog_buf: times 65536 db 0
 cursor_x:   dd 0
 cursor_y:   dd 0
