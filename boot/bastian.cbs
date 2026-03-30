@@ -1,0 +1,10 @@
+fn main() costs 500j {
+    print("--- CodebookOS Home ---");
+    print("Metabolic Transition active");
+    print("");
+    print("1. Gmork (Terminal)");
+    print("2. Atreyu (Editor)");
+    print("3. Morla (Filesystem)");
+    print("");
+    print("Select surface (not yet interactive)");
+}
