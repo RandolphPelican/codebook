@@ -289,8 +289,14 @@ locate_sfsp:
     call rax
     test rax,rax
     jnz .f
+    
+    ; Store SFSP in uefi_data
+    lea rbx,[rel uefi_data]
+    mov rax,[rel sfsp_ptr]
+    mov [rbx+48],rax
+
     mov rbx,[rel sfsp_ptr]
-    mov rax,[rbx]
+    mov rax,[rbx+0x08] ; OpenVolume
     mov rcx,rbx
     lea rdx,[rel root_ptr]
     call rax
@@ -634,7 +640,7 @@ morla_ls:
     mov rbx, [rel root_ptr]
     test rbx, rbx
     jz .f
-    mov rax, [rbx + 0x18]
+    mov rax, [rbx + 0x38] ; SetPosition
     mov rcx, rbx
     xor rdx, rdx
     call rax
@@ -645,7 +651,7 @@ morla_ls:
     lea rdx, [rel temp_size]
     lea r8, [rel file_info_buf]
     call rax
-    test rax, rax
+    test rax,rax
     jnz .f
     mov rax, [rel temp_size]
     test rax, rax
@@ -722,7 +728,8 @@ morla_run_file:
     call rax
     test rax, rax
     jnz .f_close
-    lea rsi, [rel external_prog_buf]
+    lea r12, [rel external_prog_buf]
+    mov r14d, 100000
     call cbs_run
 .f_close:
     mov rbx, [rel file_ptr]
@@ -776,7 +783,7 @@ morla_run_file_main:
     call rax
     test rax, rax
     jnz .f_close
-    lea rsi, [rel external_prog_buf]
+    lea r12, [rel external_prog_buf]
     mov r14d, 100000 ; Initial energy for home surface
     call cbs_run
 .f_close:
@@ -2018,6 +2025,11 @@ gmork_main:
     test eax,eax
     jnz .c_ls
 
+    lea rsi,[rel c_load]
+    call starts_with
+    test rax,rax
+    jnz .c_load
+
     lea rsi,[rel c_reboot]
     call str_eq
     test eax,eax
@@ -2090,6 +2102,11 @@ gmork_main:
 
 .c_ls:
     call morla_ls
+    jmp .prompt
+
+.c_load:
+    mov rdi, rax ; rax points to filename after 'load '
+    call morla_run_file
     jmp .prompt
 
 .c_about:
@@ -2417,7 +2434,7 @@ paint_bars:
 ; =============================================================
 ; DATA
 ; =============================================================
-uefi_data:  dq 0,0,0,0,0,0
+uefi_data:  dq 0,0,0,0,0,0,0
 gop_ptr:    dq 0
 gop_mode_ptr: dq 0
 fb_base:    dq 0
@@ -2446,9 +2463,9 @@ mmap_desc_ver: dd 0
 
 
 sfsp_guid:
-    dd 0x00964e5b
-    dw 0xed34, 0x4445
-    db 0x95,0xa9,0xe7,0xac,0x54,0x41,0x86,0x5c
+    dd 0x964e5b22
+    dw 0x6459, 0x11d2
+    db 0x8e,0x39,0x00,0xa0,0xc9,0x69,0x72,0x3b
 sfsp_ptr: dq 0
 root_ptr: dq 0
 file_ptr: dq 0
@@ -2492,6 +2509,7 @@ c_mem:      db 'mem',0
 c_reboot:   db 'reboot',0
 c_progs:    db 'programs',0
 c_ls:        db 'ls',0
+c_load:      db 'load ',0
 c_exit:     db 'exit',0
 c_home:     db 'home',0
 p_run:      db 'run ',0
@@ -2552,6 +2570,8 @@ str_help:
     db '  help           commands',10
     db '  about          system info',10
     db '  clear          clear screen',10
+    db '  ls             list root files',10
+    db '  load <file>    load and run CBS',10
     db '  fb             framebuffer info',10
     db '  mem            memory map',10
     db '  colors         color bars',10
