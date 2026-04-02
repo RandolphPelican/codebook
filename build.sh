@@ -3,7 +3,6 @@
 # CodebookOS x86 Build Script
 # Assembles boot.asm → BOOTX64.EFI
 # Creates bootable FAT32 disk image → codebook.img
-#
 # Usage: ./build.sh
 # Then:  sudo dd if=build/codebook.img of=/dev/sdX bs=4M status=progress
 # =============================================================
@@ -87,4 +86,3 @@ echo "To test in QEMU:"
 echo "  ./test_qemu.sh"
 echo ""
 echo "Atreyu named it."
-#..

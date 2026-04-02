@@ -209,4 +209,3 @@ if __name__ == '__main__':
         print(f"First: 0x{bc[0]:02X} Last: 0x{bc[-1]:02X}")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test")
-#..

@@ -342,14 +342,35 @@ locate_gop:
     ret
 
 ; =============================================================
+; fixup_color: swap R and B bytes if pixfmt != 1 (BGRX)
+; in:  eax = color (BGRX format)
+; out: eax = color adjusted for current fb_pixfmt
+; clobbers ecx only
+; =============================================================
+fixup_color:
+    cmp dword [rel fb_pixfmt], 1
+    je .fc_done
+    mov ecx, eax
+    and ecx, 0x00FF00FF
+    rol ecx, 16
+    and eax, 0xFF00FF00
+    or  eax, ecx
+.fc_done:
+    ret
+
+; =============================================================
 ; AURYN — Framebuffer
 ; =============================================================
 auryn_fill:
     push rbx
     push rcx
+    push rax
     mov rbx,[rel fb_base]
     test rbx,rbx
     jz .d
+    mov eax, edi
+    call fixup_color
+    mov edi, eax
     mov ecx,[rel fb_ppsl]
     imul ecx,[rel fb_height]
 .l: test ecx,ecx
@@ -358,7 +379,8 @@ auryn_fill:
     add rbx,4
     dec ecx
     jmp .l
-.d: pop rcx
+.d: pop rax
+    pop rcx
     pop rbx
     ret
 
@@ -456,6 +478,9 @@ auryn_putc:
     lea edi,[edi+r11d]
     lea esi,[esi+r9d]
     mov edx,[rel current_color]
+    mov eax, edx
+    call fixup_color
+    mov edx, eax
     call auryn_paint
     pop rdx
     pop rsi
@@ -519,6 +544,9 @@ auryn_putc:
     lea edi,[edi+r11d]
     lea esi,[esi+r9d]
     mov edx,COLOR_BLACK
+    mov eax, edx
+    call fixup_color
+    mov edx, eax
     call auryn_paint
     pop rsi
     pop rdi
@@ -2257,6 +2285,11 @@ paint_bars:
     jge .d
     mov edi,[r14+rcx*4]
     push rcx
+    push rax
+    mov eax, edi
+    call fixup_color
+    mov edi, eax
+    pop rax
     mov edx,r12d
     imul edx,r13d
 .f: test edx,edx

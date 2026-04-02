@@ -513,7 +513,6 @@ def demo_full():
         print(f"First: 0x{bc[0]:02X} Last: 0x{bc[-1]:02X}")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test")
-#..
 
 
 if __name__ == '__main__':
@@ -521,3 +520,9 @@ if __name__ == '__main__':
         print('Usage: compile_x86.py <source.cbs> [out.cbc]')
         sys.exit(1)
     with open(sys.argv[1]) as f: source = f.read().replace('\r\n', '\n').replace('\r', '\n')
+    tokens = Lexer(source).tokenize()
+    ast = Parser(tokens).parse()
+    bc = AtreyuX86().compile(ast)
+    out = sys.argv[2] if len(sys.argv) > 2 else sys.argv[1].replace('.cbs', '.cbc')
+    with open(out, 'wb') as f: f.write(bc)
+    print(f'Compiled {len(bc)} bytes -> {out}')
