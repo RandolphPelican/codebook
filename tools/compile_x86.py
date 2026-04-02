@@ -15,7 +15,7 @@ class Token:
 class Lexer:
     KEYWORDS = {
         'fn','costs','return','if','else','while','let','true','false',
-        'print','and','or','not','demod','budget','degrade'
+        'print','and','or','not'
     }
     PATTERNS = [
         ('ENERGY',    r'\d+j'),
@@ -161,6 +161,12 @@ class Parser:
             return {'type':'print','value':expr}
         elif t.type == 'LBRACE':
             return self.parse_block()
+        elif t.type == 'IDENT' and self.peek(1) and self.peek(1).type == 'ASSIGN':
+            name = self.consume('IDENT').value
+            self.consume('ASSIGN')
+            value = self.parse_expr()
+            self.match('SEMICOLON')
+            return {'type':'assign','name':name,'value':value}
         else:
             expr = self.parse_expr()
             self.match('SEMICOLON')
@@ -390,6 +396,8 @@ class AtreyuX86:
         elif t == 'if': self._if(n)
         elif t == 'while': self._while(n)
         elif t == 'block': self._block(n)
+        elif t == 'assign':
+            self._expr(n['value']); e.emit(OP_STORE); e.emit_i32(self.var_id(n['name']))
         elif t == 'expr_stmt':
             self._expr(n['value']); e.emit(OP_DROP)
 

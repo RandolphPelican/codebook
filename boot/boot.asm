@@ -1378,7 +1378,7 @@ cbs_run:
     sub     r13, 8
     mov     rax, [r13]
     ; Simple: token = ID + 0xCA000000
-    add     rax, 0xCA000000
+    add     eax, 0xCA000000
     mov     [r13], rax
     add     r13, 8
     jmp     .fetch
