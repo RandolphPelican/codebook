@@ -176,9 +176,9 @@ class Parser:
 
     def parse_if(self):
         self.consume('IF')
-        self.consume('LPAREN')
+        has_paren = self.match('LPAREN') is not None
         cond = self.parse_expr()
-        self.consume('RPAREN')
+        if has_paren: self.consume('RPAREN')
         then = self.parse_block()
         else_ = None
         if self.peek() and self.peek().type == 'ELSE':
@@ -191,9 +191,9 @@ class Parser:
 
     def parse_while(self):
         self.consume('WHILE')
-        self.consume('LPAREN')
+        has_paren = self.match('LPAREN') is not None
         cond = self.parse_expr()
-        self.consume('RPAREN')
+        if has_paren: self.consume('RPAREN')
         body = self.parse_block()
         return {'type':'while','cond':cond,'body':body}
 

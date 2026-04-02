@@ -176,9 +176,9 @@ class Parser:
 
     def parse_if(self):
         self.consume('IF')
-        self.consume('LPAREN')
+        has_paren = self.match('LPAREN') is not None
         cond = self.parse_expr()
-        self.consume('RPAREN')
+        if has_paren: self.consume('RPAREN')
         then = self.parse_block()
         else_ = None
         if self.peek() and self.peek().type == 'ELSE':
@@ -191,9 +191,9 @@ class Parser:
 
     def parse_while(self):
         self.consume('WHILE')
-        self.consume('LPAREN')
+        has_paren = self.match('LPAREN') is not None
         cond = self.parse_expr()
-        self.consume('RPAREN')
+        if has_paren: self.consume('RPAREN')
         body = self.parse_block()
         return {'type':'while','cond':cond,'body':body}
 
@@ -440,7 +440,7 @@ class AtreyuX86:
         elif t == 'call':
             for a in n['args']: self._expr(a)
             # Simple: inline call not supported yet, treat as error
-                        if n['name'] == 'grant_cap':
+            if n['name'] == 'grant_cap':
                 self._expr(n['args'][0])
                 e.emit(OP_GRANT_CAP)
             elif n['name'] == 'use_cap':
@@ -520,10 +520,4 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         print('Usage: compile_x86.py <source.cbs> [out.cbc]')
         sys.exit(1)
-    with open(sys.argv[1]) as f: source = f.read()
-    tokens = Lexer(source).tokenize()
-    ast = Parser(tokens).parse()
-    bc = AtreyuX86().compile(ast)
-    out = sys.argv[2] if len(sys.argv) > 2 else sys.argv[1].replace('.cbs', '.cbc')
-    with open(out, 'wb') as f: f.write(bc)
-    print(f'Compiled {len(bc)} bytes -> {out}')
+    with open(sys.argv[1]) as f: source = f.read().replace('\r\n', '\n').replace('\r', '\n')
