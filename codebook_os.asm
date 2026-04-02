@@ -1,29 +1,25 @@
-; CodebookOS Scheduler
-; Updated to execute .cb surfaces
+
+; CodebookOS Scheduler (Updated)
+; Loads and executes .cb surfaces
 
 section .data
     scheduler_msg db "CodebookOS Scheduler v0.1", 0
+    surface_msg db "Executing surface: ", 0
 
 section .text
     global _start
 
 _start:
-    ; Initialize the scheduler
-    call init_scheduler
-    
-    ; Load and execute .cb surfaces
-    call load_and_execute_surfaces
-    
-    ; Exit
-    mov eax, 1
-    xor ebx, ebx
+    ; Print scheduler message
+    mov eax, 4
+    mov ebx, 1
+    mov ecx, scheduler_msg
+    mov edx, 24
     int 0x80
 
-init_scheduler:
-    ; Initialize capabilities and energy budget
-    ret
+    ; Load and execute .cb surfaces
+    call load_and_execute_surfaces
 
-load_and_execute_surfaces:
-    ; Load .cb surfaces and execute them
-    ; Example: load_surface("hello.cb")
-    ret
+    ; Exit
+    mov eax, 1
+    xor ebx, eb

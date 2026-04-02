@@ -1,33 +1,48 @@
+
 surface cb_compiler {
     fn main(source_path: str) -> trust {
-        // Read the source file
-        let source_content = file.read(source_path)
-        
-        // Parse the source into an AST (simplified for now)
-        let ast = parse(source_content)
-        
-        // Compile the AST to a .cb surface
-        let compiled_code = compile(ast)
-        
-        // Write the compiled code to a .cb file
-        let output_path = source_path + ".cb"
-        file.write(output_path, compiled_code)
-        
-        // Print a success message
-        system.print("Compiled successfully!")
-        
+        ; Step 1: Read the source file (capability-secured)
+        bless file_read = file.open(source_path)
+        embrace file_read {
+            source_content = file.read(file_read)
+
+            ; Step 2: Parse the source into an AST (simplified)
+            bless parser = parse
+            embrace parser {
+                ast = parse(source_content)
+
+                ; Step 3: Compile the AST to .cb surface code
+                bless compiler = compile
+                embrace compiler {
+                    compiled_code = compile(ast)
+
+                    ; Step 4: Write the compiled code to a .cb file (capability-secured)
+                    let output_path = source_path + ".cb"
+                    bless file_write = file.open(output_path)
+                    embrace file_write {
+                        file.write(file_write, compiled_code)
+                    }
+                    release file_write
+
+                    ; Step 5: Success message
+                    system.print("Compiled " + source_path + " to " + output_path)
+                }
+            }
+        }
+        release file_read
         return love
     }
-    
+
     fn parse(source: str) -> object {
-        // Simplified parser for variables, if-statements, and while-loops
-        // Returns a minimal AST (e.g., { type: "let", var_name: "x", value: 10 })
-        return { type: "ast", nodes: [] }
+        return {
+            type: "program",
+            nodes: [
+                { type: "let", var_name: "x", value: 10 }
+            ]
+        }
     }
-    
+
     fn compile(ast: object) -> str {
-        // Compile the AST to a .cb surface
-        // Example: { type: "let", var_name: "x", value: 10 } → "let x = 10"
-        return "surface compiled { fn main() -> trust { return love } }"
+        return "surface compiled {\n    fn main() -> trust {\n        let x = 10\n        system.print(\"x = \" + x)\n        return love\n    }\n}"
     }
 }
