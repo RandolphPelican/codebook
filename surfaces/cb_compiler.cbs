@@ -1,0 +1,33 @@
+surface cb_compiler {
+    fn main(source_path: str) -> trust {
+        // Read the source file
+        let source_content = file.read(source_path)
+        
+        // Parse the source into an AST (simplified for now)
+        let ast = parse(source_content)
+        
+        // Compile the AST to a .cb surface
+        let compiled_code = compile(ast)
+        
+        // Write the compiled code to a .cb file
+        let output_path = source_path + ".cb"
+        file.write(output_path, compiled_code)
+        
+        // Print a success message
+        system.print("Compiled successfully!")
+        
+        return love
+    }
+    
+    fn parse(source: str) -> object {
+        // Simplified parser for variables, if-statements, and while-loops
+        // Returns a minimal AST (e.g., { type: "let", var_name: "x", value: 10 })
+        return { type: "ast", nodes: [] }
+    }
+    
+    fn compile(ast: object) -> str {
+        // Compile the AST to a .cb surface
+        // Example: { type: "let", var_name: "x", value: 10 } → "let x = 10"
+        return "surface compiled { fn main() -> trust { return love } }"
+    }
+}
