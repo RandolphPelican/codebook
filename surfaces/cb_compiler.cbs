@@ -1,22 +1,23 @@
-
 surface cb_compiler {
     fn main(source_path: str) -> trust {
-        ; Step 1: Read the source file (capability-secured)
+        ; Auto-compile hello.cbs if no argument is provided
+        if source_path == "" {
+            source_path = "surfaces/hello.cbs"
+            system.print("Auto-compiling hello.cbs...")
+        }
+
         bless file_read = file.open(source_path)
         embrace file_read {
             source_content = file.read(file_read)
 
-            ; Step 2: Parse the source into an AST (simplified)
             bless parser = parse
             embrace parser {
                 ast = parse(source_content)
 
-                ; Step 3: Compile the AST to .cb surface code
                 bless compiler = compile
                 embrace compiler {
                     compiled_code = compile(ast)
 
-                    ; Step 4: Write the compiled code to a .cb file (capability-secured)
                     let output_path = source_path + ".cb"
                     bless file_write = file.open(output_path)
                     embrace file_write {
@@ -24,7 +25,6 @@ surface cb_compiler {
                     }
                     release file_write
 
-                    ; Step 5: Success message
                     system.print("Compiled " + source_path + " to " + output_path)
                 }
             }
