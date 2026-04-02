@@ -215,7 +215,7 @@ efi_entry:
     mov     edi, COLOR_BLACK
     call    auryn_fill
     call    cursor_home
-    jmp     boot_bastian
+    jmp     bastian_home
 
 .no_gop:
     lea     rbx, [rel uefi_data]
@@ -1710,6 +1710,106 @@ cbs_run:
 ; Gmork Terminal
 ; =============================================================
 
+bastian_home:
+    mov edi, COLOR_BLACK
+    call auryn_fill
+    call cursor_home
+    mov dword [rel current_color], COLOR_GOLD
+    lea rsi, [rel str_bh_pad]
+    call auryn_puts
+    lea rsi, [rel str_bh_title]
+    call auryn_puts
+    mov dword [rel current_color], COLOR_WHITE
+    lea rsi, [rel str_bh_sub]
+    call auryn_puts
+    lea rsi, [rel str_bh_menu]
+    call auryn_puts
+    lea rsi, [rel str_bh_prompt]
+    call auryn_puts
+
+.key:
+    lea rbx,[rel uefi_data]
+    mov rax,[rbx+32]
+    mov rax,[rax+BS_WAITFOREVENT]
+    mov ecx,1
+    mov rdx,[rbx+24]
+    lea rdx,[rdx+CONIN_WAITKEY]
+    lea r8,[rel event_index]
+    call rax
+    lea rbx,[rel uefi_data]
+    mov rcx,[rbx+24]
+    mov rax,[rcx+CONIN_READKEY]
+    lea rdx,[rel key_data]
+    call rax
+    test rax,rax
+    jnz .key
+    movzx eax,word [rel key_data+2]
+    cmp al,'1'
+    je .go_gmork
+    cmp al,'2'
+    je .go_atreyu
+    cmp al,'3'
+    je .go_rockbiter
+    cmp al,'4'
+    je .go_run
+    jmp .key
+
+.go_gmork:
+    jmp gmork_main
+
+.go_atreyu:
+    mov edi, COLOR_BLACK
+    call auryn_fill
+    call cursor_home
+    lea r12, [rel atreyu_cbs_prog]
+    mov r14d, 100000
+    call cbs_run
+    jmp bastian_home
+
+.go_rockbiter:
+    mov edi, COLOR_BLACK
+    call auryn_fill
+    call cursor_home
+    lea r12, [rel rockbiter_cbs_prog]
+    mov r14d, 100000
+    call cbs_run
+    jmp bastian_home
+
+.go_run:
+    lea rsi, [rel str_bh_run_prompt]
+    call auryn_puts
+.gr_key:
+    lea rbx,[rel uefi_data]
+    mov rax,[rbx+32]
+    mov rax,[rax+BS_WAITFOREVENT]
+    mov ecx,1
+    mov rdx,[rbx+24]
+    lea rdx,[rdx+CONIN_WAITKEY]
+    lea r8,[rel event_index]
+    call rax
+    lea rbx,[rel uefi_data]
+    mov rcx,[rbx+24]
+    mov rax,[rcx+CONIN_READKEY]
+    lea rdx,[rel key_data]
+    call rax
+    test rax,rax
+    jnz .gr_key
+    movzx eax,word [rel key_data+2]
+    cmp al,'0'
+    jb .go_run
+    cmp al,'4'
+    ja .go_run
+    movzx edi, al
+    call auryn_putc
+    mov edi, 10
+    call auryn_putc
+    sub eax, '0'
+    lea rbx, [rel prog_table]
+    mov r12, [rbx + rax*8]
+    mov r14d, 100000
+    call cbs_run
+    jmp bastian_home
+
 bastian_main:
     mov edi, COLOR_BLACK
     call auryn_fill
@@ -1932,6 +2032,11 @@ gmork_main:
     call str_eq
     test eax,eax
     jnz bastian_main
+
+    lea rsi,[rel c_home]
+    call str_eq
+    test eax,eax
+    jnz bastian_home
 
     ; Prefix: run N
     lea rdi,[rel input_buf]
@@ -2388,6 +2493,7 @@ c_reboot:   db 'reboot',0
 c_progs:    db 'programs',0
 c_ls:        db 'ls',0
 c_exit:     db 'exit',0
+c_home:     db 'home',0
 p_run:      db 'run ',0
 p_echo:     db 'echo ',0
 p_peek:     db 'peek ',0
@@ -2412,6 +2518,17 @@ ucs_no_gop:
     dw 0x0D,0x0A,0x0000
 
 str_ls_err: db '  FS not available.',10,0
+str_bh_pad:   db 10,10,10,10,10,0
+str_bh_title: db '     C O D E B O O K  O S',10,10,0
+str_bh_sub:   db '  Metabolic Computing -- StableTech Enterprises LLC',10,10,0
+str_bh_menu:
+    db '  1. Gmork Terminal',10
+    db '  2. Atreyu Editor',10
+    db '  3. Rockbiter System Stats',10
+    db '  4. Run CBS Program',10,10,0
+str_bh_prompt:     db 'Select [1-4]: ',0
+str_bh_run_prompt: db 'Program [0-4]: ',0
+
 str_nl:     db 10,0
 str_sp:     db ' ',0
 str_col:    db ': ',0
@@ -2442,7 +2559,8 @@ str_help:
     db '  peek <addr>    read memory',10
     db '  dump <addr>    hex dump',10
     db '  fill <hex>     fill screen',10
-    db '  reboot         reset',10
+    db '  reboot         reset',10,
+    db '  home           home screen',10
     db '  programs       list CBS demos',10
     db '  run <0-4>      execute CBS program',10
     db '                 0=full demo',10,10,0
@@ -2722,6 +2840,15 @@ prog4:
 cbs_demo:
     incbin "boot/demo.cbc"
 cbs_demo_end:
+
+atreyu_cbs_prog:
+    incbin "boot/atreyu.cbc"
+atreyu_cbs_prog_end:
+
+rockbiter_cbs_prog:
+    incbin "boot/rockbiter.cbc"
+rockbiter_cbs_prog_end:
+
 
 
 ; =============================================================
