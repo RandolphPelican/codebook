@@ -7,17 +7,36 @@ def test_if_statement():
         0x71, 0x00, 0x00, 0x00, 0x00,  # STORE var0
         0x70, 0x00, 0x00, 0x00, 0x00,  # LOAD var0
         0x01, 0x05, 0x00, 0x00, 0x00,  # PUSH 5
-        0x17,                        # GT
-        0x55, 0x08, 0x00, 0x00, 0x00,  # JUMP_IF_FALSE +8
+        0x17,                        # GT (10 > 5 → true)
+        0x55, 0x08, 0x00, 0x00, 0x00,  # JUMP_IF_FALSE +8 (skip if false)
         0x01, 0x64, 0x00, 0x00, 0x00,  # PUSH 100
-        0x53,                        # RET
+        0x53,                        # RET (return 100)
         0x01, 0x00, 0x00, 0x00, 0x00,  # PUSH 0
-        0x53                         # RET
+        0x53                         # RET (return 0)
     ]
     vm = VM(bytecode)
     result = vm.run()
     assert result == 100  # x (10) > 5 → true, so return 100
     print("Test if-statement passed")
+
+def test_if_else_false_condition():
+    bytecode = [
+        0x20, 0x64, 0x00, 0x00, 0x00,  # RESERVE 100j
+        0x01, 0x03, 0x00, 0x00, 0x00,  # PUSH 3 (x)
+        0x71, 0x00, 0x00, 0x00, 0x00,  # STORE var0
+        0x70, 0x00, 0x00, 0x00, 0x00,  # LOAD var0
+        0x01, 0x05, 0x00, 0x00, 0x00,  # PUSH 5
+        0x17,                        # GT (3 > 5 → false)
+        0x55, 0x08, 0x00, 0x00, 0x00,  # JUMP_IF_FALSE +8 (skip if false)
+        0x01, 0x64, 0x00, 0x00, 0x00,  # PUSH 100
+        0x53,                        # RET (return 100)
+        0x01, 0x00, 0x00, 0x00, 0x00,  # PUSH 0
+        0x53                         # RET (return 0)
+    ]
+    vm = VM(bytecode)
+    result = vm.run()
+    assert result == 0  # x (3) > 5 → false, so return 0
+    print("Test if-else false condition passed")
 
 def test_while_loop():
     bytecode = [
@@ -26,14 +45,14 @@ def test_while_loop():
         0x71, 0x00, 0x00, 0x00, 0x00,  # STORE var0 (i=0)
         0x70, 0x00, 0x00, 0x00, 0x00,  # LOAD var0
         0x01, 0x05, 0x00, 0x00, 0x00,  # PUSH 5
-        0x16,                        # LT
-        0x55, 0x10, 0x00, 0x00, 0x00,  # JUMP_IF_FALSE +16 (exit)
+        0x16,                        # LT (i < 5)
+        0x55, 0x10, 0x00, 0x00, 0x00,  # JUMP_IF_FALSE +16 (exit loop)
         0x70, 0x00, 0x00, 0x00, 0x00,  # LOAD var0
         0x01, 0x01, 0x00, 0x00, 0x00,  # PUSH 1
-        0x10,                        # ADD
-        0x71, 0x00, 0x00, 0x00, 0x00,  # STORE var0
-        0x56, 0x18, 0x00, 0x00, 0x00,  # JUMP_BACK -24
-        0x70, 0x00, 0x00, 0x00, 0x00,  # LOAD var0
+        0x10,                        # ADD (i + 1)
+        0x71, 0x00, 0x00, 0x00, 0x00,  # STORE var0 (update i)
+        0x56, 0x18, 0x00, 0x00, 0x00,  # JUMP_BACK -24 (loop again)
+        0x70, 0x00, 0x00, 0x00, 0x00,  # LOAD var0 (i)
         0x53                         # RET (return i=5)
     ]
     vm = VM(bytecode)
@@ -41,19 +60,78 @@ def test_while_loop():
     assert result == 5
     print("Test while-loop passed")
 
-def test_energy_budget():
+def test_while_loop_with_break():
     bytecode = [
-        0x20, 0xFF, 0x00, 0x00, 0x00,  # RESERVE 255j (exceeds budget)
+        0x20, 0xC8, 0x00, 0x00, 0x00,  # RESERVE 200j
+        0x01, 0x00, 0x00, 0x00, 0x00,  # PUSH 0
+        0x71, 0x00, 0x00, 0x00, 0x00,  # STORE var0 (i=0)
+        0x70, 0x00, 0x00, 0x00, 0x00,  # LOAD var0
+        0x01, 0x03, 0x00, 0x00, 0x00,  # PUSH 3
+        0x16,                        # LT (i < 3)
+        0x55, 0x18, 0x00, 0x00, 0x00,  # JUMP_IF_FALSE +24 (exit loop)
+        0x70, 0x00, 0x00, 0x00, 0x00,  # LOAD var0
+        0x01, 0x01, 0x00, 0x00, 0x00,  # PUSH 1
+        0x10,                        # ADD (i + 1)
+        0x71, 0x00, 0x00, 0x00, 0x00,  # STORE var0 (update i)
+        0x70, 0x00, 0x00, 0x00, 0x00,  # LOAD var0
+        0x01, 0x02, 0x00, 0x00, 0x00,  # PUSH 2
+        0x18,                        # EQ (i == 2)
+        0x55, 0x08, 0x00, 0x00, 0x00,  # JUMP_IF_FALSE +8 (skip break)
+        0x55, 0x08, 0x00, 0x00, 0x00,  # JUMP_IF_FALSE +8 (break)
+        0x56, 0x20, 0x00, 0x00, 0x00,  # JUMP_BACK -32 (loop again)
+        0x70, 0x00, 0x00, 0x00, 0x00,  # LOAD var0 (i)
+        0x53                         # RET (return i=2)
+    ]
+    vm = VM(bytecode)
+    result = vm.run()
+    assert result == 2
+    print("Test while-loop with break passed")
+
+def test_reserve_sufficient_energy():
+    bytecode = [
+        0x20, 0x64, 0x00, 0x00, 0x00,  # RESERVE 100j
+        0x01, 0x0A, 0x00, 0x00, 0x00,  # PUSH 10
+        0x01, 0x05, 0x00, 0x00, 0x00,  # PUSH 5
+        0x10,                        # ADD
+        0x53                         # RET
+    ]
+    vm = VM(bytecode)
+    result = vm.run()
+    assert result == 15
+    print("Test reserve sufficient energy passed")
+
+def test_reserve_insufficient_energy():
+    bytecode = [
+        0x20, 0xD0, 0x07, 0x00, 0x00,  # RESERVE 2000j (exceeds 1000j budget)
+        0x01, 0x64, 0x00, 0x00, 0x00,  # PUSH 100 (skipped)
+        0x53,                        # RET (skipped)
+        0x20, 0xC8, 0x00, 0x00, 0x00,  # RESERVE 200j (resumes here)
         0x01, 0x01, 0x00, 0x00, 0x00,  # PUSH 1
         0x53                         # RET
     ]
-    vm = VM(bytecode, energy_budget=100)
+    vm = VM(bytecode, energy_budget=1000)
     result = vm.run()
-    assert result is None  # Skipped due to insufficient energy
-    print("Test energy budget passed")
+    assert result == 1
+    print("Test reserve insufficient energy passed")
+
+def test_nested_reserve_blocks():
+    bytecode = [
+        0x20, 0x64, 0x00, 0x00, 0x00,  # RESERVE 100j
+        0x20, 0x32, 0x00, 0x00, 0x00,  # RESERVE 50j (nested, total: 150j)
+        0x01, 0x05, 0x00, 0x00, 0x00,  # PUSH 5
+        0x53                         # RET (returns 5)
+    ]
+    vm = VM(bytecode)
+    result = vm.run()
+    assert result == 5
+    print("Test nested reserve blocks passed")
 
 if __name__ == "__main__":
     test_if_statement()
+    test_if_else_false_condition()
     test_while_loop()
-    test_energy_budget()
+    test_while_loop_with_break()
+    test_reserve_sufficient_energy()
+    test_reserve_insufficient_energy()
+    test_nested_reserve_blocks()
     print("\nAll VM tests passed!")
