@@ -1,0 +1,12 @@
+// Entry point for parser.cbs
+func main() {
+    let tokens = vm_read("lexer_tokens")  // Load tokens from vm_vars
+    let ast = parse(tokens)
+    if (ast.error) {
+        log_error(ast.error)
+        return -1
+    }
+    // Store AST in vm_vars for compiler
+    vm_store("parser_ast", ast)
+    return 0
+}

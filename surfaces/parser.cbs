@@ -1,0 +1,157 @@
+// =============================================================================
+// CBS Parser Surface (Self-Hosted)
+// Input:  Token stream (from lexer.cbs)
+// Output: Flat AST encoded in vm_vars array
+// =============================================================================
+
+// --- AST Node Types ---
+const NODE_LET       = 1
+const NODE_IF        = 2
+const NODE_WHILE     = 3
+const NODE_BINOP     = 4
+const NODE_RETURN    = 5
+const NODE_LITERAL   = 6
+const NODE_IDENT     = 7
+
+// --- Parser State ---
+let tokens = []       // Token stream from lexer
+let pos = 0           // Current token index
+
+// --- Main Parser Function ---
+func parse(tokens_input) {
+    tokens = tokens_input
+    pos = 0
+    let ast = []
+
+    while (pos < tokens.length && tokens[pos].type != TOKEN_EOF) {
+        let node = parse_statement()
+        if (node.error) {
+            log_error(node.error)
+            return {error: node.error}
+        }
+        ast.push(node)
+    }
+
+    return ast
+}
+
+// --- Statement Parsers ---
+func parse_statement() {
+    let token = tokens[pos]
+
+    switch (token.type) {
+        case TOKEN_IDENT:
+            if (tokens[pos+1].type == TOKEN_OP && tokens[pos+1].value == "=") {
+                return parse_let()
+            }
+            return parse_expr()
+
+        case "if":
+            return parse_if()
+
+        case "while":
+            return parse_while()
+
+        case "return":
+            return parse_return()
+
+        default:
+            log_error("Unexpected token: " + token.value)
+            return {error: "Unexpected token"}
+    }
+}
+
+func parse_let() {
+    let ident = tokens[pos].value
+    pos += 2  // Skip ident and '='
+    let expr = parse_expr()
+    return {type: NODE_LET, ident: ident, expr: expr}
+}
+
+func parse_if() {
+    pos++  // Skip 'if'
+    let cond = parse_expr()
+    let body = parse_block()
+    return {type: NODE_IF, cond: cond, body: body}
+}
+
+func parse_while() {
+    pos++  // Skip 'while'
+    let cond = parse_expr()
+    let body = parse_block()
+    return {type: NODE_WHILE, cond: cond, body: body}
+}
+
+func parse_return() {
+    pos++  // Skip 'return'
+    let expr = parse_expr()
+    return {type: NODE_RETURN, expr: expr}
+}
+
+func parse_expr() {
+    let left = parse_primary()
+
+    while (pos < tokens.length && is_binop(tokens[pos])) {
+        let op = tokens[pos].value
+        pos++
+        let right = parse_primary()
+        left = {type: NODE_BINOP, op: op, left: left, right: right}
+    }
+
+    return left
+}
+
+func parse_primary() {
+    let token = tokens[pos]
+
+    switch (token.type) {
+        case TOKEN_NUMBER:
+            pos++
+            return {type: NODE_LITERAL, value: token.value}
+
+        case TOKEN_STRING:
+            pos++
+            return {type: NODE_LITERAL, value: token.value}
+
+        case TOKEN_IDENT:
+            pos++
+            return {type: NODE_IDENT, value: token.value}
+
+        case TOKEN_OP:
+            if (token.value == "(") {
+                pos++
+                let expr = parse_expr()
+                if (tokens[pos].value != ")") {
+                    log_error("Expected ')'")
+                    return {error: "Expected ')'"}
+                }
+                pos++
+                return expr
+            }
+
+        default:
+            log_error("Unexpected token in expression: " + token.value)
+            return {error: "Unexpected token"}
+    }
+}
+
+func parse_block() {
+    let body = []
+    pos++  // Skip '{'
+
+    while (pos < tokens.length && tokens[pos].value != "}") {
+        body.push(parse_statement())
+    }
+
+    pos++  // Skip '}'
+    return body
+}
+
+// --- Helper Functions ---
+func is_binop(token) {
+    return token.match(/[+\-*/=<>!&|^~%.,;(){}\[\]]/)
+}
+
+func log_error(msg) {
+    terminal.print("[PARSER ERROR] " + msg)
+}
