@@ -1,72 +1,105 @@
 ; =============================================================
-; CodebookOS — Surface Token System (Phase 1)
-; Implementation of the 23-byte Revised Surface Spec
+; CodebookOS — Surface Token VM Stubs (Phase 1)
+; Implementation of the ASM VM for the 23-byte Surface Token
 ; "Atreyu named it."
 ; =============================================================
 
 section .data
-    ; --- Surface Hello Token ---
+    ; --- Surface Hello Token (Compiled from hello.cbs) ---
     surface_hello:
         dd 1                    ; capability_id = 1 (HelloWorld)
         dw 10                   ; x = 10
         dw 20                   ; y = 20
         dw 1000                 ; energy_budget = 1000
-        dq hello_data           ; data_ptr
+        dq hello_bytecode       ; data_ptr (points to bytecode)
         db 0                    ; revoke_flag = 0 (false)
         dd 0xCAFEBABE           ; checksum (placeholder)
 
-    ; --- Surface Button Token ---
-    surface_button:
-        dd 2                    ; capability_id = 2 (Button)
-        dw 50                   ; x = 50
-        dw 100                  ; y = 100
-        dw 500                  ; energy_budget = 500
-        dq button_data          ; data_ptr
-        db 0                    ; revoke_flag = 0 (false)
-        dd 0xDEADBEEF           ; checksum (placeholder)
-
-    hello_data:  db "Hello, Codebook!", 0
-    button_data: db "Click Me", 0
+    ; Compiled bytecode from hello.cbs (LOAD_CONST "Hello, Codebook!", STORE 'm', PRINT 'm', RETURN)
+    hello_bytecode:
+        db 0x71, "Hello, Codebook!", 0x00, 0x72, 0x6d, 0x73, 0x6d, 0x74
 
 section .text
     global _start
 
 _start:
-    ; Placeholder: In a real CodebookOS environment, this would
-    ; initialize the spatial context engine and begin surface orchestration.
+    ; --- Test VM: spawn_surface ---
+    lea rsi, [rel surface_hello]
+    call spawn_surface
     
-    ; Exit for now (Linux 64-bit)
+    ; --- Test VM: energy_query ---
+    lea rsi, [rel surface_hello]
+    call energy_query
+    ; RAX now contains 1000
+
+    ; --- Test VM: revoke_surface ---
+    lea rsi, [rel surface_hello]
+    call revoke_surface
+    ; Surface is now revoked (flag=1)
+
+    ; Exit (Linux 64-bit)
     mov eax, 60
     xor edi, edi
     syscall
 
 ; -------------------------------------------------------------
 ; spawn_surface
-; Load token into spatial context (stub)
-; IN:  RDI = Pointer to surface token
-; OUT: RAX = Status (0 = success)
+; Load a surface token into the spatial context.
+; IN:  RSI = Pointer to surface token
+; OUT: EAX = 0 (success)
 ; -------------------------------------------------------------
 spawn_surface:
-    ; TODO: Implement spatial context registration
-    xor rax, rax
+    ; For now, we simulate "spawning" by printing the data_ptr content
+    push rsi
+    mov rsi, [rsi + 10]         ; Offset 10 is data_ptr (dq)
+    call print_string
+    pop rsi
+    xor eax, eax
     ret
 
 ; -------------------------------------------------------------
 ; revoke_surface
-; Set revoke_flag = 1
-; IN:  RDI = Pointer to surface token
-; OUT: None
+; Set revoke_flag=1 and zero out the token (stub).
+; IN:  RSI = Pointer to surface token
+; OUT: EAX = 0 (revoked)
 ; -------------------------------------------------------------
 revoke_surface:
-    mov byte [rdi + 18], 1      ; Offset 18 is revoke_flag
+    mov byte [rsi + 18], 1      ; Set revoke_flag = 1
+    ; In a full implementation, we would zero out the token here.
+    xor eax, eax
     ret
 
 ; -------------------------------------------------------------
 ; energy_query
-; Return energy_budget from token
-; IN:  RDI = Pointer to surface token
-; OUT: RAX = Current energy budget
+; Return the energy_budget field.
+; IN:  RSI = Pointer to surface token
+; OUT: EAX = Remaining energy budget
 ; -------------------------------------------------------------
 energy_query:
-    movzx rax, word [rdi + 8]   ; Offset 8 is energy_budget (2 bytes)
+    movzx eax, word [rsi + 8]   ; Offset 8 is energy_budget (2 bytes)
+    ret
+
+; --- Helper: print_string (Linux x64) ---
+print_string:
+    push rsi
+    push rdx
+    push rax
+    push rdi
+    
+    mov rdi, rsi                ; Start of string
+    xor rdx, rdx
+.len:
+    cmp byte [rdi + rdx], 0
+    je .done
+    inc rdx
+    jmp .len
+.done:
+    mov rax, 1                  ; sys_write
+    mov rdi, 1                  ; stdout
+    syscall
+    
+    pop rdi
+    pop rax
+    pop rdx
+    pop rsi
     ret
