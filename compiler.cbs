@@ -3,7 +3,7 @@
 // Pod 0: AST to Bytecode Translation.
 // "Atreyu named it."
 
-// Bytecode Instructions (Match ASM VM / runtime.py)
+// Bytecode Instructions (Match CBS ASM VM / tools/vm.cbs)
 LOAD_CONST = 0x71
 STORE      = 0x72
 PRINT      = 0x73
