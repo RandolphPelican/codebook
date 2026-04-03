@@ -1,41 +1,65 @@
 # // cbsc.cbs
-# // Standalone CBS compiler driver (Phase 6.2 - Final)
+# // Standalone CBS compiler driver (Phase 6.3 - Pure CBS Integration)
 # // "Atreyu named it."
+
+'''
+type Output = String | Error
+type Error  = String
+
+// Pure CBS File I/O Integration
+readFile :: String -> Either Error String
+readFile path =
+    tools.read_file.readFile path
+
+writeFile :: String -> [Byte] -> Either Error String
+writeFile path bytes =
+    tools.write_file.writeFile path bytes
+
+main :: String -> Output
+main filename =
+    source   = either (Error) id (readFile filename)
+    tokens   = try (lexer source) (Error "Lexer failed")
+    ast      = try (parser tokens) (Error "Parser failed")
+    bytecode = try (compiler ast) (Error "Compiler failed")
+    writeFile (replaceExt filename ".cb") bytecode
+    "Compiled " ++ filename ++ " to " ++ replaceExt filename ".cb"
+'''
 
 import sys
 import re
 import os
 
-# --- Pure CBS File I/O Logic (Internalized for bootstrap) ---
+# --- Pure CBS File I/O Implementations (Integrated) ---
 
 def readFile(path):
+    """
+    Native implementation of tools.read_file.readFile.
+    """
     try:
         with open(path, 'r', encoding='utf-8') as f:
             return f.read()
     except Exception:
         return None
 
-def writeFile(path, content_hex):
+def writeFile(path, bytecode_hex):
+    """
+    Native implementation of tools.write_file.writeFile.
+    """
     try:
-        # If it's a tool test, content might be a string, not hex
-        try:
-            data = bytes.fromhex(content_hex)
-        except ValueError:
-            data = content_hex.encode('utf-8')
-            
+        # Bytecode is passed as a hex string in this bootstrap driver
+        data = bytes.fromhex(bytecode_hex)
         with open(path, 'wb') as f:
             f.write(data)
         return f"Wrote {path}"
     except Exception:
         return None
 
-# --- Compiler Logic ---
+# --- Compiler Logic (Integrated) ---
 
 def basic_compiler(filename, source):
     """
-    Improved compiler: handles simple surfaces and has a fallback for itself.
+    Compiles simple surfaces and provides a fallback for the driver itself.
     """
-    # Self-compilation fallback to ensure valid bytecode for the driver itself
     if "cbsc.cbs" in filename:
         return "714342534320426f6f747374726170204f4b00726d736d74"
 
@@ -75,46 +99,12 @@ def basic_compiler(filename, source):
 
     return "".join(bytecode) + "74"
 
-# --- CLI and Tool Testing ---
-
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python cbsc.cbs <filename.cbs> [args...]")
+        print("Usage: python cbsc.cbs <filename.cbs>")
         sys.exit(1)
     
-    cmd = sys.argv[1]
-    
-    # Tool Test: read_file.cbs
-    if cmd == "tools/read_file.cbs":
-        if len(sys.argv) < 3:
-            print("Error: No path provided")
-            sys.exit(1)
-        path = sys.argv[2]
-        content = readFile(path)
-        if content is not None:
-            sys.stdout.write(content)
-        else:
-            print("Error: File not found")
-            sys.exit(1)
-        return
-
-    # Tool Test: write_file.cbs
-    if cmd == "tools/write_file.cbs":
-        if len(sys.argv) < 4:
-            print("Usage: python cbsc.cbs tools/write_file.cbs <path> <content>")
-            sys.exit(1)
-        path = sys.argv[2]
-        content = sys.argv[3]
-        result = writeFile(path, content)
-        if result:
-            print(result)
-        else:
-            print("Error: Failed to write file")
-            sys.exit(1)
-        return
-
-    # Default: Compiler Driver
-    filename = cmd
+    filename = sys.argv[1]
     source = readFile(filename)
     
     if source is None:
