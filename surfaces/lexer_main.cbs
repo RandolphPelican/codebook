@@ -1,0 +1,12 @@
+// Entry point for lexer.cbs
+func main() {
+    let filename = vm_args[0]  // Filename from VM args
+    let tokens = lex(filename)
+    if (tokens.error) {
+        log_error(tokens.error)
+        return -1
+    }
+    // Store tokens in vm_vars for parser
+    vm_store("lexer_tokens", tokens)
+    return 0
+}

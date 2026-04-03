@@ -1,0 +1,94 @@
+// =============================================================================
+// CBS Lexer Surface (Self-Hosted)
+// Input:  String buffer (from Morla)
+// Output: Token stream in vm_vars array
+// =============================================================================
+
+// --- Token Types ---
+const TOKEN_IDENT   = 1
+const TOKEN_NUMBER  = 2
+const TOKEN_STRING  = 3
+const TOKEN_OP      = 4
+const TOKEN_EOF     = 5
+
+// --- Lexer State ---
+let input_buffer = []  // String buffer from Morla
+let pos = 0            // Current position in buffer
+let tokens = []        // Output token stream
+
+// --- Main Lexer Function ---
+func lex(input) {
+    input_buffer = morla_read_string(input)
+    pos = 0
+    tokens = []
+
+    while (pos < input_buffer.length) {
+        let char = input_buffer[pos]
+
+        // Skip whitespace
+        if (char == " " || char == "\n" || char == "\t") {
+            pos++
+            continue
+        }
+
+        // Handle identifiers: [a-zA-Z_][a-zA-Z0-9_]*
+        if (char.match(/[a-zA-Z_]/)) {
+            let ident = ""
+            while (pos < input_buffer.length && input_buffer[pos].match(/[a-zA-Z0-9_]/)) {
+                ident += input_buffer[pos]
+                pos++
+            }
+            tokens.push({type: TOKEN_IDENT, value: ident, pos: pos})
+            continue
+        }
+
+        // Handle numbers: [0-9]+
+        if (char.match(/[0-9]/)) {
+            let num = ""
+            while (pos < input_buffer.length && input_buffer[pos].match(/[0-9]/)) {
+                num += input_buffer[pos]
+                pos++
+            }
+            tokens.push({type: TOKEN_NUMBER, value: parse_int(num), pos: pos})
+            continue
+        }
+
+        // Handle strings: ".*?"
+        if (char == "\"") {
+            pos++
+            let str = ""
+            while (pos < input_buffer.length && input_buffer[pos] != "\"") {
+                str += input_buffer[pos]
+                pos++
+            }
+            pos++ // Skip closing "
+            tokens.push({type: TOKEN_STRING, value: str, pos: pos})
+            continue
+        }
+
+        // Handle operators/symbols: +, -, *, /, =, etc.
+        if (char.match(/[+\-*/=<>!&|^~%.,;(){}\[\]]/)) {
+            tokens.push({type: TOKEN_OP, value: char, pos: pos})
+            pos++
+            continue
+        }
+
+        // Unknown token
+        log_error("Unknown token at position " + pos)
+        return {error: "Unknown token"}
+    }
+
+    tokens.push({type: TOKEN_EOF, pos: pos})
+    return tokens
+}
+
+// --- Helper Functions ---
+func morla_read_string(filename) {
+    // Load string from Morla (implemented in VM)
+    return vm_read_string(filename)
+}
+
+func log_error(msg) {
+    // Log error to terminal (implemented in VM)
+    terminal.print("[LEXER ERROR] " + msg)
+}
