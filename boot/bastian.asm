@@ -43,8 +43,10 @@ bastian_home:
     movzx eax,word [rel key_data+2]
     jmp     .key_dispatch
 .key_native:
-    ; TODO Phase 2.1: poll PS/2 port 0x60, translate scancode → key_data+2
-    jmp     .key_native
+    call    native_keyboard_read        ; poll PS/2 port 0x60 via kbd_ps2.asm
+    test    rax, rax                    ; rax=0 → key ready, rax=1 → not yet
+    jnz     .key_native                 ; spin until a make event lands
+    movzx   eax, word [rel key_data+2]  ; pick up translated ASCII char
 .key_dispatch:
     cmp al,'1'
     je .go_gmork

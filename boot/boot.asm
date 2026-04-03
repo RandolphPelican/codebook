@@ -357,8 +357,9 @@ fixup_color:
 %include "boot/gmork.asm"      ; string utils: str_eq, starts_with, parse_hex, print_*
 %include "boot/cbs_vm.asm"     ; CBS bytecode VM
 %include "boot/bastian.asm"    ; home surface (bastian precedes gmork_main in original)
-%include "boot/gmork_cmds.asm" ; gmork_main, get_mmap, show_memmap, paint_bars
-%include "boot/data.asm"       ; static data, strings, font, program bytecode
+%include "boot/gmork_cmds.asm"  ; gmork_main, get_mmap, show_memmap, paint_bars
+%include "drivers/kbd_ps2.asm"  ; PS/2 keyboard driver — native_keyboard_read
+%include "boot/data.asm"        ; static data, strings, font, program bytecode
 %include "boot/vmdata.asm"     ; VM runtime data: stack, vars, energy, mmap_buf
 
 ; === .reloc section padding — MUST be physically last ===

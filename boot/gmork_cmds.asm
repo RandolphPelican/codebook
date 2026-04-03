@@ -16,6 +16,9 @@ gmork_main:
     xor r13d,r13d
 
 .rk:
+    cmp     byte [rel uefi_exited], 1
+    je      .rk_native
+.rk_uefi:
     lea rbx,[rel uefi_data]
     mov rax,[rbx+32]
     mov rax,[rax+BS_WAITFOREVENT]
@@ -32,6 +35,13 @@ gmork_main:
     test rax,rax
     jnz .rk
     movzx eax,word [rel key_data+2]
+    jmp     .rk_got_char
+.rk_native:
+    call    native_keyboard_read        ; poll PS/2 port 0x60 via kbd_ps2.asm
+    test    rax, rax                    ; rax=0 → key ready, rax=1 → not yet
+    jnz     .rk_native                  ; spin until a make event lands
+    movzx   eax, word [rel key_data+2]  ; pick up translated ASCII char
+.rk_got_char:
     cmp al,13
     je .exec
     cmp al,8

@@ -708,20 +708,3 @@ cbs_run:
     pop     rbp
     pop     rbx
     ret
-
-; ---------------------------------------------------------------------------
-; native_keyboard_read
-;   Reads a key press without going through UEFI ConIn.
-;   Fills key_data (4 bytes): word ScanCode @ +0, word UnicodeChar @ +2.
-;   Returns: rax = 0 on success (key available), non-zero if no key.
-; ---------------------------------------------------------------------------
-native_keyboard_read:
-    ; TODO Phase 2.1: replace with PS/2 port 0x60 poll
-    ;   - in  al, 0x64        ; read status register
-    ;   - test al, 1          ; bit 0 = output-buffer-full
-    ;   - jz  .no_key         ; nothing ready → return non-zero
-    ;   - in  al, 0x60        ; read scancode
-    ;   - translate scancode → UnicodeChar, store into key_data+2
-    mov     word [rel key_data+2], 0   ; stub: UnicodeChar = 0 (no key)
-    xor     eax, eax                   ; return 0 (success / key available)
-    ret
