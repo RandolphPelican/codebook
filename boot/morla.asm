@@ -13,6 +13,10 @@ morla_write_file:
     push rdx ; save size
     push rsi ; save buffer
 
+    cmp byte [rel uefi_exited], 1
+    je .native_fat32
+
+    ; UEFI path
     mov rsi, rdi
     lea rdi, [rel filename_ucs2]
     call ascii_to_ucs2
@@ -50,15 +54,28 @@ morla_write_file:
     call rax
     jmp .d
 
+.native_fat32:
+    ; Native FAT32 path
+    pop r8  ; buffer
+    pop rdx ; size
+    mov rsi, rdi ; filename
+    mov rcx, rdx ; size
+    mov r8d, 1   ; create/overwrite flag
+    call fat32_write_file
+    test rax, rax
+    jnz .err
+
+.d: pop r13
+    pop r12
+    pop rbx
+    ret
+
 .err_pop:
     add rsp, 16 ; pop saved buffer and size
 .err:
     lea rsi, [rel str_ls_err]
     call auryn_puts
-.d: pop r13
-    pop r12
-    pop rbx
-    ret
+    jmp .d
 
 morla_ls:
     push rbx
