@@ -1,0 +1,9 @@
+// test_lexer.cbs
+// CodebookScript Lexer Test Surface
+// "Atreyu named it."
+
+print "Hello, Codebook!"
+42
+(x)
+{ y = 10 }
+if (x > 1) { return true }

@@ -1,0 +1,66 @@
+// lexer.cbs
+// Phase 2: CodebookScript Lexer Implementation
+// Pod 0: Immutable stream transformation.
+// "Atreyu named it."
+
+type Token = 
+      Keyword String 
+    | Identifier String 
+    | String String 
+    | Number Int 
+    | LParen | RParen 
+    | LBrace | RBrace 
+    | Operator String 
+    | Symbol Char
+
+// Lexer function: Tokenize source string into a list of Codebook tokens.
+lexer :: String -> [Token]
+lexer source =
+    tokens = []
+    pos = 0
+    
+    while pos < length source {
+        char = source[pos]
+        
+        if isSpace char {
+            pos = pos + 1
+        } else if isAlpha char {
+            // Parse Keyword or Identifier
+            word = scanWhile isAlnum source pos
+            if isKeyword word {
+                tokens = tokens + [Keyword word]
+            } else {
+                tokens = tokens + [Identifier word]
+            }
+            pos = pos + length word
+        } else if char == '"' {
+            // Parse String Literal
+            str = scanString source (pos + 1)
+            tokens = tokens + [String str]
+            pos = pos + length str + 2
+        } else if isDigit char {
+            // Parse Number Literal
+            numStr = scanWhile isDigit source pos
+            tokens = tokens + [Number (toInt numStr)]
+            pos = pos + length numStr
+        } else if isOperatorStart char {
+            // Parse Operators (==, ->, etc)
+            op = scanOp source pos
+            tokens = tokens + [Operator op]
+            pos = pos + length op
+        } else {
+            // Parse Symbols
+            if char == '(' { tokens = tokens + [LParen] }
+            else if char == ')' { tokens = tokens + [RParen] }
+            else if char == '{' { tokens = tokens + [LBrace] }
+            else if char == '}' { tokens = tokens + [RBrace] }
+            else { tokens = tokens + [Symbol char] }
+            pos = pos + 1
+        }
+    }
+    
+    tokens
+
+// --- Lexer Helpers (Internal) ---
+isKeyword w = w in ["print", "let", "if", "else", "while", "return", "fn", "costs"]
+isOperatorStart c = c in ['=', '+', '-', '*', '/', '%', '>', '<', '!', '-']
