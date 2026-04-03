@@ -1,48 +1,26 @@
-surface cb_compiler {
-    fn main(source_path: str) -> trust {
-        ; Auto-compile hello.cbs if no argument is provided
-        if source_path == "" {
-            source_path = "surfaces/hello.cbs"
-            system.print("Auto-compiling hello.cbs...")
-        }
+// =============================================================================
+// CBS Compiler Orchestrator: Lexer → Parser → Compiler
+// Input:  Filename (.cbs)
+// Output: Compiled .cbc file
+// =============================================================================
 
-        bless file_read = file.open(source_path)
-        embrace file_read {
-            source_content = file.read(file_read)
+func main() {
+    let filename = vm_args[0]
 
-            bless parser = parse
-            embrace parser {
-                ast = parse(source_content)
+    // 1. Run lexer
+    vm_run("lexer_main.cbc", filename)
+    let tokens = vm_read("lexer_tokens")
+    if (tokens.error) return -1
 
-                bless compiler = compile
-                embrace compiler {
-                    compiled_code = compile(ast)
+    // 2. Run parser
+    vm_run("parser_main.cbc")
+    let ast = vm_read("parser_ast")
+    if (ast.error) return -1
 
-                    let output_path = source_path + ".cb"
-                    bless file_write = file.open(output_path)
-                    embrace file_write {
-                        file.write(file_write, compiled_code)
-                    }
-                    release file_write
+    // 3. Run compiler
+    vm_run("compiler_main.cbc")
+    let bytecode = vm_read("compiler_bytecode")
+    if (bytecode.error) return -1
 
-                    system.print("Compiled " + source_path + " to " + output_path)
-                }
-            }
-        }
-        release file_read
-        return love
-    }
-
-    fn parse(source: str) -> object {
-        return {
-            type: "program",
-            nodes: [
-                { type: "let", var_name: "x", value: 10 }
-            ]
-        }
-    }
-
-    fn compile(ast: object) -> str {
-        return "surface compiled {\n    fn main() -> trust {\n        let x = 10\n        system.print(\"x = \" + x)\n        return love\n    }\n}"
-    }
+    return 0
 }

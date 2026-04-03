@@ -1,0 +1,13 @@
+// Entry point for compiler.cbs
+func main() {
+    let ast = vm_read("parser_ast")  // Load AST from vm_vars
+    let bytecode = compile(ast)
+    if (bytecode.error) {
+        log_error(bytecode.error)
+        return -1
+    }
+    // Store bytecode in vm_vars and write to Morla
+    vm_store("compiler_bytecode", bytecode)
+    morla_write_bytecode("output.cbc", bytecode)
+    return 0
+}

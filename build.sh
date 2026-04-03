@@ -60,6 +60,14 @@ else
     echo "      [skip] No python3 or precompile_parser.sh — using existing parser.cbc"
 fi
 
+# ---- Pre-compile compiler ----
+echo "[1/8] Pre-compiling Compiler..."
+if command -v python3 &>/dev/null && [ -f "$SCRIPT_DIR/tools/precompile_compiler.sh" ]; then
+    bash "$SCRIPT_DIR/tools/precompile_compiler.sh"
+else
+    echo "      [skip] No python3 or precompile_compiler.sh — using existing compiler.cbc"
+fi
+
 # ---- Remove Python runtime dependencies ----
 echo "[1/6] Removing Python runtime dependencies..."
 rm -rf "$BUILD_DIR/__pycache__/"
@@ -67,7 +75,7 @@ find "$BUILD_DIR/" -name "*.pyc" -delete
 find "$BUILD_DIR/" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 
 # ---- Assemble ----
-echo "[4/8] Assembling boot.asm..."
+echo "[5/9] Assembling boot.asm..."
 nasm -f bin -o "$BUILD_DIR/$EFI_NAME" "$BOOT_DIR/boot.asm"
 SIZE=$(stat -c %s "$BUILD_DIR/$EFI_NAME" 2>/dev/null || stat -f %z "$BUILD_DIR/$EFI_NAME")
 echo "      $EFI_NAME: $SIZE bytes"
@@ -81,16 +89,16 @@ fi
 echo "      PE32+ header: OK"
 
 # ---- Create FAT32 disk image ----
-echo "[5/8] Creating ${IMG_SIZE_MB}MB FAT32 disk image..."
+echo "[6/9] Creating ${IMG_SIZE_MB}MB FAT32 disk image..."
 dd if=/dev/zero of="$BUILD_DIR/$IMG_NAME" bs=1M count=$IMG_SIZE_MB status=none
 
 # ---- Format as FAT32 ----
-echo "[6/8] Formatting FAT32..."
+echo "[7/9] Formatting FAT32..."
 /sbin/mkfs.vfat -F 32 -n "CODEBOOK" "$BUILD_DIR/$IMG_NAME" >/dev/null 2>&1 || \
     mkfs.vfat -F 32 -n "CODEBOOK" "$BUILD_DIR/$IMG_NAME" >/dev/null 2>&1
 
 # ---- Copy EFI file to correct path ----
-echo "[7/8] Installing BOOTX64.EFI..."
+echo "[8/9] Installing BOOTX64.EFI..."
 mmd -i "$BUILD_DIR/$IMG_NAME" ::/EFI
 mmd -i "$BUILD_DIR/$IMG_NAME" ::/EFI/BOOT
 mcopy -i "$BUILD_DIR/$IMG_NAME" "$BUILD_DIR/$EFI_NAME" ::/EFI/BOOT/BOOTX64.EFI

@@ -1,0 +1,167 @@
+// =============================================================================
+// CBS Compiler Surface (Self-Hosted)
+// Input:  Flat AST (from parser.cbs)
+// Output: CBS bytecode buffer
+// =============================================================================
+
+// --- Bytecode Opcodes ---
+const OP_STORE_VAR   = 0x01
+const OP_LOAD_VAR    = 0x02
+const OP_CALL        = 0x03
+const OP_JUMP        = 0x04
+const OP_JUMP_IF     = 0x05
+const OP_PUSH        = 0x06
+const OP_POP         = 0x07
+const OP_RETURN      = 0x08
+const OP_ADD         = 0x09
+const OP_SUB         = 0x0A
+// ... Add more opcodes as needed
+
+// --- Compiler State ---
+let bytecode = []     // Output bytecode buffer
+let ast = []          // Input AST from parser
+let label_counter = 0 // For generating unique labels
+
+// --- Main Compiler Function ---
+func compile(ast_input) {
+    ast = ast_input
+    bytecode = []
+    label_counter = 0
+
+    for (let node in ast) {
+        compile_node(node)
+    }
+
+    return bytecode
+}
+
+// --- Node Compilers ---
+func compile_node(node) {
+    switch (node.type) {
+        case NODE_LET:
+            compile_let(node)
+            break
+
+        case NODE_IF:
+            compile_if(node)
+            break
+
+        case NODE_WHILE:
+            compile_while(node)
+            break
+
+        case NODE_BINOP:
+            compile_binop(node)
+            break
+
+        case NODE_RETURN:
+            compile_return(node)
+            break
+
+        case NODE_LITERAL:
+            compile_literal(node)
+            break
+
+        case NODE_IDENT:
+            compile_ident(node)
+            break
+
+        default:
+            log_error("Unknown AST node type: " + node.type)
+            return {error: "Unknown node"}
+    }
+}
+
+func compile_let(node) {
+    // Emit bytecode for variable assignment
+    compile_expr(node.expr)
+    bytecode.push(OP_STORE_VAR)
+    bytecode.push(node.ident)
+}
+
+func compile_if(node) {
+    // Emit bytecode for conditional
+    compile_expr(node.cond)
+    let else_label = new_label()
+    let end_label = new_label()
+
+    bytecode.push(OP_JUMP_IF)
+    bytecode.push(else_label)
+
+    // Compile 'then' block
+    for (let stmt in node.body) {
+        compile_node(stmt)
+    }
+
+    bytecode.push(OP_JUMP)
+    bytecode.push(end_label)
+    bytecode.push(else_label)
+
+    // Compile 'else' block (if any)
+    for (let stmt in node.else_body) {
+        compile_node(stmt)
+    }
+
+    bytecode.push(end_label)
+}
+
+func compile_while(node) {
+    // Emit bytecode for loop
+    let start_label = new_label()
+    let end_label = new_label()
+
+    bytecode.push(start_label)
+
+    compile_expr(node.cond)
+    bytecode.push(OP_JUMP_IF_NOT)
+    bytecode.push(end_label)
+
+    for (let stmt in node.body) {
+        compile_node(stmt)
+    }
+
+    bytecode.push(OP_JUMP)
+    bytecode.push(start_label)
+    bytecode.push(end_label)
+}
+
+func compile_binop(node) {
+    compile_expr(node.left)
+    compile_expr(node.right)
+    bytecode.push(get_opcode(node.op))
+}
+
+func compile_return(node) {
+    compile_expr(node.expr)
+    bytecode.push(OP_RETURN)
+}
+
+func compile_literal(node) {
+    bytecode.push(OP_PUSH)
+    bytecode.push(node.value)
+}
+
+func compile_ident(node) {
+    bytecode.push(OP_LOAD_VAR)
+    bytecode.push(node.value)
+}
+
+// --- Helper Functions ---
+func new_label() {
+    let label = "L" + label_counter
+    label_counter++
+    return label
+}
+
+func get_opcode(op) {
+    switch (op) {
+        case "+": return OP_ADD
+        case "-": return OP_SUB
+        // ... Map symbols to opcodes
+        default: return 0xFF  // Unknown opcode
+    }
+}
+
+func log_error(msg) {
+    terminal.print("[COMPILER ERROR] " + msg)
+}
