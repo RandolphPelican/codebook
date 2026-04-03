@@ -33,6 +33,7 @@ mmap_size:  dq 0
 mmap_key:   dq 0
 mmap_desc_sz: dd 0
 mmap_desc_ver: dd 0
+uefi_exited:  db 0
 
 
 sfsp_guid:
@@ -180,6 +181,7 @@ str_pg:     db ' pg',10,0
 str_mtot:   db '  Total: ',0
 str_ment:   db ' entries',10,0
 str_mfail:  db '  GetMemoryMap failed.',10,0
+str_ebs_fail: db '  ExitBootServices failed — halting.',10,0
 
 ; CBS VM strings
 str_vm_start: db '  --- CBS VM executing ---',10,0

@@ -133,6 +133,9 @@ efi_entry:
     lea     rsi, [rel str_sphase]
     call    auryn_puts
     call    stall_2000
+%ifdef NATIVE_KBD
+    call    exit_boot_services
+%endif
     mov     edi, COLOR_BLACK
     call    auryn_fill
     call    cursor_home
@@ -190,6 +193,70 @@ stall_2000:
 cursor_home:
     mov dword [rel cursor_x], 0
     mov dword [rel cursor_y], 0
+    ret
+
+; =============================================================
+; exit_boot_services
+; Captures a fresh mmap_key via get_mmap, then calls
+; BS->ExitBootServices(ImageHandle, mmap_key).
+; Retries once on EFI_INVALID_PARAMETER (stale key).
+; Success: uefi_data[32] (BootServices) and uefi_data[24] (ConIn)
+;          are set to NULL; uefi_exited is set to 1; returns 0.
+; Fatal:   prints error string; returns 1.
+; =============================================================
+exit_boot_services:
+    push    rbx
+    push    rbp
+    mov     rbp, rsp
+    sub     rsp, 48
+
+    call    get_mmap
+    test    rax, rax
+    jnz     .fatal
+
+    lea     rbx, [rel uefi_data]
+    mov     rcx, [rbx]              ; ImageHandle = uefi_data[0]
+    mov     rdx, [rel mmap_key]
+    mov     rax, [rbx+32]           ; BootServices table pointer
+    mov     rax, [rax+BS_EXITBOOTSERV]
+    call    rax
+    test    rax, rax
+    jz      .success
+
+    ; EFI_INVALID_PARAMETER (stale key) → get a fresh key and retry once
+    mov     rbx, 0x8000000000000002
+    cmp     rax, rbx
+    jne     .fatal
+
+    call    get_mmap
+    test    rax, rax
+    jnz     .fatal
+
+    lea     rbx, [rel uefi_data]
+    mov     rcx, [rbx]
+    mov     rdx, [rel mmap_key]
+    mov     rax, [rbx+32]
+    mov     rax, [rax+BS_EXITBOOTSERV]
+    call    rax
+    test    rax, rax
+    jnz     .fatal
+
+.success:
+    lea     rbx, [rel uefi_data]
+    mov     qword [rbx+32], 0       ; BootServices = NULL
+    mov     qword [rbx+24], 0       ; ConIn = NULL
+    mov     byte [rel uefi_exited], 1
+    xor     eax, eax
+    leave
+    pop     rbx
+    ret
+
+.fatal:
+    lea     rsi, [rel str_ebs_fail]
+    call    auryn_puts
+    mov     eax, 1
+    leave
+    pop     rbx
     ret
 
 ; =============================================================

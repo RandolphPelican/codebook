@@ -22,6 +22,9 @@ bastian_home:
     call auryn_puts
 
 .key:
+    cmp     byte [rel uefi_exited], 1
+    je      .key_native
+.key_uefi:
     lea rbx,[rel uefi_data]
     mov rax,[rbx+32]
     mov rax,[rax+BS_WAITFOREVENT]
@@ -38,6 +41,11 @@ bastian_home:
     test rax,rax
     jnz .key
     movzx eax,word [rel key_data+2]
+    jmp     .key_dispatch
+.key_native:
+    ; TODO Phase 2.1: poll PS/2 port 0x60, translate scancode → key_data+2
+    jmp     .key_native
+.key_dispatch:
     cmp al,'1'
     je .go_gmork
     cmp al,'2'
