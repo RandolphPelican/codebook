@@ -1,27 +1,42 @@
 // cbsc.cbs
-// Standalone CBS Compiler Driver (Phase 1)
-// Pod 0: Pure functional orchestration for CodebookScript toolchain.
+// Standalone CBS compiler driver (Section 2)
+// Updated with file I/O functions (Python wrappers for now).
 // "Atreyu named it."
 
 type Output = String | Error
 type Error  = String
 
+// --- File I/O (Placeholder Python Wrappers) ---
+
+// readFile: Read source code from a file.
+readFile :: String -> Either Error String
+readFile path =
+    // execPython is a placeholder for a system call to run read_file.py
+    try (execPython "read_file.py" path) (Error ("File not found: " ++ path))
+
+// writeFile: Write bytecode to a file.
+writeFile :: String -> [Byte] -> Output
+writeFile path bytes =
+    // execPython is a placeholder for a system call to run write_file.py
+    // Bytes are currently simulated as a hex string for the wrapper
+    try (execPython "write_file.py" path (hexEncode bytes)) (Error ("Failed to write file: " ++ path))
+    "Wrote " ++ path
+
 // --- Compiler Orchestration ---
 
-// Main function: Compiles a .cbs source surface into a .cb bytecode token.
+// Main function: Compile a .cbs file to .cb.
 main :: String -> Output
 main filename =
-    source = try (readFile filename) (Error "Failed to read file")
-    tokens = try (lexer source) (Error "Lexer failed")
-    ast    = try (parser tokens) (Error "Parser failed")
-    bc     = try (compiler ast) (Error "Compiler failed")
+    source   = either (Error) id (readFile filename)
+    tokens   = try (lexer source) (Error "Lexer failed")
+    ast      = try (parser tokens) (Error "Parser failed")
+    bytecode = try (compiler ast) (Error "Compiler failed")
     
     outName = replaceExt filename ".cb"
-    writeFile outName bc
-    
+    writeFile outName bytecode
     "Compiled " ++ filename ++ " to " ++ outName
 
-// --- Interface Placeholders (to be linked in future integration) ---
+// --- Implementation Placeholders ---
 
 lexer :: String -> [Token]
 lexer s = [] // Links to lexer.cbs
@@ -32,18 +47,16 @@ parser t = Program [] // Links to parser.cbs
 compiler :: AST -> [Byte]
 compiler a = [] // Links to compiler.cbs
 
-// --- IO Placeholders (Simulated for development environment) ---
-
-readFile :: String -> String
-readFile f = "print \"Hello, Codebook!\"" // Placeholder for system call
-
-writeFile :: String -> [Byte] -> Bool
-writeFile f b = True // Placeholder for system call
-
 replaceExt :: String -> String -> String
-replaceExt name ext = "output" ++ ext // Placeholder logic
+replaceExt name ext = name ++ ext // Simplified placeholder
+
+hexEncode :: [Byte] -> String
+hexEncode b = "00" // Simplified placeholder
 
 // --- Error Handling ---
 
 try :: a -> Error -> a
-try val err = val // Placeholder for Either/Result handling
+try val err = val // Simplified placeholder for Either/Result handling
+
+either :: (a -> c) -> (b -> c) -> Either a b -> c
+either f g val = g val // Simplified placeholder
