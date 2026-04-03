@@ -1,5 +1,39 @@
+# CodebookOS x86 Build Script
+# Assembles boot.asm → BOOTX64.EFI
+# Creates bootable FAT32 disk image → codebook.img
+# Usage: ./build.sh
+# Then:  sudo dd if=build/codebook.img of=/dev/sdX bs=4M status=progress
+# =============================================================
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BOOT_DIR="$SCRIPT_DIR/boot"
+BUILD_DIR="$SCRIPT_DIR/build"
+IMG_NAME="codebook.img"
+EFI_NAME="BOOTX64.EFI"
+IMG_SIZE_MB=64
+=======
 #!/bin/bash
 # =============================================================
+# CodebookOS x86 Build Script
+# Assembles boot.asm → BOOTX64.EFI
+# Creates bootable FAT32 disk image → codebook.img
+# Usage: ./build.sh
+# Then:  sudo dd if=build/codebook.img of=/dev/sdX bs=4M status=progress
+# =============================================================
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BOOT_DIR="$SCRIPT_DIR/boot"
+BUILD_DIR="$SCRIPT_DIR/build"
+IMG_NAME="codebook.img"
+EFI_NAME="BOOTX64.EFI"
+IMG_SIZE_MB=64
+
+# Enforces 64MB USB image size limit
+echo "Building CodebookOS USB image..."=============================================================
 # CodebookOS x86 Build Script
 # Assembles boot.asm → BOOTX64.EFI
 # Creates bootable FAT32 disk image → codebook.img
@@ -73,6 +107,14 @@ echo "[1/6] Removing Python runtime dependencies..."
 rm -rf "$BUILD_DIR/__pycache__/"
 find "$BUILD_DIR/" -name "*.pyc" -delete
 find "$BUILD_DIR/" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+
+# ---- Audit UEFI calls ----
+echo "[1/7] Auditing UEFI runtime calls..."
+if command -v bash &>/dev/null && [ -f "$SCRIPT_DIR/tools/audit_uefi_calls.sh" ]; then
+    bash "$SCRIPT_DIR/tools/audit_uefi_calls.sh"
+else
+    echo "      [skip] No bash or audit_uefi_calls.sh — skipping audit"
+fi
 
 # ---- Assemble ----
 echo "[5/9] Assembling boot.asm..."
