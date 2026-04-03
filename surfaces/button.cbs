@@ -1,0 +1,1 @@
+let label = 'Click Me'; print(label); return 0;

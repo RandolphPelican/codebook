@@ -33,7 +33,7 @@ lexer source =
                 tokens = tokens + [Identifier word]
             }
             pos = pos + length word
-        } else if char == '"' {
+        } else if char == '"' or char == "'" {
             // Parse String Literal
             str = scanString source (pos + 1)
             tokens = tokens + [String str]

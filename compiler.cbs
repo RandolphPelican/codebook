@@ -18,10 +18,10 @@ compiler ast =
         foldl (\acc s -> acc + compiler s) [] stmts
     | Print s -> 
         // print "string" -> LOAD_CONST, STORE 'm', PRINT 'm'
-        [LOAD_CONST] ++ encodeString s ++ [0x00, STORE, 109, PRINT, 109, RETURN]
+        [LOAD_CONST] ++ encodeString s ++ [0x00, STORE, 109, PRINT, 109]
     | Assign x expr -> 
         // x = expr -> Compile expr, then STORE x
-        compiler expr ++ [STORE, encodeChar x, RETURN]
+        compiler expr ++ [STORE, encodeChar x]
     | BinaryOp op left right ->
         // Simplified: Handle basic literal addition for now
         // Codebook VM expects stack-based or direct value handling
