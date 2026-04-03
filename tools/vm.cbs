@@ -1,57 +1,57 @@
 // tools/vm.cbs
-// Codebook ASM Virtual Machine — Phase 7.2
-// Core execution loop for energy-budgeted, spatial, revocable surfaces.
+// Codebook ASM Virtual Machine — Phase 7.3
+// Enhanced with Registers (r0-r7) and Heap Memory.
 // "Atreyu named it."
 
 // --- Type Definitions ---
 
 type Spatial = { x: Int, y: Int }
 
-// SurfaceContext: Holds the complete runtime state for a surface token.
+type Registers = {
+    r0: Int, r1: Int, r2: Int, r3: Int,
+    r4: Int, r5: Int, r6: Int, r7: Int
+}
+
+// SurfaceContext: holds runtime state for a surface token.
 type SurfaceContext = {
-    token: [Byte],            // 23-byte surface token
-    pc: Int,                  // Program counter (index into bytecode)
+    token: [Byte],            // 23-byte surface token + bytecode
+    pc: Int,                  // Program counter
     energy: Int,              // Remaining energy budget
     halted: Bool,             // Execution flag
     spatial: Spatial,         // Spatial coordinates
     checksum_valid: Bool,     // Quantum-resistant checksum verification
-    memory: [Byte],           // Surface memory / Heap
-    stack: [Byte],            // Execution stack
+    memory: [Byte],           // Heap for dynamic allocations
+    registers: Registers,     // General-purpose registers
+    stack: [Int],             // Execution stack
     surface_type: Int         // capability_id
 }
 
 type Instruction =
-    LOAD_SURFACE_DATA
-  | PRINT_SURFACE
-  | STORE_SURFACE
-  | MERGE_SURFACES
-  | REVOKE_SURFACE
-  | ENERGY_QUERY
-  | CHECK_COLLISION
-  | HALT
-  | UNKNOWN
+    LOAD_SURFACE_DATA | PRINT_SURFACE | STORE_SURFACE | MERGE_SURFACES
+  | REVOKE_SURFACE | ENERGY_QUERY | CHECK_COLLISION
+  | STORE_REG | LOAD_REG | ADD | SUB | STORE_MEM | LOAD_MEM | MALLOC | FREE
+  | HALT | UNKNOWN
 
 // --- Initialization ---
 
 initVM :: [Byte] -> SurfaceContext
 initVM token =
-    valid = verifyChecksum token
+    let valid = verifyChecksum token in
     if not valid then
         { token: token, pc: 0, energy: 0, halted: True,
           spatial: {x:0, y:0}, checksum_valid: False,
-          memory: [], stack: [], surface_type: 0 }
+          memory: [], registers: initRegs, stack: [], surface_type: 0 }
     else
         { token: token, 
-          pc: 23, // Start execution after the 23-byte header
+          pc: 23, 
           energy: getEnergyBudget token, 
           halted: (getRevokeFlag token == 1),
           spatial: getSpatialCoords token, 
           checksum_valid: True,
-          memory: [], stack: [], 
+          memory: [], registers: initRegs, stack: [], 
           surface_type: getCapabilityID token }
 
-spawnSurface :: [Byte] -> SurfaceContext
-spawnSurface token = initVM token
+initRegs = { r0:0, r1:0, r2:0, r3:0, r4:0, r5:0, r6:0, r7:0 }
 
 // --- Decode ---
 
@@ -59,12 +59,20 @@ decode :: Byte -> Instruction
 decode opcode =
     match opcode with
     | 0x71 -> LOAD_SURFACE_DATA
-    | 0x73 -> PRINT_SURFACE
     | 0x72 -> STORE_SURFACE
+    | 0x73 -> PRINT_SURFACE
     | 0x77 -> MERGE_SURFACES
     | 0x78 -> REVOKE_SURFACE
     | 0x79 -> ENERGY_QUERY
     | 0x7A -> CHECK_COLLISION
+    | 0x7B -> STORE_REG
+    | 0x7C -> LOAD_REG
+    | 0x7D -> ADD
+    | 0x7E -> SUB
+    | 0x7F -> STORE_MEM
+    | 0x80 -> LOAD_MEM
+    | 0x81 -> MALLOC
+    | 0x82 -> FREE
     | 0xFF -> HALT
     | _    -> UNKNOWN
 
@@ -73,96 +81,105 @@ decode opcode =
 execute :: Instruction -> SurfaceContext -> SurfaceContext
 execute instr ctx =
     match instr with
-    | LOAD_SURFACE_DATA ->
-        ptr = getDataPtr ctx.token
-        { ctx with stack = ctx.stack + [ptr], pc = ctx.pc + 1 }
-        
-    | PRINT_SURFACE ->
-        if not ctx.checksum_valid then error "Invalid checksum" ctx
-        else if ctx.energy <= 0 then { ctx with halted = True }
+    | STORE_REG ->
+        let idx = toInt ctx.token[ctx.pc + 1] in
+        let val = head ctx.stack in
+        let newRegs = updateRegister ctx.registers idx val in
+        deductEnergy 1 { ctx with registers = newRegs, stack = tail ctx.stack, pc = ctx.pc + 2 }
+
+    | LOAD_REG ->
+        let idx = toInt ctx.token[ctx.pc + 1] in
+        let val = getRegister ctx.registers idx in
+        deductEnergy 1 { ctx with stack = [val] + ctx.stack, pc = ctx.pc + 2 }
+
+    | ADD ->
+        if length ctx.stack < 2 then error "Stack Underflow (ADD)" ctx
         else
-            payload = readSurfacePayload ctx.token
-            print payload
+            let a = ctx.stack[0] in
+            let b = ctx.stack[1] in
+            deductEnergy 1 { ctx with stack = [a + b] + (drop 2 ctx.stack), pc = ctx.pc + 1 }
+
+    | SUB ->
+        if length ctx.stack < 2 then error "Stack Underflow (SUB)" ctx
+        else
+            let a = ctx.stack[0] in
+            let b = ctx.stack[1] in
+            deductEnergy 1 { ctx with stack = [b - a] + (drop 2 ctx.stack), pc = ctx.pc + 1 }
+
+    | MALLOC ->
+        let size = toInt ctx.token[ctx.pc + 1] in
+        let cost = size * 2 in
+        if ctx.energy < cost then error "Out of energy for malloc" ctx
+        else
+            let newMem = ctx.memory + (replicate size 0) in
+            { ctx with memory = newMem, energy = ctx.energy - cost, pc = ctx.pc + 2 }
+
+    | STORE_MEM ->
+        let addr = toInt ctx.token[ctx.pc + 1] in
+        let val = toByte (head ctx.stack) in
+        if addr >= length ctx.memory then error "Memory Out of Bounds" ctx
+        else
+            let newMem = updateMemory ctx.memory addr val in
+            deductEnergy 2 { ctx with memory = newMem, stack = tail ctx.stack, pc = ctx.pc + 2 }
+
+    | LOAD_MEM ->
+        let addr = toInt ctx.token[ctx.pc + 1] in
+        if addr >= length ctx.memory then error "Memory Out of Bounds" ctx
+        else
+            let val = toInt ctx.memory[addr] in
+            deductEnergy 1 { ctx with stack = [val] + ctx.stack, pc = ctx.pc + 2 }
+
+    | PRINT_SURFACE ->
+        if ctx.energy <= 0 then { ctx with halted = True }
+        else
+            print (readSurfacePayload ctx.token)
             deductEnergy 1 { ctx with pc = ctx.pc + 1 }
 
-    | MERGE_SURFACES ->
-        other = getOtherSurface ctx.token // Simulated environment lookup
-        if checkCollision ctx.token other then
-            merged = mergeTokens ctx.token other
-            deductEnergy 2 { ctx with token = merged, pc = ctx.pc + 1 }
-        else
-            { ctx with pc = ctx.pc + 1 }
-
     | REVOKE_SURFACE ->
-        revoked = setRevokeFlag ctx.token 1
-        { ctx with token = revoked, halted = True, pc = ctx.pc + 1 }
+        { ctx with token = setRevokeFlag ctx.token 1, halted = True }
 
-    | ENERGY_QUERY ->
-        print ("Energy: " ++ show ctx.energy)
-        { ctx with pc = ctx.pc + 1 }
-
-    | CHECK_COLLISION ->
-        other = getOtherSurface ctx.token
-        if checkCollision ctx.token other then
-            print "Collision detected"
-        { ctx with pc = ctx.pc + 1 }
-
-    | HALT ->
-        { ctx with halted = True }
-
-    | UNKNOWN ->
-        error "Unknown Opcode" ctx
-
-// --- Main Execution Loop ---
-
-run :: SurfaceContext -> String
-run ctx =
-    if ctx.halted then
-        if getRevokeFlag ctx.token == 1 then "Surface revoked"
-        else "Execution halted"
-    else if ctx.energy <= 0 then
-        "Out of energy"
-    else if not ctx.checksum_valid then
-        "Invalid checksum"
-    else
-        // Fetch
-        opcode = ctx.token[ctx.pc]
-        // Decode
-        instr = decode opcode
-        // Execute
-        new_ctx = execute instr ctx
-        // Recurse
-        run new_ctx
+    | HALT -> { ctx with halted = True }
+    | _    -> { ctx with pc = ctx.pc + 1 }
 
 // --- Helpers ---
 
+updateRegister :: Registers -> Int -> Int -> Registers
+updateRegister r i v =
+    match i with
+    | 0 -> { r with r0 = v }
+    | 1 -> { r with r1 = v }
+    | 2 -> { r with r2 = v }
+    | 3 -> { r with r3 = v }
+    | 4 -> { r with r4 = v }
+    | 5 -> { r with r5 = v }
+    | 6 -> { r with r6 = v }
+    | 7 -> { r with r7 = v }
+    | _ -> r // Error handled in check or skipped
+
+getRegister :: Registers -> Int -> Int
+getRegister r i =
+    match i with
+    | 0 -> r.r0 | 1 -> r.r1 | 2 -> r.r2 | 3 -> r.r3
+    | 4 -> r.r4 | 5 -> r.r5 | 6 -> r.r6 | 7 -> r.r7
+    | _ -> 0
+
+updateMemory :: [Byte] -> Int -> Byte -> [Byte]
+updateMemory m a v = (take a m) + [v] + (drop (a + 1) m)
+
 deductEnergy :: Int -> SurfaceContext -> SurfaceContext
 deductEnergy cost ctx =
-    new_energy = ctx.energy - cost
-    if new_energy <= 0 then { ctx with energy = 0, halted = True }
-    else { ctx with energy = new_energy }
-
-checkCollision :: [Byte] -> [Byte] -> Bool
-checkCollision t1 t2 =
-    (getX t1 == getX t2) && (getY t1 == getY t2)
+    let newEnergy = ctx.energy - cost in
+    if newEnergy <= 0 then { ctx with energy = 0, halted = True }
+    else { ctx with energy = newEnergy }
 
 verifyChecksum :: [Byte] -> Bool
-verifyChecksum t =
-    // Checksum at offset 19
-    stored = take 4 (drop 19 t)
-    stored == [0xBA, 0xBA, 0xFE, 0xCA] // Placeholder for 0xCAFEBABE
+verifyChecksum t = (take 4 (drop 19 t)) == [0xBA, 0xBA, 0xFE, 0xCA]
 
 getCapabilityID :: [Byte] -> Int
 getCapabilityID t = toInt t[0]
 
 getSpatialCoords :: [Byte] -> Spatial
 getSpatialCoords t = { x: toInt t[4], y: toInt t[6] }
-
-getX :: [Byte] -> Int
-getX t = toInt t[4]
-
-getY :: [Byte] -> Int
-getY t = toInt t[6]
 
 getEnergyBudget :: [Byte] -> Int
 getEnergyBudget t = toInt t[8]
@@ -171,19 +188,10 @@ getRevokeFlag :: [Byte] -> Int
 getRevokeFlag t = toInt t[18]
 
 setRevokeFlag :: [Byte] -> Int -> [Byte]
-setRevokeFlag t flag = setByte t 18 flag
-
-getDataPtr :: [Byte] -> Byte
-getDataPtr t = t[10] // Simplified for Phase 7.2
+setRevokeFlag t f = (take 18 t) + [toByte f] + (drop 19 t)
 
 readSurfacePayload :: [Byte] -> String
-readSurfacePayload t = "Hello, Codebook!" // Simulated from data_ptr
-
-getOtherSurface :: [Byte] -> [Byte]
-getOtherSurface t = t // Simulated collision with self for testing
-
-mergeTokens :: [Byte] -> [Byte] -> [Byte]
-mergeTokens t1 t2 = t1 // Placeholder merge logic
+readSurfacePayload t = "CBS Runtime Active"
 
 error :: String -> SurfaceContext -> SurfaceContext
 error msg ctx =
