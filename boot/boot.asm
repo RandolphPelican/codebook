@@ -246,6 +246,25 @@ exit_boot_services:
     mov     qword [rbx+32], 0       ; BootServices = NULL
     mov     qword [rbx+24], 0       ; ConIn = NULL
     mov     byte [rel uefi_exited], 1
+
+    ; GPU Ownership Lock: Validate framebuffer and detect Intel iGPU
+    call    gpu_intel_validate_framebuffer
+    test    rax, rax
+    jz      .gpu_fallback
+
+    ; If successful, Auryn can use native framebuffer
+    mov     byte [rel fb_native_confirmed], 1
+    jmp     .gpu_done
+
+.gpu_fallback:
+    ; Fallback: Log warning, use GOP values (but mark as non-native)
+    mov     byte [rel fb_native_confirmed], 0
+%ifdef DEBUG
+    lea     rsi, [rel str_gpu_warning]
+    call    auryn_puts
+%endif
+
+.gpu_done:
     xor     eax, eax
     leave
     pop     rbx
@@ -361,6 +380,7 @@ fixup_color:
 %include "drivers/kbd_ps2.asm"  ; PS/2 keyboard driver — native_keyboard_read
 %include "drivers/ide_pio.asm"   ; IDE PIO driver — ide_pio_init, ide_pio_read_sector, ide_pio_write_sector
 %include "drivers/fat32.asm"     ; FAT32 read-only driver — fat32_init, fat32_read_sector, fat32_load_file
+%include "drivers/gpu_intel.asm" ; Intel iGPU framebuffer lock — gpu_intel_validate_framebuffer
 %include "boot/data.asm"        ; static data, strings, font, program bytecode
 %include "boot/vmdata.asm"     ; VM runtime data: stack, vars, energy, mmap_buf
 

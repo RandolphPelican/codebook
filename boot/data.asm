@@ -35,6 +35,21 @@ mmap_desc_sz: dd 0
 mmap_desc_ver: dd 0
 uefi_exited:  db 0
 
+; FAT32 driver state — populated by fat32_init
+fat32_partition_lba:       dq 0   ; absolute LBA of the FAT32 partition start
+fat32_bytes_per_sector:    dw 512 ; BPB offset 0x0B (always 512 for this driver)
+fat32_sectors_per_cluster: db 0   ; BPB offset 0x0D
+fat32_reserved_sectors:    dw 0   ; BPB offset 0x0E
+fat32_fat_count:           db 0   ; BPB offset 0x10
+fat32_sectors_per_fat:     dd 0   ; BPB offset 0x24 (FAT32 field)
+fat32_root_cluster:        dd 0   ; BPB offset 0x2C
+fat32_data_start_lba:      dq 0   ; computed: partition_lba + reserved + fat_count*sectors_per_fat
+
+; FAT32 driver scratch buffers
+fat32_name83:     times 11 db 0   ; 11-byte space-padded 8.3 name for directory comparison
+                  db 0            ; guard byte
+fat32_sector_buf: times 512 db 0  ; MBR / VBR / directory sector workspace
+fat32_fat_buf:    times 512 db 0  ; FAT sector workspace (kept separate from sector_buf)
 
 sfsp_guid:
     dd 0x964e5b22
@@ -182,6 +197,7 @@ str_mtot:   db '  Total: ',0
 str_ment:   db ' entries',10,0
 str_mfail:  db '  GetMemoryMap failed.',10,0
 str_ebs_fail: db '  ExitBootServices failed — halting.',10,0
+str_gpu_warning: db 'Warning: Framebuffer not validated. Using GOP values.',10,0
 
 ; CBS VM strings
 str_vm_start: db '  --- CBS VM executing ---',10,0
