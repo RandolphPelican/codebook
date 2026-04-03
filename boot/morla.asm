@@ -131,6 +131,9 @@ morla_run_file:
     push r12
     push rsi
     mov rsi, rdi
+    cmp byte [rel uefi_exited], 1
+    je .native_fat32
+    ; UEFI path
     lea rdi, [rel filename_ucs2]
     call ascii_to_ucs2
     sub rsp, 48
@@ -163,6 +166,15 @@ morla_run_file:
     mov rax, [rbx + 0x10]
     mov rcx, rbx
     call rax
+    jmp .d
+.native_fat32:
+    ; Native FAT32 path
+    call fat32_load_file
+    cmp rax, -1
+    je .f
+    lea r12, [rel external_prog_buf]
+    mov r14d, 100000
+    call cbs_run
     jmp .d
 .f: lea rsi, [rel str_run_bad]
     call auryn_puts
