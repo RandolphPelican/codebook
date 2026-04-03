@@ -1,4 +1,88 @@
+; fat32_read_sector
+; Reads one 512-byte sector from the primary IDE channel via PIO.
+; In:  rdi = 28-bit LBA address
+;      rsi = destination buffer (512 bytes)
+; Out: rax = 0 success, 1 error (ERR bit set in status register)
+; Preserves: rbx, rsi, r8-r15
+; Clobbers:  rax, rcx, rdx, rdi (advanced by 512 after rep insw)
 ; =============================================================
+fat32_read_sector:
+    push    rbx
+    mov     ebx, edi            ; ebx = LBA (upper bits already 0)
+
+    ; Wait for BSY clear before touching command registers
+    mov     dx, IDE_CMD
+.frs_bsy:
+    in      al, dx
+    test    al, 0x80            ; bit 7 = BSY
+    jnz     .frs_bsy
+
+    ; Drive/head register: LBA mode + master drive + LBA bits 27:24
+    mov     eax, ebx
+    shr     eax, 24
+    and     al, 0x0F
+    or      al, 0xE0            ; 1 = LBA, 0 = master
+    mov     dx, IDE_DRVHEAD
+    out     dx, al
+
+    ; Sector count = 1
+    mov     dx, IDE_SECCOUNT
+    mov     al, 1
+    out     dx, al
+
+    ; LBA bytes low to high
+    mov     eax, ebx
+    mov     dx, IDE_LBA0
+    out     dx, al              ; bits  7:0
+    shr     eax, 8
+    mov     dx, IDE_LBA1
+    out     dx, al              ; bits 15:8
+    shr     eax, 8
+    mov     dx, IDE_LBA2
+    out     dx, al              ; bits 23:16
+
+    ; Issue READ SECTORS command
+    mov     dx, IDE_CMD
+    mov     al, IDE_CMD_READ
+    out     dx, al
+
+    ; Poll status: wait for BSY clear, then check ERR and DRQ
+.frs_poll:
+    in      al, dx
+    test    al, 0x80            ; BSY?
+    jnz     .frs_poll
+    test    al, 0x01            ; ERR?
+    jnz     .frs_err
+    test    al, 0x08            ; DRQ?
+    jz      .frs_poll
+
+    ; Burst-read 256 words (512 bytes) from data port into buffer
+    mov     rdi, rsi            ; rdi = destination (rsi is unchanged)
+    mov     dx, IDE_DATA
+    mov     ecx, 256
+    cld
+    rep insw
+
+    xor     eax, eax            ; return 0 = OK
+    pop     rbx
+    ret
+
+.frs_err:
+    mov     eax, 1              ; return 1 = error
+    pop     rbx
+    ret
+=======
+; =============================================================
+; fat32_read_sector
+; Reads one 512-byte sector from the primary IDE channel via PIO.
+; In:  rdi = 28-bit LBA address
+;      rsi = destination buffer (512 bytes)
+; Out: rax = 0 success, 1 error (ERR bit set in status register)
+; Preserves: rbx, rsi, r8-r15
+; Clobbers:  rax, rcx, rdx, rdi (advanced by 512 after rep insw)
+; =============================================================
+fat32_read_sector:
+    jmp ide_pio_read_sector=============================================================
 ; FAT32 Read-Only Driver
 ; fat32_init, fat32_read_sector, fat32_load_file
 ; No UEFI dependency. Ring 0 required (IN/OUT instructions).

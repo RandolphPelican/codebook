@@ -359,6 +359,7 @@ fixup_color:
 %include "boot/bastian.asm"    ; home surface (bastian precedes gmork_main in original)
 %include "boot/gmork_cmds.asm"  ; gmork_main, get_mmap, show_memmap, paint_bars
 %include "drivers/kbd_ps2.asm"  ; PS/2 keyboard driver — native_keyboard_read
+%include "drivers/ide_pio.asm"   ; IDE PIO driver — ide_pio_init, ide_pio_read_sector, ide_pio_write_sector
 %include "drivers/fat32.asm"     ; FAT32 read-only driver — fat32_init, fat32_read_sector, fat32_load_file
 %include "boot/data.asm"        ; static data, strings, font, program bytecode
 %include "boot/vmdata.asm"     ; VM runtime data: stack, vars, energy, mmap_buf
