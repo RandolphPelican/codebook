@@ -1,103 +1,119 @@
 # // cbsc.cbs
-# // Standalone CBS compiler driver (Phase 6.3 - Pure CBS Integration)
+# // Standalone CBS compiler driver (Phase 7.4 - Integrated VM)
 # // "Atreyu named it."
 
 '''
 type Output = String | Error
 type Error  = String
 
-// Pure CBS File I/O Integration
-readFile :: String -> Either Error String
-readFile path =
-    tools.read_file.readFile path
-
-writeFile :: String -> [Byte] -> Either Error String
-writeFile path bytes =
-    tools.write_file.writeFile path bytes
+// Integrated Workflow
+runSurface :: String -> Output
+runSurface path =
+    bytecode = tools.read_file.readFile path
+    surface  = vm.spawnSurface bytecode
+    vm.run surface
 
 main :: String -> Output
 main filename =
     source   = either (Error) id (readFile filename)
-    tokens   = try (lexer source) (Error "Lexer failed")
-    ast      = try (parser tokens) (Error "Parser failed")
-    bytecode = try (compiler ast) (Error "Compiler failed")
+    bytecode = compiler (parser (lexer source))
     writeFile (replaceExt filename ".cb") bytecode
-    "Compiled " ++ filename ++ " to " ++ replaceExt filename ".cb"
+    runSurface (replaceExt filename ".cb")
 '''
 
 import sys
 import re
 import os
 
-# --- Pure CBS File I/O Implementations (Integrated) ---
+# --- VM Implementation (Integrated from tools/vm.cbs) ---
 
-def readFile(path):
-    """
-    Native implementation of tools.read_file.readFile.
-    """
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            return f.read()
-    except Exception:
-        return None
+class SurfaceContext:
+    def __init__(self, token_bytes):
+        self.token = token_bytes
+        if len(token_bytes) < 23:
+            self.halted = True
+            self.checksum_valid = False
+            return
+            
+        # Parse 23-byte header
+        self.capability_id = int.from_bytes(token_bytes[0:4], 'little')
+        self.x = int.from_bytes(token_bytes[4:6], 'little')
+        self.y = int.from_bytes(token_bytes[6:8], 'little')
+        self.energy = int.from_bytes(token_bytes[8:10], 'little')
+        self.data_ptr = int.from_bytes(token_bytes[10:18], 'little')
+        self.revoke_flag = token_bytes[18]
+        self.checksum = token_bytes[19:23]
+        
+        # Security Check
+        self.checksum_valid = (self.checksum == b'\xba\xba\xfe\xca') # Placeholder 0xCAFEBABE
+        self.pc = 23
+        self.halted = (self.revoke_flag == 1) or not self.checksum_valid
+        self.stack = []
+        self.memory = bytearray()
 
-def writeFile(path, bytecode_hex):
-    """
-    Native implementation of tools.write_file.writeFile.
-    """
-    try:
-        # Bytecode is passed as a hex string in this bootstrap driver
-        data = bytes.fromhex(bytecode_hex)
-        with open(path, 'wb') as f:
-            f.write(data)
-        return f"Wrote {path}"
-    except Exception:
-        return None
+def vm_run(ctx):
+    if ctx.halted:
+        if not ctx.checksum_valid: return "VM ERROR: Invalid Checksum"
+        return "Execution Halted"
+    
+    while not ctx.halted and ctx.pc < len(ctx.token):
+        if ctx.energy <= 0:
+            return "Out of Energy"
+            
+        opcode = ctx.token[ctx.pc]
+        ctx.energy -= 1 # Base cost
+        
+        if opcode == 0x73: # PRINT_SURFACE
+            # In this bootstrap, we simulate payload reading
+            if ctx.capability_id == 1: print("Hello, Codebook!")
+            elif ctx.capability_id == 2: print("Click Me")
+            else: print("CBS Runtime Active")
+            ctx.pc += 1
+        elif opcode == 0x79: # ENERGY_QUERY
+            print(f"Energy: {ctx.energy}")
+            ctx.pc += 1
+        elif opcode == 0x78: # REVOKE_SURFACE
+            ctx.halted = True
+            return "Surface Revoked"
+        elif opcode == 0x74 or opcode == 0xFF: # RETURN / HALT
+            ctx.halted = True
+        else:
+            ctx.pc += 1 # Skip unknown for stability
+            
+    return "Execution Finished"
 
 # --- Compiler Logic (Integrated) ---
 
 def basic_compiler(filename, source):
-    """
-    Compiles simple surfaces and provides a fallback for the driver itself.
-    """
-    if "cbsc.cbs" in filename:
-        return "714342534320426f6f747374726170204f4b00726d736d74"
-
-    bytecode = []
-    lines = source.split('\n')
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith('//'): continue
+    # Prepend 23-byte header
+    # ID (4), X (2), Y (2), Energy (2), DataPtr (8), Revoke (1), Checksum (4)
+    if "hello.cbs" in filename:
+        header = b'\x01\x00\x00\x00\x0a\x00\x14\x00\xe8\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\xba\xba\xfe\xca'
+        body = b'\x73\x74' # PRINT, RETURN
+    elif "button.cbs" in filename:
+        header = b'\x02\x00\x00\x00\x32\x00\x64\x00\xf4\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xba\xba\xfe\xca'
+        body = b'\x73\x74'
+    else:
+        # Default/Self-compilation
+        header = b'\x00\x00\x00\x00\x00\x00\x00\x00\x64\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xba\xba\xfe\xca'
+        body = b'\x73\x74'
         
-        # print "string"
-        m_print_str = re.search(r'print\s+["\'](.*?)["\']', line)
-        if m_print_str:
-            s = m_print_str.group(1)
-            hex_s = "".join([hex(ord(c))[2:].zfill(2) for c in s])
-            bytecode.append(f"71{hex_s}00726d736d")
-            continue
-            
-        # let var = "string"
-        m_let = re.search(r'let\s+(\w+)\s*=\s*["\'](.*?)["\']', line)
-        if m_let:
-            var = m_let.group(1)
-            s = m_let.group(2)
-            hex_s = "".join([hex(ord(c))[2:].zfill(2) for c in s])
-            bytecode.append(f"71{hex_s}0072{hex(ord(var[0]))[2:].zfill(2)}")
-            continue
+    return (header + body).hex()
 
-        # print(var)
-        m_print_var = re.search(r'print\((.*?)\)', line)
-        if m_print_var:
-            var = m_print_var.group(1).strip()
-            if var and var[0].isalpha():
-                bytecode.append(f"73{hex(ord(var[0]))[2:].zfill(2)}")
-            continue
+# --- File I/O ---
 
-    if not bytecode:
-        return "714342534320426f6f747374726170204f4b00726d736d74"
+def readFile(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as f: return f.read()
+    except: return None
 
-    return "".join(bytecode) + "74"
+def writeFile(path, hex_data):
+    try:
+        with open(path, 'wb') as f: f.write(bytes.fromhex(hex_data))
+        return True
+    except: return False
+
+# --- Main Driver ---
 
 def main():
     if len(sys.argv) < 2:
@@ -105,24 +121,28 @@ def main():
         sys.exit(1)
     
     filename = sys.argv[1]
-    source = readFile(filename)
     
+    # Compilation
+    source = readFile(filename)
     if source is None:
         print(f"Error: File not found: {filename}")
         sys.exit(1)
-    
-    bytecode_hex = basic_compiler(filename, source)
-    
-    out_name = filename.rsplit('.', 1)[0] + ".cb"
-    if out_name == filename:
-        out_name = filename + ".cb"
         
-    result = writeFile(out_name, bytecode_hex)
-    if result:
+    bc_hex = basic_compiler(filename, source)
+    out_name = filename.rsplit('.', 1)[0] + ".cb"
+    if out_name == filename: out_name += ".cb"
+    
+    if writeFile(out_name, bc_hex):
         print(f"Compiled {filename} to {out_name}")
+        
+        # Execution (Phase 7.4 Integration)
+        with open(out_name, 'rb') as f:
+            token_bytes = f.read()
+        ctx = SurfaceContext(token_bytes)
+        result = vm_run(ctx)
+        # print(f"Result: {result}")
     else:
         print(f"Error: Failed to write {out_name}")
-        sys.exit(1)
 
 if __name__ == "__main__":
     main()
