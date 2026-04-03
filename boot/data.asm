@@ -145,6 +145,7 @@ p_echo:     db 'echo ',0
 p_peek:     db 'peek ',0
 p_dump:     db 'dump ',0
 p_fill:     db 'fill ',0
+p_compile:  db 'compile ',0
 
 ; UCS-2
 ucs_locating:
@@ -239,6 +240,8 @@ str_ebs_fail: db '  ExitBootServices failed — halting.',10,0
 str_gpu_warning: db 'Warning: Framebuffer not validated. Using GOP values.',10,0
 str_paging_warning: db 'Warning: Failed to set up identity page tables. Using firmware tables.',10,0
 str_paging_success: db 'Identity page tables installed successfully.',10,0
+str_compile_success: db 'Compiled and ran successfully!',10,0
+str_compile_error: db 'Compile or run failed.',10,0
 
 ; CBS VM strings
 str_vm_start: db '  --- CBS VM executing ---',10,0

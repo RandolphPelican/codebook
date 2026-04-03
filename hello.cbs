@@ -1,0 +1,7 @@
+// hello.cbs
+app {
+    name: "Hello World",
+    entry: func() {
+        terminal.print("Hello, CodebookOS!");
+    }
+}

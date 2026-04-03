@@ -134,6 +134,13 @@ gmork_main:
     test eax,eax
     jnz bastian_home
 
+    ; Prefix: compile
+    lea rdi,[rel input_buf]
+    lea rsi,[rel p_compile]
+    call starts_with
+    test rax,rax
+    jnz .c_compile
+
     ; Prefix: run N
     lea rdi,[rel input_buf]
     lea rsi,[rel p_run]
@@ -343,6 +350,34 @@ gmork_main:
     jmp .prompt
 
 ; ---- RUN N (execute CBS bytecode) ----
+.c_compile:
+    ; rax = pointer to char after "compile "
+    mov rsi, rax
+    call parse_filename
+    test rax, rax
+    jz .compile_error
+
+    ; Run cb_compiler.cbc with filename as argument
+    mov rdi, rax
+    call vm_run_compiler
+    test rax, rax
+    jnz .compile_error
+
+    ; Load compiled .cbc file and run it
+    mov rsi, rax
+    call morla_run_file
+    test rax, rax
+    jnz .compile_error
+
+    lea rsi, [rel str_compile_success]
+    call auryn_puts
+    jmp .prompt
+
+.compile_error:
+    lea rsi, [rel str_compile_error]
+    call auryn_puts
+    jmp .prompt
+
 .c_run:
     ; rax = pointer to char after "run "
     mov rsi, rax
