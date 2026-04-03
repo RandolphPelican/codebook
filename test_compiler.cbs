@@ -1,0 +1,5 @@
+// test_compiler.cbs
+// CodebookScript Compiler Test Surface
+// "Atreyu named it."
+
+print "Hello, Codebook!"

@@ -1,52 +1,50 @@
 // compiler.cbs
-// High-level interface for the CodebookScript (CBS) compiler.
-// Pod 0: Pure functional orchestration for post-surveillance environments.
+// Phase 4: CodebookScript Compiler Implementation
+// Pod 0: AST to Bytecode Translation.
 // "Atreyu named it."
 
-// --- Type Definitions ---
-// Tokens: The atomic units of the language.
-type Token = 
-      Keyword String 
-    | Identifier String 
-    | LiteralString String 
-    | LiteralInt Int 
-    | Operator String
-    | Symbol Char
+// Bytecode Instructions (Match ASM VM / runtime.py)
+LOAD_CONST = 0x71
+STORE      = 0x72
+PRINT      = 0x73
+RETURN     = 0x74
 
-// AST: The hierarchical structure of the program.
-type AST = 
-      Program [Statement]
-    | Statement (Let String Expression | Print Expression | Return Expression | If Expression AST (Maybe AST) | While Expression AST)
-    | Expression (Literal Token | Var String | Binary Op Expression Expression)
-
-// Byte: The raw unit of the Codebook VM.
-type Byte = Int
-
-// --- Compiler Interface ---
-
-// Lexer: Consumes raw source string and produces a sequence of tokens.
-lexer :: String -> [Token]
-lexer source = [] // TODO: Implement transition-based lexing
-
-// Parser: Constructs the Abstract Syntax Tree (AST) from tokens.
-parser :: [Token] -> AST
-parser tokens = Program [] // TODO: Implement recursive descent parser
-
-// Compiler: Translates the AST into Codebook VM bytecode.
+// Compiler function: Translate AST nodes into Codebook bytecode.
 compiler :: AST -> [Byte]
-compiler ast = [] // TODO: Implement bytecode emission
+compiler ast =
+    match ast with
+    | Program stmts -> 
+        // Compile all statements and flatten the result
+        foldl (\acc s -> acc + compiler s) [] stmts
+    | Print s -> 
+        // print "string" -> LOAD_CONST, STORE 'm', PRINT 'm'
+        [LOAD_CONST] ++ encodeString s ++ [0x00, STORE, 109, PRINT, 109, RETURN]
+    | Assign x expr -> 
+        // x = expr -> Compile expr, then STORE x
+        compiler expr ++ [STORE, encodeChar x, RETURN]
+    | BinaryOp op left right ->
+        // Simplified: Handle basic literal addition for now
+        // Codebook VM expects stack-based or direct value handling
+        compiler left ++ compiler right ++ [encodeOp op]
+    | Number n ->
+        // Numbers are treated as constants
+        [LOAD_CONST] ++ encodeInt n ++ [0x00]
+    | _ -> 
+        error "Compiler Error: Unsupported AST node for translation"
 
-// Runtime: Executes the bytecode within the spatial context.
-runtime :: [Byte] -> Output
-runtime bytecode = Nil // TODO: Implement CBS VM runtime
+// --- Internal Helpers ---
 
-// --- Entry Point ---
+encodeString :: String -> [Byte]
+encodeString s = map ord s
 
-// Main: Orchestrates the compilation and execution of a .cbs surface.
-main :: String -> Output
-main filename =
-    source = readFile filename
-    tokens = lexer source
-    ast = parser tokens
-    bytecode = compiler ast
-    runtime bytecode
+encodeChar :: String -> Byte
+encodeChar s = ord (head s)
+
+encodeInt :: Int -> [Byte]
+encodeInt n = [n] // Simplified 1-byte encoding for dev phase
+
+encodeOp :: String -> Byte
+encodeOp "+" = 0x10 // OP_ADD in boot/defines.asm
+encodeOp "-" = 0x11 // OP_SUB
+encodeOp "*" = 0x12 // OP_MUL
+encodeOp _   = 0xFF // Unknown

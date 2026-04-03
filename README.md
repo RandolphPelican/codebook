@@ -113,6 +113,33 @@ codebook-x86/
 - **Phase 6**: CBS interpreter on bare metal
 - **Ship**: Bootable USB product
 
+## CBS Compiler (CodebookScript)
+
+The CBS compiler translates high-level CodebookScript into bytecode for the CodebookOS VM.
+
+### Usage
+
+1. **Write CBS code** (e.g., `test_compiler.cbs`):
+   ```cbs
+   print "Hello, Codebook!"
+   ```
+
+2. **Compile to bytecode**:
+   ```bash
+   python bootstrap.py test_compiler.cbs
+   ```
+   This generates `test_compiler.cb`.
+
+3. **Run on CodebookOS**:
+   Load the `.cb` file into the spatial context or run via the `load` command in the Gmork terminal.
+
+### Architecture
+
+The compiler is written in CBS itself (Phase 4 complete) and follows a functional pipeline:
+- `lexer.cbs`: Tokenizes source code.
+- `parser.cbs`: Builds the Abstract Syntax Tree (AST).
+- `compiler.cbs`: Emits Codebook VM bytecode (0x71-0x74).
+
 ---
 
 StableTech Enterprises LLC  
