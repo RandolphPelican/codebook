@@ -1,92 +1,159 @@
-; =============================================================
-; CodebookOS — Surface Token VM Stubs (Phase 1)
-; Implementation of the ASM VM for the 23-byte Surface Token
+; = =============================================================
+; CodebookOS — Surface Token VM (Phase 2)
+; Merging, Hashing, and Collision Detection
 ; "Atreyu named it."
 ; =============================================================
 
 section .data
-    ; --- Surface Hello Token (Compiled from hello.cbs) ---
+    ; --- Surface Hello Token ---
     surface_hello:
-        dd 1                    ; capability_id = 1 (HelloWorld)
+        dd 1                    ; capability_id = 1
         dw 10                   ; x = 10
         dw 20                   ; y = 20
         dw 1000                 ; energy_budget = 1000
-        dq hello_bytecode       ; data_ptr (points to bytecode)
-        db 0                    ; revoke_flag = 0 (false)
-        dd 0xCAFEBABE           ; checksum (placeholder)
+        dq hello_bytecode       ; data_ptr
+        db 0                    ; revoke_flag = 0
+        dd 0xCAFEBABE           ; checksum
 
-    ; Compiled bytecode from hello.cbs (LOAD_CONST "Hello, Codebook!", STORE 'm', PRINT 'm', RETURN)
-    hello_bytecode:
-        db 0x71, "Hello, Codebook!", 0x00, 0x72, 0x6d, 0x73, 0x6d, 0x74
+    ; --- Surface Hello Token 2 (to be merged) ---
+    surface_hello_alt:
+        dd 1                    ; capability_id = 1 (Match)
+        dw 10                   ; x = 10 (Collision)
+        dw 20                   ; y = 20 (Collision)
+        dw 500                  ; energy_budget = 500
+        dq hello_bytecode       ; data_ptr
+        db 0                    ; revoke_flag = 0
+        dd 0xFEEDFACE           ; checksum
+
+    ; --- Surface Button Token ---
+    surface_button:
+        dd 2                    ; capability_id = 2
+        dw 50                   ; x = 50
+        dw 100                  ; y = 100
+        dw 500                  ; energy_budget = 500
+        dq button_bytecode      ; data_ptr
+        db 0                    ; revoke_flag = 0
+        dd 0xDEADBEEF           ; checksum
+
+    hello_bytecode:  db "Hello, Codebook!", 0
+    button_bytecode: db "Click Me", 0
+
+    str_merged: db "Surfaces merged. New energy: ", 0
+    str_nl:     db 10, 0
 
 section .text
     global _start
 
 _start:
-    ; --- Test VM: spawn_surface ---
+    ; --- Test Case: Merge surface_hello and surface_hello_alt ---
     lea rsi, [rel surface_hello]
-    call spawn_surface
+    lea rdi, [rel surface_hello_alt]
+    call merge_surfaces
     
-    ; --- Test VM: energy_query ---
+    test eax, eax
+    jnz .fail
+
+    ; Output new energy (should be 1500)
+    lea rsi, [rel str_merged]
+    call print_string
     lea rsi, [rel surface_hello]
     call energy_query
-    ; RAX now contains 1000
+    mov edi, eax
+    call print_num
+    lea rsi, [rel str_nl]
+    call print_string
 
-    ; --- Test VM: revoke_surface ---
-    lea rsi, [rel surface_hello]
-    call revoke_surface
-    ; Surface is now revoked (flag=1)
-
+.fail:
     ; Exit (Linux 64-bit)
     mov eax, 60
     xor edi, edi
     syscall
 
 ; -------------------------------------------------------------
-; spawn_surface
-; Load a surface token into the spatial context.
-; IN:  RSI = Pointer to surface token
-; OUT: EAX = 0 (success)
+; merge_surfaces
+; Combine two surface tokens if capability_id and (x,y) match.
+; IN:  RSI, RDI = pointers to two surface tokens
+; OUT: EAX = 0 (merged) or error code (1)
 ; -------------------------------------------------------------
-spawn_surface:
-    ; For now, we simulate "spawning" by printing the data_ptr content
-    push rsi
-    mov rsi, [rsi + 10]         ; Offset 10 is data_ptr (dq)
-    call print_string
-    pop rsi
+merge_surfaces:
+    push rbx
+    push rcx
+    
+    ; 1. Check Spatial Collision
+    call check_collision
+    test eax, eax
+    jz .no_match
+    
+    ; 2. Check Capability ID (Offset 0)
+    mov eax, [rsi]
+    cmp eax, [rdi]
+    jne .no_match
+    
+    ; 3. Merge Logic: Combine energy_budget (Offset 8)
+    movzx ax, word [rdi + 8]
+    movzx bx, word [rsi + 8]
+    add ax, bx
+    mov [rsi + 8], ax
+    
+    ; 4. Update Checksum
+    call hash_token
+    mov [rsi + 19], eax
+    
+    ; 5. Revoke second token
+    mov byte [rdi + 18], 1
+    
     xor eax, eax
+    jmp .done
+
+.no_match:
+    mov eax, 1
+.done:
+    pop rcx
+    pop rbx
     ret
 
 ; -------------------------------------------------------------
-; revoke_surface
-; Set revoke_flag=1 and zero out the token (stub).
-; IN:  RSI = Pointer to surface token
-; OUT: EAX = 0 (revoked)
+; hash_token
+; Compute SHA-256 checksum (Placeholder: returns current + xor)
+; IN:  RSI = pointer to surface token
+; OUT: EAX = checksum (4 bytes)
 ; -------------------------------------------------------------
-revoke_surface:
-    mov byte [rsi + 18], 1      ; Set revoke_flag = 1
-    ; In a full implementation, we would zero out the token here.
-    xor eax, eax
+hash_token:
+    mov eax, [rsi + 19]
+    xor eax, 0x55555555         ; Simulate a hash update
     ret
 
 ; -------------------------------------------------------------
-; energy_query
-; Return the energy_budget field.
-; IN:  RSI = Pointer to surface token
-; OUT: EAX = Remaining energy budget
+; check_collision
+; Detect if two surfaces occupy the same (x,y)
+; IN:  RSI, RDI = pointers to two surface tokens
+; OUT: EAX = 1 (collision) or 0 (no collision)
 ; -------------------------------------------------------------
+check_collision:
+    mov ax, [rsi + 4]           ; x1
+    cmp ax, [rdi + 4]           ; x2
+    jne .no_collision
+    mov ax, [rsi + 6]           ; y1
+    cmp ax, [rdi + 6]           ; y2
+    jne .no_collision
+    mov eax, 1
+    ret
+.no_collision:
+    xor eax, eax
+    ret
+
+; --- Helper: energy_query (from previous task) ---
 energy_query:
-    movzx eax, word [rsi + 8]   ; Offset 8 is energy_budget (2 bytes)
+    movzx eax, word [rsi + 8]
     ret
 
-; --- Helper: print_string (Linux x64) ---
+; --- Helper: print_string ---
 print_string:
     push rsi
     push rdx
     push rax
     push rdi
-    
-    mov rdi, rsi                ; Start of string
+    mov rdi, rsi
     xor rdx, rdx
 .len:
     cmp byte [rdi + rdx], 0
@@ -94,12 +161,45 @@ print_string:
     inc rdx
     jmp .len
 .done:
-    mov rax, 1                  ; sys_write
-    mov rdi, 1                  ; stdout
+    mov rax, 1
+    mov rdi, 1
     syscall
-    
     pop rdi
     pop rax
     pop rdx
     pop rsi
+    ret
+
+; --- Helper: print_num (Simple decimal printer) ---
+print_num:
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    push rdi
+    mov rax, rdi
+    mov rbx, 10
+    mov rcx, 0
+.div:
+    xor rdx, rdx
+    div rbx
+    push rdx
+    inc rcx
+    test rax, rax
+    jnz .div
+.print:
+    pop rdx
+    add dl, '0'
+    mov [rsp-1], dl
+    mov rax, 1
+    mov rdi, 1
+    lea rsi, [rsp-1]
+    mov rdx, 1
+    syscall
+    loop .print
+    pop rdi
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
     ret
