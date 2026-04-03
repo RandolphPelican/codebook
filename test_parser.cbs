@@ -1,0 +1,8 @@
+// test_parser.cbs
+// CodebookScript Parser Test Surface
+// "Atreyu named it."
+
+print "Hello, Codebook!"
+x = 5 + 3
+y = (10 - 2) * 4
+print x

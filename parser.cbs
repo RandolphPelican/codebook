@@ -1,0 +1,69 @@
+// parser.cbs
+// Phase 3: CodebookScript Parser Implementation
+// Pod 0: Tree construction from token streams.
+// "Atreyu named it."
+
+type AST = 
+      Print String
+    | Assign String AST
+    | BinaryOp String AST AST
+    | Number Int
+    | Identifier String
+    | Program [AST]
+
+// Parser function: Build AST from tokens.
+parser :: [Token] -> AST
+parser tokens =
+    let (ast, remaining) = parseProgram tokens in
+    ast
+
+// --- Internal Recursive Descent Parser ---
+
+// parseProgram: Consumes all tokens and returns a Program AST node.
+parseProgram :: [Token] -> (AST, [Token])
+parseProgram tokens =
+    if length tokens == 0 then 
+        (Program [], [])
+    else
+        let (stmt, rest) = parseStatement tokens in
+        let (Program nextStmts, finalRest) = parseProgram rest in
+        (Program ([stmt] + nextStmts), finalRest)
+
+// parseStatement: Handles high-level constructs like print and assignment.
+parseStatement :: [Token] -> (AST, [Token])
+parseStatement tokens =
+    match tokens with
+    | (Keyword "print") : (String s) : rest -> 
+        (Print s, rest)
+    | (Identifier x) : (Operator "=") : rest -> 
+        let (expr, afterExpr) = parseExpression rest in
+        (Assign x expr, afterExpr)
+    | _ -> 
+        error ("Syntax Error: Unexpected token sequence starting with " + show (head tokens))
+
+// parseExpression: Handles binary operations with basic precedence (recursive).
+parseExpression :: [Token] -> (AST, [Token])
+parseExpression tokens =
+    let (left, rest) = parsePrimary tokens in
+    match rest with
+    | (Operator op) : next ->
+        let (right, finalRest) = parseExpression next in
+        (BinaryOp op left right, finalRest)
+    | _ -> 
+        (left, rest)
+
+// parsePrimary: Handles the most basic units (Numbers, Identifiers, Parentheses).
+parsePrimary :: [Token] -> (AST, [Token])
+parsePrimary tokens =
+    match tokens with
+    | (Number n) : rest -> 
+        (Number n, rest)
+    | (Identifier x) : rest -> 
+        (Identifier x, rest)
+    | LParen : rest ->
+        let (expr, after) = parseExpression rest in
+        match after with
+        | RParen : final -> (expr, final)
+        | _ -> error "Syntax Error: Expected closing parenthesis ')'"
+    | _ -> 
+        error ("Syntax Error: Invalid primary expression at " + show (head tokens))
