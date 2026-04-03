@@ -1,0 +1,120 @@
+// tools/vm.cbs
+// Codebook ASM Virtual Machine — Phase 7.1
+// Natively executes 23-byte surface tokens as energy-budgeted, spatial programs.
+// "Atreyu named it."
+
+// --- Type Definitions ---
+
+type Spatial = { x: Int, y: Int }
+
+// SurfaceContext: The complete execution state for a surface token.
+type SurfaceContext = {
+    token: [Byte],          // The 23-byte surface token
+    pc: Int,                // Program counter
+    energy: Int,            // Remaining energy budget (from offset 8)
+    halted: Bool,           // Termination flag
+    spatial: Spatial,       // Coordinates (from offsets 4 and 6)
+    stack: [Int],           // Operand stack for VM operations
+    checksum_valid: Bool    // Result of SHA-256 verification
+}
+
+type SurfaceHandler = SurfaceContext -> SurfaceContext
+
+// --- Instruction Set (Opcodes) ---
+
+LOAD_SURFACE_DATA = 0x71  // Load data_ptr to stack
+STORE_SURFACE     = 0x72  // Store value in surface memory
+PRINT_SURFACE     = 0x73  // Print payload from data_ptr
+MERGE_SURFACES    = 0x77  // Merge if collide and ID match
+REVOKE_SURFACE    = 0x78  // Set revoke_flag and halt
+ENERGY_QUERY      = 0x79  // Push remaining energy to stack
+CHECK_COLLISION   = 0x7A  // Push collision status to stack
+HALT              = 0xFF  // Stop execution
+
+// --- Surface Initialization ---
+
+// spawnSurface: Converts a raw 23-byte token into an active execution context.
+spawnSurface :: [Byte] -> SurfaceContext
+spawnSurface token =
+    valid = verifyChecksum token
+    if not valid then
+        { token: token, pc: 0, energy: 0, halted: True, spatial: {x:0, y:0}, stack: [], checksum_valid: False }
+    else
+        { 
+            token: token, 
+            pc: 0, 
+            energy: getEnergyBudget token, 
+            halted: (getRevokeFlag token == 1),
+            spatial: getSpatialCoords token,
+            stack: [],
+            checksum_valid: True 
+        }
+
+// --- Instruction Execution ---
+
+// executeSurfaceInstruction: Dispatches opcodes to specialized handlers.
+executeSurfaceInstruction :: Byte -> SurfaceContext -> SurfaceContext
+executeSurfaceInstruction op ctx =
+    if ctx.halted then ctx
+    else
+        deducted_ctx = deductEnergy 10 ctx // Baseline cost per instruction
+        if deducted_ctx.halted then deducted_ctx
+        else
+            match op with
+            | 0x73 -> handlePrintSurface deducted_ctx
+            | 0x77 -> handleMergeSurfaces deducted_ctx
+            | 0x78 -> handleRevokeSurface deducted_ctx
+            | 0x79 -> handleEnergyQuery deducted_ctx
+            | 0xFF -> { deducted_ctx with halted = True }
+            | _    -> error "Unknown Opcode" deducted_ctx
+
+// --- Surface-Aware Handlers ---
+
+handlePrintSurface :: SurfaceContext -> SurfaceContext
+handlePrintSurface ctx =
+    payload = readSurfacePayload ctx.token
+    print payload
+    { ctx with pc = ctx.pc + 1 }
+
+handleRevokeSurface :: SurfaceContext -> SurfaceContext
+handleRevokeSurface ctx =
+    revoked_token = setByte ctx.token 18 1 // Offset 18 is revoke_flag
+    { ctx with token = revoked_token, halted = True }
+
+handleEnergyQuery :: SurfaceContext -> SurfaceContext
+handleEnergyQuery ctx =
+    { ctx with stack = [ctx.energy] + ctx.stack, pc = ctx.pc + 1 }
+
+// --- Energy and Spatial Helpers ---
+
+deductEnergy :: Int -> SurfaceContext -> SurfaceContext
+deductEnergy cost ctx =
+    new_energy = ctx.energy - cost
+    if new_energy <= 0 then 
+        { ctx with energy = 0, halted = True }
+    else 
+        { ctx with energy = new_energy }
+
+getEnergyBudget :: [Byte] -> Int
+getEnergyBudget t = (toInt t[8]) + ((toInt t[9]) * 256)
+
+getSpatialCoords :: [Byte] -> Spatial
+getSpatialCoords t = 
+    { x: (toInt t[4]) + ((toInt t[5]) * 256), 
+      y: (toInt t[6]) + ((toInt t[7]) * 256) }
+
+getRevokeFlag :: [Byte] -> Int
+getRevokeFlag t = toInt t[18]
+
+// --- Post-Surveillance & Security ---
+
+verifyChecksum :: [Byte] -> Bool
+verifyChecksum token =
+    // Placeholder: Verification of last 4 bytes (offset 19) against payload hash
+    stored = take 4 (drop 19 token)
+    stored == [0xBA, 0xBA, 0xFE, 0xCA] // Placeholder for 0xCAFEBABE
+
+error :: String -> SurfaceContext -> SurfaceContext
+error msg ctx =
+    print ("VM ERROR: " ++ msg)
+    handleRevokeSurface ctx
