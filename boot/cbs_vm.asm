@@ -545,14 +545,7 @@ cbs_run:
     je      .conin_read
     jmp     .fetch
 .conin_read:
-    ; Call UEFI ReadKey
-    push    rbp
-    lea     rbx,[rel uefi_data]
-    mov     rcx,[rbx+24]
-    mov     rax,[rcx+CONIN_READKEY]
-    lea     rdx,[rel key_data]
-    call    rax
-    pop     rbp
+    call    native_keyboard_read
     test    rax,rax
     jnz     .conin_none
     movzx   eax,word [rel key_data+2] ; UnicodeChar
@@ -714,4 +707,21 @@ cbs_run:
     pop     rcx
     pop     rbp
     pop     rbx
+    ret
+
+; ---------------------------------------------------------------------------
+; native_keyboard_read
+;   Reads a key press without going through UEFI ConIn.
+;   Fills key_data (4 bytes): word ScanCode @ +0, word UnicodeChar @ +2.
+;   Returns: rax = 0 on success (key available), non-zero if no key.
+; ---------------------------------------------------------------------------
+native_keyboard_read:
+    ; TODO Phase 2.1: replace with PS/2 port 0x60 poll
+    ;   - in  al, 0x64        ; read status register
+    ;   - test al, 1          ; bit 0 = output-buffer-full
+    ;   - jz  .no_key         ; nothing ready → return non-zero
+    ;   - in  al, 0x60        ; read scancode
+    ;   - translate scancode → UnicodeChar, store into key_data+2
+    mov     word [rel key_data+2], 0   ; stub: UnicodeChar = 0 (no key)
+    xor     eax, eax                   ; return 0 (success / key available)
     ret
