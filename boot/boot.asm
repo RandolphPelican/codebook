@@ -404,6 +404,7 @@ fixup_color:
 %include "drivers/fat32.asm"     ; FAT32 read-only driver — fat32_init, fat32_read_sector, fat32_load_file
 %include "drivers/gpu_intel.asm" ; Intel iGPU framebuffer lock — gpu_intel_validate_framebuffer
 %include "kernel/paging.asm"    ; Identity-mapped page tables — paging_setup_identity
+%include "kernel/cap_graph.asm" ; Capability graph — cap_init, cap_grant, cap_use
 %include "boot/data.asm"        ; static data, strings, font, program bytecode
 %include "boot/vmdata.asm"     ; VM runtime data: stack, vars, energy, mmap_buf
 

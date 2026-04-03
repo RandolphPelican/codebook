@@ -92,6 +92,8 @@ BITS 64
 %define OP_GRANT_CAP  0x90
 %define OP_USE_CAP    0x91
 %define OP_HALT       0xFF
+%define OP_GRANT_CAP_NEW 0xCA000003
+%define OP_USE_CAP_NEW 0xCA000004
 
 ; CHECK_BS_LIVE — guard macro for any code that calls into Boot Services.
 ; Reads uefi_exited; jumps to .bs_dead in the caller if EBS has run.
