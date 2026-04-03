@@ -1,0 +1,13 @@
+// tools/write_file.cbs
+// Phase 6.1: Pure CBS File Output implementation
+// "Atreyu named it."
+
+type Error = String
+
+// writeFile: Writes bytecode to a file and returns status or Error.
+// Input: path (String), bytes ([Byte])
+// Output: Either Error String
+writeFile :: String -> [Byte] -> Either Error String
+writeFile path bytes =
+    try (write path bytes) (Error "Failed to write file")
+    "Wrote " ++ path

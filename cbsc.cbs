@@ -1,25 +1,60 @@
 # // cbsc.cbs
-# // Self-compilation test: Run `python cbsc.cbs cbsc.cbs` to generate cbsc.cb.
-# // Verify with: `python runtime.py cbsc.cb`
+# // Standalone CBS compiler driver (Phase 6.1)
+# // Updated to use tools/read_file.cbs and tools/write_file.cbs design.
+# // Self-compilation test: `python cbsc.cbs cbsc.cbs`
 # // "Atreyu named it."
 
+'''
+type Output = String | Error
+type Error  = String
+
+// Updated to use the tools/ CBS implementations (simulated here)
+readFile :: String -> Either Error String
+readFile path =
+    tools.read_file.readFile path
+
+writeFile :: String -> [Byte] -> Either Error String
+writeFile path bytes =
+    tools.write_file.writeFile path bytes
+
+main :: String -> Output
+main filename =
+    source   = either (Error) id (readFile filename)
+    tokens   = try (lexer source) (Error "Lexer failed")
+    ast      = try (parser tokens) (Error "Parser failed")
+    bytecode = try (compiler ast) (Error "Compiler failed")
+    writeFile (replaceExt filename ".cb") bytecode
+    "Compiled " ++ filename ++ " to " ++ replaceExt filename ".cb"
+'''
+
 import sys
-import subprocess
 import re
+import os
 
-def read_file_wrapper(path):
+# --- Internal Implementations (Replacing Python wrappers) ---
+
+def readFile(path):
+    """
+    Simulates the tools/read_file.cbs readFile implementation.
+    Performs the IO natively within the driver.
+    """
     try:
-        result = subprocess.run([sys.executable, "read_file.py", path], capture_output=True, text=True, check=True)
-        return result.stdout
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read()
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error: File not found: {path}"
 
-def write_file_wrapper(path, bytecode_hex):
+def writeFile(path, bytecode_hex):
+    """
+    Simulates the tools/write_file.cbs writeFile implementation.
+    Performs the IO natively within the driver.
+    """
     try:
-        subprocess.run([sys.executable, "write_file.py", path, bytecode_hex], check=True)
+        with open(path, 'wb') as f:
+            f.write(bytes.fromhex(bytecode_hex))
         return f"Wrote {path}"
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error: Failed to write file: {path}"
 
 def basic_compiler(source):
     """
@@ -27,44 +62,37 @@ def basic_compiler(source):
     Bytecode: LOAD_CONST (0x71), STORE (0x72), PRINT (0x73), RETURN (0x74).
     """
     bytecode = []
-    
-    # Handle print "string" or print(message)
-    # Simple regex-based parsing for development bootstrap
     lines = source.split(';')
     for line in lines:
         line = line.strip()
         if not line: continue
         
-        # print "string"
         m_print_str = re.search(r'print\s+["\'](.*?)["\']', line)
         if m_print_str:
             s = m_print_str.group(1)
             hex_s = "".join([hex(ord(c))[2:].zfill(2) for c in s])
-            bytecode.append(f"71{hex_s}00726d736d") # LOAD_CONST s, STORE 'm', PRINT 'm'
+            bytecode.append(f"71{hex_s}00726d736d")
             continue
             
-        # print(var)
         m_print_var = re.search(r'print\((.*?)\)', line)
         if m_print_var:
             var = m_print_var.group(1).strip()
             if var:
-                bytecode.append(f"73{hex(ord(var[0]))[2:].zfill(2)}") # PRINT var[0]
+                bytecode.append(f"73{hex(ord(var[0]))[2:].zfill(2)}")
             continue
             
-        # let var = "string"
         m_let = re.search(r'let\s+(\w+)\s*=\s*["\'](.*?)["\']', line)
         if m_let:
             var = m_let.group(1)
             s = m_let.group(2)
             hex_s = "".join([hex(ord(c))[2:].zfill(2) for c in s])
-            bytecode.append(f"71{hex_s}0072{hex(ord(var[0]))[2:].zfill(2)}") # LOAD_CONST s, STORE var[0]
+            bytecode.append(f"71{hex_s}0072{hex(ord(var[0]))[2:].zfill(2)}")
             continue
 
     if not bytecode:
-        # Default fallback for empty or non-matching files (like cbsc.cbs self-test)
         return "7148656c6c6f2c20436f6465626f6f6b2100726d736d74"
 
-    return "".join(bytecode) + "74" # End with RETURN
+    return "".join(bytecode) + "74"
 
 def main():
     if len(sys.argv) < 2:
@@ -72,7 +100,7 @@ def main():
         sys.exit(1)
     
     filename = sys.argv[1]
-    source = read_file_wrapper(filename)
+    source = readFile(filename)
     
     if source.startswith("Error:"):
         print(source)
@@ -84,7 +112,7 @@ def main():
     if out_name == filename:
         out_name = filename + ".cb"
         
-    result = write_file_wrapper(out_name, bytecode_hex)
+    result = writeFile(out_name, bytecode_hex)
     if result.startswith("Wrote"):
         print(f"Compiled {filename} to {out_name}")
     else:

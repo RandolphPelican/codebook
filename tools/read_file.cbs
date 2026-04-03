@@ -1,0 +1,12 @@
+// tools/read_file.cbs
+// Phase 6.1: Pure CBS File Input implementation
+// "Atreyu named it."
+
+type Error = String
+
+// readFile: Reads a file and returns its contents.
+// Input: path (String)
+// Output: Either Error String
+readFile :: String -> Either Error String
+readFile path =
+    try (read path) (Error "File not found")
