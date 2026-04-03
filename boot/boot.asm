@@ -265,6 +265,28 @@ exit_boot_services:
 %endif
 
 .gpu_done:
+    ; Memory Sovereignty: Build identity-mapped page tables
+    mov     rdi, [rel mmap_buf]  ; mmap_buf from Phase 1
+    mov     rsi, [rel fb_base]  ; Framebuffer base
+    mov     rdx, [rel fb_size]  ; Framebuffer size
+    call    paging_setup_identity
+    test    rax, rax
+    jz      .paging_success
+
+    ; On error, log warning and use firmware page tables
+%ifdef DEBUG
+    lea     rsi, [rel str_paging_warning]
+    call    auryn_puts
+%endif
+    jmp     .paging_done
+
+.paging_success:
+%ifdef DEBUG
+    lea     rsi, [rel str_paging_success]
+    call    auryn_puts
+%endif
+
+.paging_done:
     xor     eax, eax
     leave
     pop     rbx
@@ -381,6 +403,7 @@ fixup_color:
 %include "drivers/ide_pio.asm"   ; IDE PIO driver — ide_pio_init, ide_pio_read_sector, ide_pio_write_sector
 %include "drivers/fat32.asm"     ; FAT32 read-only driver — fat32_init, fat32_read_sector, fat32_load_file
 %include "drivers/gpu_intel.asm" ; Intel iGPU framebuffer lock — gpu_intel_validate_framebuffer
+%include "kernel/paging.asm"    ; Identity-mapped page tables — paging_setup_identity
 %include "boot/data.asm"        ; static data, strings, font, program bytecode
 %include "boot/vmdata.asm"     ; VM runtime data: stack, vars, energy, mmap_buf
 

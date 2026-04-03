@@ -198,6 +198,8 @@ str_ment:   db ' entries',10,0
 str_mfail:  db '  GetMemoryMap failed.',10,0
 str_ebs_fail: db '  ExitBootServices failed — halting.',10,0
 str_gpu_warning: db 'Warning: Framebuffer not validated. Using GOP values.',10,0
+str_paging_warning: db 'Warning: Failed to set up identity page tables. Using firmware tables.',10,0
+str_paging_success: db 'Identity page tables installed successfully.',10,0
 
 ; CBS VM strings
 str_vm_start: db '  --- CBS VM executing ---',10,0
