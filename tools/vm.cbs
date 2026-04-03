@@ -1,120 +1,191 @@
 // tools/vm.cbs
-// Codebook ASM Virtual Machine — Phase 7.1
-// Natively executes 23-byte surface tokens as energy-budgeted, spatial programs.
+// Codebook ASM Virtual Machine — Phase 7.2
+// Core execution loop for energy-budgeted, spatial, revocable surfaces.
 // "Atreyu named it."
 
 // --- Type Definitions ---
 
 type Spatial = { x: Int, y: Int }
 
-// SurfaceContext: The complete execution state for a surface token.
+// SurfaceContext: Holds the complete runtime state for a surface token.
 type SurfaceContext = {
-    token: [Byte],          // The 23-byte surface token
-    pc: Int,                // Program counter
-    energy: Int,            // Remaining energy budget (from offset 8)
-    halted: Bool,           // Termination flag
-    spatial: Spatial,       // Coordinates (from offsets 4 and 6)
-    stack: [Int],           // Operand stack for VM operations
-    checksum_valid: Bool    // Result of SHA-256 verification
+    token: [Byte],            // 23-byte surface token
+    pc: Int,                  // Program counter (index into bytecode)
+    energy: Int,              // Remaining energy budget
+    halted: Bool,             // Execution flag
+    spatial: Spatial,         // Spatial coordinates
+    checksum_valid: Bool,     // Quantum-resistant checksum verification
+    memory: [Byte],           // Surface memory / Heap
+    stack: [Byte],            // Execution stack
+    surface_type: Int         // capability_id
 }
 
-type SurfaceHandler = SurfaceContext -> SurfaceContext
+type Instruction =
+    LOAD_SURFACE_DATA
+  | PRINT_SURFACE
+  | STORE_SURFACE
+  | MERGE_SURFACES
+  | REVOKE_SURFACE
+  | ENERGY_QUERY
+  | CHECK_COLLISION
+  | HALT
+  | UNKNOWN
 
-// --- Instruction Set (Opcodes) ---
+// --- Initialization ---
 
-LOAD_SURFACE_DATA = 0x71  // Load data_ptr to stack
-STORE_SURFACE     = 0x72  // Store value in surface memory
-PRINT_SURFACE     = 0x73  // Print payload from data_ptr
-MERGE_SURFACES    = 0x77  // Merge if collide and ID match
-REVOKE_SURFACE    = 0x78  // Set revoke_flag and halt
-ENERGY_QUERY      = 0x79  // Push remaining energy to stack
-CHECK_COLLISION   = 0x7A  // Push collision status to stack
-HALT              = 0xFF  // Stop execution
-
-// --- Surface Initialization ---
-
-// spawnSurface: Converts a raw 23-byte token into an active execution context.
-spawnSurface :: [Byte] -> SurfaceContext
-spawnSurface token =
+initVM :: [Byte] -> SurfaceContext
+initVM token =
     valid = verifyChecksum token
     if not valid then
-        { token: token, pc: 0, energy: 0, halted: True, spatial: {x:0, y:0}, stack: [], checksum_valid: False }
+        { token: token, pc: 0, energy: 0, halted: True,
+          spatial: {x:0, y:0}, checksum_valid: False,
+          memory: [], stack: [], surface_type: 0 }
     else
-        { 
-            token: token, 
-            pc: 0, 
-            energy: getEnergyBudget token, 
-            halted: (getRevokeFlag token == 1),
-            spatial: getSpatialCoords token,
-            stack: [],
-            checksum_valid: True 
-        }
+        { token: token, 
+          pc: 23, // Start execution after the 23-byte header
+          energy: getEnergyBudget token, 
+          halted: (getRevokeFlag token == 1),
+          spatial: getSpatialCoords token, 
+          checksum_valid: True,
+          memory: [], stack: [], 
+          surface_type: getCapabilityID token }
 
-// --- Instruction Execution ---
+spawnSurface :: [Byte] -> SurfaceContext
+spawnSurface token = initVM token
 
-// executeSurfaceInstruction: Dispatches opcodes to specialized handlers.
-executeSurfaceInstruction :: Byte -> SurfaceContext -> SurfaceContext
-executeSurfaceInstruction op ctx =
-    if ctx.halted then ctx
-    else
-        deducted_ctx = deductEnergy 10 ctx // Baseline cost per instruction
-        if deducted_ctx.halted then deducted_ctx
+// --- Decode ---
+
+decode :: Byte -> Instruction
+decode opcode =
+    match opcode with
+    | 0x71 -> LOAD_SURFACE_DATA
+    | 0x73 -> PRINT_SURFACE
+    | 0x72 -> STORE_SURFACE
+    | 0x77 -> MERGE_SURFACES
+    | 0x78 -> REVOKE_SURFACE
+    | 0x79 -> ENERGY_QUERY
+    | 0x7A -> CHECK_COLLISION
+    | 0xFF -> HALT
+    | _    -> UNKNOWN
+
+// --- Execution Logic ---
+
+execute :: Instruction -> SurfaceContext -> SurfaceContext
+execute instr ctx =
+    match instr with
+    | LOAD_SURFACE_DATA ->
+        ptr = getDataPtr ctx.token
+        { ctx with stack = ctx.stack + [ptr], pc = ctx.pc + 1 }
+        
+    | PRINT_SURFACE ->
+        if not ctx.checksum_valid then error "Invalid checksum" ctx
+        else if ctx.energy <= 0 then { ctx with halted = True }
         else
-            match op with
-            | 0x73 -> handlePrintSurface deducted_ctx
-            | 0x77 -> handleMergeSurfaces deducted_ctx
-            | 0x78 -> handleRevokeSurface deducted_ctx
-            | 0x79 -> handleEnergyQuery deducted_ctx
-            | 0xFF -> { deducted_ctx with halted = True }
-            | _    -> error "Unknown Opcode" deducted_ctx
+            payload = readSurfacePayload ctx.token
+            print payload
+            deductEnergy 1 { ctx with pc = ctx.pc + 1 }
 
-// --- Surface-Aware Handlers ---
+    | MERGE_SURFACES ->
+        other = getOtherSurface ctx.token // Simulated environment lookup
+        if checkCollision ctx.token other then
+            merged = mergeTokens ctx.token other
+            deductEnergy 2 { ctx with token = merged, pc = ctx.pc + 1 }
+        else
+            { ctx with pc = ctx.pc + 1 }
 
-handlePrintSurface :: SurfaceContext -> SurfaceContext
-handlePrintSurface ctx =
-    payload = readSurfacePayload ctx.token
-    print payload
-    { ctx with pc = ctx.pc + 1 }
+    | REVOKE_SURFACE ->
+        revoked = setRevokeFlag ctx.token 1
+        { ctx with token = revoked, halted = True, pc = ctx.pc + 1 }
 
-handleRevokeSurface :: SurfaceContext -> SurfaceContext
-handleRevokeSurface ctx =
-    revoked_token = setByte ctx.token 18 1 // Offset 18 is revoke_flag
-    { ctx with token = revoked_token, halted = True }
+    | ENERGY_QUERY ->
+        print ("Energy: " ++ show ctx.energy)
+        { ctx with pc = ctx.pc + 1 }
 
-handleEnergyQuery :: SurfaceContext -> SurfaceContext
-handleEnergyQuery ctx =
-    { ctx with stack = [ctx.energy] + ctx.stack, pc = ctx.pc + 1 }
+    | CHECK_COLLISION ->
+        other = getOtherSurface ctx.token
+        if checkCollision ctx.token other then
+            print "Collision detected"
+        { ctx with pc = ctx.pc + 1 }
 
-// --- Energy and Spatial Helpers ---
+    | HALT ->
+        { ctx with halted = True }
+
+    | UNKNOWN ->
+        error "Unknown Opcode" ctx
+
+// --- Main Execution Loop ---
+
+run :: SurfaceContext -> String
+run ctx =
+    if ctx.halted then
+        if getRevokeFlag ctx.token == 1 then "Surface revoked"
+        else "Execution halted"
+    else if ctx.energy <= 0 then
+        "Out of energy"
+    else if not ctx.checksum_valid then
+        "Invalid checksum"
+    else
+        // Fetch
+        opcode = ctx.token[ctx.pc]
+        // Decode
+        instr = decode opcode
+        // Execute
+        new_ctx = execute instr ctx
+        // Recurse
+        run new_ctx
+
+// --- Helpers ---
 
 deductEnergy :: Int -> SurfaceContext -> SurfaceContext
 deductEnergy cost ctx =
     new_energy = ctx.energy - cost
-    if new_energy <= 0 then 
-        { ctx with energy = 0, halted = True }
-    else 
-        { ctx with energy = new_energy }
+    if new_energy <= 0 then { ctx with energy = 0, halted = True }
+    else { ctx with energy = new_energy }
 
-getEnergyBudget :: [Byte] -> Int
-getEnergyBudget t = (toInt t[8]) + ((toInt t[9]) * 256)
+checkCollision :: [Byte] -> [Byte] -> Bool
+checkCollision t1 t2 =
+    (getX t1 == getX t2) && (getY t1 == getY t2)
+
+verifyChecksum :: [Byte] -> Bool
+verifyChecksum t =
+    // Checksum at offset 19
+    stored = take 4 (drop 19 t)
+    stored == [0xBA, 0xBA, 0xFE, 0xCA] // Placeholder for 0xCAFEBABE
+
+getCapabilityID :: [Byte] -> Int
+getCapabilityID t = toInt t[0]
 
 getSpatialCoords :: [Byte] -> Spatial
-getSpatialCoords t = 
-    { x: (toInt t[4]) + ((toInt t[5]) * 256), 
-      y: (toInt t[6]) + ((toInt t[7]) * 256) }
+getSpatialCoords t = { x: toInt t[4], y: toInt t[6] }
+
+getX :: [Byte] -> Int
+getX t = toInt t[4]
+
+getY :: [Byte] -> Int
+getY t = toInt t[6]
+
+getEnergyBudget :: [Byte] -> Int
+getEnergyBudget t = toInt t[8]
 
 getRevokeFlag :: [Byte] -> Int
 getRevokeFlag t = toInt t[18]
 
-// --- Post-Surveillance & Security ---
+setRevokeFlag :: [Byte] -> Int -> [Byte]
+setRevokeFlag t flag = setByte t 18 flag
 
-verifyChecksum :: [Byte] -> Bool
-verifyChecksum token =
-    // Placeholder: Verification of last 4 bytes (offset 19) against payload hash
-    stored = take 4 (drop 19 token)
-    stored == [0xBA, 0xBA, 0xFE, 0xCA] // Placeholder for 0xCAFEBABE
+getDataPtr :: [Byte] -> Byte
+getDataPtr t = t[10] // Simplified for Phase 7.2
+
+readSurfacePayload :: [Byte] -> String
+readSurfacePayload t = "Hello, Codebook!" // Simulated from data_ptr
+
+getOtherSurface :: [Byte] -> [Byte]
+getOtherSurface t = t // Simulated collision with self for testing
+
+mergeTokens :: [Byte] -> [Byte] -> [Byte]
+mergeTokens t1 t2 = t1 // Placeholder merge logic
 
 error :: String -> SurfaceContext -> SurfaceContext
 error msg ctx =
     print ("VM ERROR: " ++ msg)
-    handleRevokeSurface ctx
+    { ctx with halted = True }
