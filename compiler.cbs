@@ -1,0 +1,52 @@
+// compiler.cbs
+// High-level interface for the CodebookScript (CBS) compiler.
+// Pod 0: Pure functional orchestration for post-surveillance environments.
+// "Atreyu named it."
+
+// --- Type Definitions ---
+// Tokens: The atomic units of the language.
+type Token = 
+      Keyword String 
+    | Identifier String 
+    | LiteralString String 
+    | LiteralInt Int 
+    | Operator String
+    | Symbol Char
+
+// AST: The hierarchical structure of the program.
+type AST = 
+      Program [Statement]
+    | Statement (Let String Expression | Print Expression | Return Expression | If Expression AST (Maybe AST) | While Expression AST)
+    | Expression (Literal Token | Var String | Binary Op Expression Expression)
+
+// Byte: The raw unit of the Codebook VM.
+type Byte = Int
+
+// --- Compiler Interface ---
+
+// Lexer: Consumes raw source string and produces a sequence of tokens.
+lexer :: String -> [Token]
+lexer source = [] // TODO: Implement transition-based lexing
+
+// Parser: Constructs the Abstract Syntax Tree (AST) from tokens.
+parser :: [Token] -> AST
+parser tokens = Program [] // TODO: Implement recursive descent parser
+
+// Compiler: Translates the AST into Codebook VM bytecode.
+compiler :: AST -> [Byte]
+compiler ast = [] // TODO: Implement bytecode emission
+
+// Runtime: Executes the bytecode within the spatial context.
+runtime :: [Byte] -> Output
+runtime bytecode = Nil // TODO: Implement CBS VM runtime
+
+// --- Entry Point ---
+
+// Main: Orchestrates the compilation and execution of a .cbs surface.
+main :: String -> Output
+main filename =
+    source = readFile filename
+    tokens = lexer source
+    ast = parser tokens
+    bytecode = compiler ast
+    runtime bytecode
