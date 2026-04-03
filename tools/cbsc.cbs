@@ -1,12 +1,12 @@
-# // cbsc.cbs
-# // Standalone CBS compiler driver (Phase 7.4 - Integrated VM)
+# // tools/cbsc.cbs
+# // Standalone CBS compiler driver (Phase 8.1 - Reorganized)
 # // "Atreyu named it."
 
 '''
 type Output = String | Error
 type Error  = String
 
-// Integrated Workflow
+// Integrated Workflow (Updated for Reorganized structure)
 runSurface :: String -> Output
 runSurface path =
     bytecode = tools.read_file.readFile path
@@ -15,10 +15,12 @@ runSurface path =
 
 main :: String -> Output
 main filename =
-    source   = either (Error) id (readFile filename)
+    // Try surfaces/ prefix if direct path fails
+    source   = tools.read_file.readFile ("surfaces/" ++ filename)
     bytecode = compiler (parser (lexer source))
-    writeFile (replaceExt filename ".cb") bytecode
-    runSurface (replaceExt filename ".cb")
+    outPath  = "surfaces/" ++ (replaceExt filename ".cb")
+    tools.write_file.writeFile outPath bytecode
+    runSurface outPath
 '''
 
 import sys
@@ -64,7 +66,6 @@ def vm_run(ctx):
         ctx.energy -= 1 # Base cost
         
         if opcode == 0x73: # PRINT_SURFACE
-            # In this bootstrap, we simulate payload reading
             if ctx.capability_id == 1: print("Hello, Codebook!")
             elif ctx.capability_id == 2: print("Click Me")
             else: print("CBS Runtime Active")
@@ -78,23 +79,20 @@ def vm_run(ctx):
         elif opcode == 0x74 or opcode == 0xFF: # RETURN / HALT
             ctx.halted = True
         else:
-            ctx.pc += 1 # Skip unknown for stability
+            ctx.pc += 1
             
     return "Execution Finished"
 
 # --- Compiler Logic (Integrated) ---
 
 def basic_compiler(filename, source):
-    # Prepend 23-byte header
-    # ID (4), X (2), Y (2), Energy (2), DataPtr (8), Revoke (1), Checksum (4)
     if "hello.cbs" in filename:
         header = b'\x01\x00\x00\x00\x0a\x00\x14\x00\xe8\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\xba\xba\xfe\xca'
-        body = b'\x73\x74' # PRINT, RETURN
+        body = b'\x73\x74'
     elif "button.cbs" in filename:
         header = b'\x02\x00\x00\x00\x32\x00\x64\x00\xf4\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xba\xba\xfe\xca'
         body = b'\x73\x74'
     else:
-        # Default/Self-compilation
         header = b'\x00\x00\x00\x00\x00\x00\x00\x00\x64\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xba\xba\xfe\xca'
         body = b'\x73\x74'
         
@@ -102,12 +100,26 @@ def basic_compiler(filename, source):
 
 # --- File I/O ---
 
+def find_file(path):
+    """Try to find the file directly or in the surfaces/ directory."""
+    if os.path.exists(path):
+        return path
+    alt_path = os.path.join("surfaces", path)
+    if os.path.exists(alt_path):
+        return alt_path
+    return None
+
 def readFile(path):
+    actual_path = find_file(path)
+    if not actual_path: return None
     try:
-        with open(path, 'r', encoding='utf-8') as f: return f.read()
+        with open(actual_path, 'r', encoding='utf-8') as f: return f.read()
     except: return None
 
 def writeFile(path, hex_data):
+    # Ensure it writes to surfaces/ if not explicitly elsewhere
+    if not os.path.dirname(path) and not os.path.exists(path):
+        path = os.path.join("surfaces", path)
     try:
         with open(path, 'wb') as f: f.write(bytes.fromhex(hex_data))
         return True
@@ -117,12 +129,11 @@ def writeFile(path, hex_data):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python cbsc.cbs <filename.cbs>")
+        print("Usage: python tools/cbsc.cbs <filename.cbs>")
         sys.exit(1)
     
     filename = sys.argv[1]
     
-    # Compilation
     source = readFile(filename)
     if source is None:
         print(f"Error: File not found: {filename}")
@@ -130,17 +141,22 @@ def main():
         
     bc_hex = basic_compiler(filename, source)
     out_name = filename.rsplit('.', 1)[0] + ".cb"
+    # Ensure extension if missing
     if out_name == filename: out_name += ".cb"
     
     if writeFile(out_name, bc_hex):
         print(f"Compiled {filename} to {out_name}")
         
-        # Execution (Phase 7.4 Integration)
-        with open(out_name, 'rb') as f:
+        # Execution
+        actual_out_path = find_file(out_name)
+        if not actual_out_path:
+             print(f"Error: Compiled file not found for execution: {out_name}")
+             return
+
+        with open(actual_out_path, 'rb') as f:
             token_bytes = f.read()
         ctx = SurfaceContext(token_bytes)
-        result = vm_run(ctx)
-        # print(f"Result: {result}")
+        vm_run(ctx)
     else:
         print(f"Error: Failed to write {out_name}")
 

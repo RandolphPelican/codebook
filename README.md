@@ -2,7 +2,7 @@
 
 ---
 ## Context
-- **CBS ASM VM:** The bytecode is executed natively by the CBS toolchain (`cbsc.cbs` calling internal VM logic derived from `tools/vm.cbs`). The VM expects a 23-byte surface token header followed by bytecode payloads.
+- **CBS ASM VM:** The bytecode is executed natively by the CBS toolchain (`tools/cbsc.cbs` calling internal VM logic derived from `tools/vm.cbs`). The VM expects a 23-byte surface token header followed by bytecode payloads.
 - **Test Files:**
   ```bash
   surfaces/
@@ -26,56 +26,39 @@
 
 ---
 
-# Codebook OS: CBS Toolchain (Phase 7)
+# Codebook OS: CBS Toolchain (Phase 8)
 
 ### Pure CBS Toolchain
-As of **v3.5-pure-cbs-toolchain**, Codebook OS uses a **fully CBS-native toolchain**:
-- **Compilation & Execution**: `python cbsc.cbs surfaces/hello.cbs` (Compiles and runs in one step).
-- **Surface Execution**: Handled by integrated logic in `cbsc.cbs` (derived from `tools/vm.cbs`).
-- **Energy Budgeting**: Enforced during execution.
-- **Post-Surveillance**: Surfaces are revoked on invalid checksums or explicit commands.
+As of **v4.0-reorganized-structure**, the CBS toolchain is organized for Codebook OS v1.0. `tools/cbsc.cbs` is the central driver for compilation and native execution.
 
 **Usage:**
 ```bash
 # Compile and run a .cbs surface
-python cbsc.cbs surfaces/hello.cbs
+python tools/cbsc.cbs hello.cbs
+# OR
+python tools/cbsc.cbs surfaces/hello.cbs
 ```
 
 ### Expected Output
 - `surfaces/hello.cb` is created.
-- Terminal prints: `Compiled surfaces/hello.cbs to surfaces/hello.cb`
+- Terminal prints: `Compiled surfaces/hello.cbs to hello.cb`
 - VM outputs: `Hello, Codebook!`
 
 ### Toolchain Dependencies (Python-Free Execution)
 | Tool | Language | Purpose |
 |------|----------|---------|
-| `cbsc.cbs` | CBS / Python | Driver: Compiles and runs surfaces natively. |
+| `tools/cbsc.cbs` | CBS / Python | Driver: Compiles and runs surfaces natively. |
 | `tools/vm.cbs` | CBS | VM Logic: Executes surface tokens with energy budgeting. |
 | `tools/read_file.cbs` | CBS | Logic: Reads `.cbs`/`.cb` files. |
 | `tools/write_file.cbs` | CBS | Logic: Writes `.cb` files. |
 
-**Note:** Python is only used as a host for the CBS drivers during development. `runtime.py` has been fully removed.
+**Note:** Python is used only as a host for the CBS drivers during development.
 
 ### Deprecation Notes
 | File | Status | Replaced By |
 |------|--------|-------------|
-| `runtime.py` | ❌ Deleted | `cbsc.cbs` (Integrated VM) |
-| `read_file.py` | ❌ Deleted | `tools/read_file.cbs` |
-| `write_file.py` | ❌ Deleted | `tools/write_file.cbs` |
-| `bootstrap.py` | ❌ Deleted | `cbsc.cbs` |
-
-### Future Work
-- Rewrite the host driver (`cbsc.cbs`) entirely in CBS (self-hosting).
-- Add full SHA-256 quantum-resistant checksum implementation.
-- Implement the semantic filesystem (`Morla`) on bare metal.
-
-### Troubleshooting
-- **Error: "File not found"**
-  Ensure paths are relative (e.g., `surfaces/hello.cbs`).
-- **VM crashes**
-  Check that `cbsc.cbs` generates valid 23-byte headers and correct opcodes.
-- **Silent failures**
-  Verify energy budgets and checksum placeholders (`0xCAFEBABE`).
+| `runtime.py` | ❌ Deleted | `tools/cbsc.cbs` (Integrated VM) |
+| `cbsc.cbs` (root) | ❌ Moved | `tools/cbsc.cbs` |
 
 ---
 
