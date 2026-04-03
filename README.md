@@ -140,6 +140,17 @@ The compiler is written in CBS itself (Phase 4 complete) and follows a functiona
 - `parser.cbs`: Builds the Abstract Syntax Tree (AST).
 - `compiler.cbs`: Emits Codebook VM bytecode (0x71-0x74).
 
+### Self-Compilation Test
+```bash
+python cbsc.cbs cbsc.cbs  # Generates cbsc.cb
+python runtime.py cbsc.cb # Runs cbsc.cb in the ASM VM
+```
+
+Expected:
+- `cbsc.cb` is created.
+- Terminal prints: `Compiled cbsc.cbs to cbsc.cb`
+- ASM VM outputs: `Hello, Codebook!`
+
 ---
 
 StableTech Enterprises LLC  
