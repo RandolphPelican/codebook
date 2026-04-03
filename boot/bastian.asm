@@ -99,7 +99,7 @@ bastian_home:
     movzx eax,word [rel key_data+2]
     cmp al,'0'
     jb .go_run
-    cmp al,'4'
+    cmp al,'7'
     ja .go_run
     movzx edi, al
     call auryn_putc

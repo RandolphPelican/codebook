@@ -349,6 +349,12 @@ gmork_main:
     je .run_3
     cmp al, 4
     je .run_4
+    cmp al, 5
+    je .run_5
+    cmp al, 6
+    je .run_6
+    cmp al, 7
+    je .run_7
     jmp .run_bad
 
 .run_0: lea r12, [rel cbs_demo]
@@ -360,6 +366,12 @@ gmork_main:
 .run_3: lea r12, [rel prog3]
     jmp .run_go
 .run_4: lea r12, [rel prog4]
+    jmp .run_go
+.run_5: lea r12, [rel surface_hello]
+    jmp .run_go
+.run_6: lea r12, [rel surface_sched_stub]
+    jmp .run_go
+.run_7: lea r12, [rel surface_compiler_stub]
     jmp .run_go
 
 .run_go:

@@ -119,7 +119,7 @@ str_bh_menu:
     db '  3. Rockbiter System Stats',10
     db '  4. Run CBS Program',10,10,0
 str_bh_prompt:     db 'Select [1-4]: ',0
-str_bh_run_prompt: db 'Program [0-4]: ',0
+str_bh_run_prompt: db 'Program [0-7]: ',0
 
 str_nl:     db 10,0
 str_sp:     db ' ',0
@@ -195,14 +195,17 @@ str_vm_rsv:   db '  Reserve ',0
 str_vm_jok:   db 'j: OK',10,0
 str_vm_deg:   db '  DEGRADED: insufficient energy',10,0
 str_vm_unk:   db '  Unknown opcode: ',0
-str_run_bad:  db '  Usage: run <0-4>',10,0
+str_run_bad:  db '  Usage: run <0-7>',10,0
 
 str_prog_list:
     db '  CBS Demo Programs:',10
-    db '  1  Hello     print greeting',10
-    db '  2  Math      42 + 8 with energy',10
-    db '  3  Loop      count 1 to 10',10
-    db '  4  Fibonacci fib(10) = 55',10,10,0
+    db '  1  Hello            print greeting',10
+    db '  2  Math             42 + 8 with energy',10
+    db '  3  Loop             count 1 to 10',10
+    db '  4  Fibonacci        fib(10) = 55',10
+    db '  5  Hello Surface    hello CBS surface',10
+    db '  6  Sched Stub       scheduler stub active',10
+    db '  7  Compiler Stub    compiler stub active',10,10,0
 
 
 ; =============================================================
@@ -212,10 +215,13 @@ str_prog_list:
 ; Program table (0-indexed internally, user sees 1-4)
 prog_table:
     dq cbs_demo              ; 0 = full CBS demo
-    dq prog1                ; run 1
-    dq prog2                ; run 2
-    dq prog3                ; run 3
-    dq prog4                ; run 4
+    dq prog1                 ; run 1
+    dq prog2                 ; run 2
+    dq prog3                 ; run 3
+    dq prog4                 ; run 4
+    dq surface_hello         ; run 5
+    dq surface_sched_stub    ; run 6
+    dq surface_compiler_stub ; run 7
 
 ; --- Program 1: Hello ---
 ; Prints "Hello CodebookOS!" char by char
@@ -428,6 +434,48 @@ prog4:
     db OP_LOAD
     dd 1
     db OP_RET
+
+; --- Program 5: surface_hello ---
+; RESERVE 50j, PUSH_STR "hello CBS surface", PRINT_STR, NEWLINE, HALT
+; PUSH_STR format: opcode 0x02, dw len, raw bytes, pad to 4-byte alignment
+; "hello CBS surface" = 17 bytes; 17 & 3 = 1 → pad 3
+surface_hello:
+    db OP_RESERVE
+    dd 50
+    db OP_PUSH_STR
+    dw 17
+    db 'hello CBS surface'
+    db 0, 0, 0              ; alignment pad (17 % 4 = 1, pad = 3)
+    db OP_PRINT_STR
+    db OP_NEWLINE
+    db OP_HALT
+
+; --- Program 6: surface_sched_stub ---
+; RESERVE 100j, PUSH_STR "scheduler stub active", PRINT_STR, NEWLINE, HALT
+; "scheduler stub active" = 21 bytes; 21 & 3 = 1 → pad 3
+surface_sched_stub:
+    db OP_RESERVE
+    dd 100
+    db OP_PUSH_STR
+    dw 21
+    db 'scheduler stub active'
+    db 0, 0, 0              ; alignment pad (21 % 4 = 1, pad = 3)
+    db OP_PRINT_STR
+    db OP_NEWLINE
+    db OP_HALT
+
+; --- Program 7: surface_compiler_stub ---
+; RESERVE 100j, PUSH_STR "compiler stub active", PRINT_STR, NEWLINE, HALT
+; "compiler stub active" = 20 bytes; 20 & 3 = 0 → no pad
+surface_compiler_stub:
+    db OP_RESERVE
+    dd 100
+    db OP_PUSH_STR
+    dw 20
+    db 'compiler stub active' ; no alignment pad needed (20 % 4 = 0)
+    db OP_PRINT_STR
+    db OP_NEWLINE
+    db OP_HALT
 
 ; =============================================================
 ; CBS Demo — compiled bytecode (from atreyu_x86.py)
