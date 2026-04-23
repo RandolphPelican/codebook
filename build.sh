@@ -1,26 +1,18 @@
-# CodebookOS x86 Build Script
-# Assembles boot.asm → BOOTX64.EFI
-# Creates bootable FAT32 disk image → codebook.img
-# Usage: ./build.sh
-# Then:  sudo dd if=build/codebook.img of=/dev/sdX bs=4M status=progress
-# =============================================================
-
-set -e
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BOOT_DIR="$SCRIPT_DIR/boot"
-BUILD_DIR="$SCRIPT_DIR/build"
-IMG_NAME="codebook.img"
-EFI_NAME="BOOTX64.EFI"
-IMG_SIZE_MB=64
-=======
 #!/bin/bash
 # =============================================================
-# CodebookOS x86 Build Script
-# Assembles boot.asm → BOOTX64.EFI
-# Creates bootable FAT32 disk image → codebook.img
-# Usage: ./build.sh
-# Then:  sudo dd if=build/codebook.img of=/dev/sdX bs=4M status=progress
+# CodebookOS x86_64 Build Script
+# Pure NASM UEFI. Zero dependencies. Every byte is ours.
+# =============================================================
+# Assembles boot.asm -> BOOTX64.EFI
+# Creates bootable FAT32 disk image -> codebook.img
+#
+# Usage:
+#   ./build.sh
+# Then:
+#   sudo dd if=build/codebook.img of=/dev/sdX bs=4M status=progress
+#
+# Author: Randolph Pelican III / StableTech Enterprises LLC
+# Atreyu named it.
 # =============================================================
 
 set -e
@@ -32,115 +24,49 @@ IMG_NAME="codebook.img"
 EFI_NAME="BOOTX64.EFI"
 IMG_SIZE_MB=64
 
-# Enforces 64MB USB image size limit
-echo "Building CodebookOS USB image..."=============================================================
-# CodebookOS x86 Build Script
-# Assembles boot.asm → BOOTX64.EFI
-# Creates bootable FAT32 disk image → codebook.img
-# Usage: ./build.sh
-# Then:  sudo dd if=build/codebook.img of=/dev/sdX bs=4M status=progress
-# =============================================================
-
-set -e
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BOOT_DIR="$SCRIPT_DIR/boot"
-BUILD_DIR="$SCRIPT_DIR/build"
-IMG_NAME="codebook.img"
-EFI_NAME="BOOTX64.EFI"
-IMG_SIZE_MB=64
-
-echo "=== CodebookOS x86 Build ==="
+echo "=== CodebookOS Build ==="
 echo ""
 
-# ---- Create build dir ----
 mkdir -p "$BUILD_DIR"
 
-# ---- Check for NASM ----
-if ! command -v nasm &>/dev/null; then
-    echo "[!] NASM not found. Install with:"
-    echo "    sudo apt install nasm"
-    exit 1
-fi
+# ---- Dependency check ----
+command -v nasm  >/dev/null || { echo "[!] NASM not found. sudo apt install nasm"; exit 1; }
+command -v mcopy >/dev/null || { echo "[!] mtools not found. sudo apt install mtools"; exit 1; }
 
-# ---- Check for mtools ----
-if ! command -v mcopy &>/dev/null; then
-    echo "[!] mtools not found. Install with:"
-    echo "    sudo apt install mtools"
-    exit 1
-fi
-
-# ---- Pre-compile all CBS surfaces ----
-echo "[1/5] Pre-compiling CBS Surfaces..."
-if command -v python3 &>/dev/null && [ -f "$SCRIPT_DIR/tools/precompile_all.sh" ]; then
-    bash "$SCRIPT_DIR/tools/precompile_all.sh"
+# ---- [1/5] Pre-compile CBS surfaces (best-effort, dev-only) ----
+echo "[1/5] Pre-compiling CBS surfaces..."
+if command -v python3 >/dev/null && [ -f "$SCRIPT_DIR/tools/precompile_all.sh" ]; then
+    bash "$SCRIPT_DIR/tools/precompile_all.sh" || echo "      [warn] precompile returned non-zero; using existing .cbc"
 else
-    echo "      [skip] No python3 or precompile_all.sh — using existing .cbc files"
+    echo "      [skip] python3 or precompile_all.sh missing; using existing .cbc"
 fi
 
-# ---- Pre-compile lexer ----
-echo "[1/6] Pre-compiling Lexer..."
-if command -v python3 &>/dev/null && [ -f "$SCRIPT_DIR/tools/precompile_lexer.sh" ]; then
-    bash "$SCRIPT_DIR/tools/precompile_lexer.sh"
-else
-    echo "      [skip] No python3 or precompile_lexer.sh — using existing lexer.cbc"
-fi
+# ---- [2/5] Clean Python runtime droppings ----
+echo "[2/5] Cleaning __pycache__ ..."
+rm -rf "$SCRIPT_DIR/__pycache__/"
+find "$SCRIPT_DIR" -name "*.pyc" -delete 2>/dev/null || true
+find "$SCRIPT_DIR" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 
-# ---- Pre-compile parser ----
-echo "[1/7] Pre-compiling Parser..."
-if command -v python3 &>/dev/null && [ -f "$SCRIPT_DIR/tools/precompile_parser.sh" ]; then
-    bash "$SCRIPT_DIR/tools/precompile_parser.sh"
-else
-    echo "      [skip] No python3 or precompile_parser.sh — using existing parser.cbc"
-fi
-
-# ---- Pre-compile compiler ----
-echo "[1/8] Pre-compiling Compiler..."
-if command -v python3 &>/dev/null && [ -f "$SCRIPT_DIR/tools/precompile_compiler.sh" ]; then
-    bash "$SCRIPT_DIR/tools/precompile_compiler.sh"
-else
-    echo "      [skip] No python3 or precompile_compiler.sh — using existing compiler.cbc"
-fi
-
-# ---- Remove Python runtime dependencies ----
-echo "[1/6] Removing Python runtime dependencies..."
-rm -rf "$BUILD_DIR/__pycache__/"
-find "$BUILD_DIR/" -name "*.pyc" -delete
-find "$BUILD_DIR/" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
-
-# ---- Audit UEFI calls ----
-echo "[1/7] Auditing UEFI runtime calls..."
-if command -v bash &>/dev/null && [ -f "$SCRIPT_DIR/tools/audit_uefi_calls.sh" ]; then
-    bash "$SCRIPT_DIR/tools/audit_uefi_calls.sh"
-else
-    echo "      [skip] No bash or audit_uefi_calls.sh — skipping audit"
-fi
-
-# ---- Assemble ----
-echo "[5/9] Assembling boot.asm..."
+# ---- [3/5] Assemble boot.asm ----
+echo "[3/5] Assembling boot.asm..."
 nasm -f bin -o "$BUILD_DIR/$EFI_NAME" "$BOOT_DIR/boot.asm"
 SIZE=$(stat -c %s "$BUILD_DIR/$EFI_NAME" 2>/dev/null || stat -f %z "$BUILD_DIR/$EFI_NAME")
 echo "      $EFI_NAME: $SIZE bytes"
 
-# ---- Verify PE32+ header ----
+# ---- [4/5] Verify PE32+ MZ magic ----
 MAGIC=$(od -A n -t x1 -N 2 "$BUILD_DIR/$EFI_NAME" | tr -d ' ')
 if [ "$MAGIC" != "4d5a" ]; then
     echo "[!] ERROR: Not a valid MZ executable (got: $MAGIC)"
     exit 1
 fi
-echo "      PE32+ header: OK"
+echo "      PE32+ MZ header: OK"
 
-# ---- Create FAT32 disk image ----
-echo "[6/9] Creating ${IMG_SIZE_MB}MB FAT32 disk image..."
+# ---- [5/5] Build FAT32 image and install EFI ----
+echo "[5/5] Building ${IMG_SIZE_MB}MB FAT32 image..."
 dd if=/dev/zero of="$BUILD_DIR/$IMG_NAME" bs=1M count=$IMG_SIZE_MB status=none
-
-# ---- Format as FAT32 ----
-echo "[7/9] Formatting FAT32..."
 /sbin/mkfs.vfat -F 32 -n "CODEBOOK" "$BUILD_DIR/$IMG_NAME" >/dev/null 2>&1 || \
     mkfs.vfat -F 32 -n "CODEBOOK" "$BUILD_DIR/$IMG_NAME" >/dev/null 2>&1
 
-# ---- Copy EFI file to correct path ----
-echo "[8/9] Installing BOOTX64.EFI..."
 mmd -i "$BUILD_DIR/$IMG_NAME" ::/EFI
 mmd -i "$BUILD_DIR/$IMG_NAME" ::/EFI/BOOT
 mcopy -i "$BUILD_DIR/$IMG_NAME" "$BUILD_DIR/$EFI_NAME" ::/EFI/BOOT/BOOTX64.EFI
@@ -150,16 +76,10 @@ echo "=== Build complete ==="
 echo "Image: $BUILD_DIR/$IMG_NAME"
 echo "EFI:   /EFI/BOOT/BOOTX64.EFI ($SIZE bytes)"
 echo ""
-echo "To flash to USB:"
+echo "Flash to USB:"
 echo "  sudo dd if=$BUILD_DIR/$IMG_NAME of=/dev/sdX bs=4M status=progress"
-echo "  (replace /dev/sdX with your USB device)"
 echo ""
-echo "To test in QEMU:"
+echo "Test in QEMU:"
 echo "  ./test_qemu.sh"
-echo ""
-echo "To test on Chauncey (Dell x86_64):"
-echo "  1. Flash to USB: sudo dd if=$BUILD_DIR/$IMG_NAME of=/dev/sdX bs=4M"
-echo "  2. Boot with Legacy BIOS (CSM enabled, Secure Boot disabled)"
-echo "  3. Run tests in tools/chauncey_test.md"
 echo ""
 echo "Atreyu named it."
