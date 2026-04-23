@@ -204,6 +204,12 @@ str_paging_success: db 'Identity page tables installed successfully.',10,0
 str_compile_success: db 'Compiled and ran successfully!',10,0
 str_compile_error: db 'Compile or run failed.',10,0
 
+; V1.0 stub -- see boot/gmork_cmds.asm .c_compile.
+; str_compile_success / str_compile_error preserved for V1.1.
+str_compile_v1_1:
+    db '  compile: on-device compile is V1.1.',10
+    db '  V1.0: use load <filename.cbc> to run pre-compiled CBS.',10,0
+
 ; CBS VM strings
 str_vm_start: db '  --- CBS VM executing ---',10,0
 str_vm_halt:  db '  HALT',10,0

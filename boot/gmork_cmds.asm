@@ -351,30 +351,10 @@ gmork_main:
 
 ; ---- RUN N (execute CBS bytecode) ----
 .c_compile:
-    ; rax = pointer to char after "compile "
-    mov rsi, rax
-    call parse_filename
-    test rax, rax
-    jz .compile_error
-
-    ; Run cb_compiler.cbc with filename as argument
-    mov rdi, rax
-    call vm_run_compiler
-    test rax, rax
-    jnz .compile_error
-
-    ; Load compiled .cbc file and run it
-    mov rsi, rax
-    call morla_run_file
-    test rax, rax
-    jnz .compile_error
-
-    lea rsi, [rel str_compile_success]
-    call auryn_puts
-    jmp .prompt
-
-.compile_error:
-    lea rsi, [rel str_compile_error]
+    ; On-device CBS compilation is RESERVED FOR V1.1.
+    ; V1.0 ships pre-compiled .cbc files; the real pipeline
+    ; (lex/parse/codegen) runs on the dev host, not on the metal.
+    lea rsi, [rel str_compile_v1_1]
     call auryn_puts
     jmp .prompt
 

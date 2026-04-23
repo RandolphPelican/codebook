@@ -55,15 +55,10 @@ morla_write_file:
     jmp .d
 
 .native_fat32:
-    ; Native FAT32 path
-    pop r8  ; buffer
-    pop rdx ; size
-    mov rsi, rdi ; filename
-    mov rcx, rdx ; size
-    mov r8d, 1   ; create/overwrite flag
-    call fat32_write_file
-    test rax, rax
-    jnz .err
+    ; Native FAT32 write deferred to V1.1 -- driver in
+    ; drivers/_future/fat32_write.asm pending smoke-testing.
+    ; Route to .err_pop which pops saved buffer/size (16 bytes).
+    jmp .err_pop
 
 .d: pop r13
     pop r12
