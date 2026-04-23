@@ -176,98 +176,184 @@ bastian_home:
     jmp bastian_home
 
 bastian_main:
-    mov edi, COLOR_BLACK
-    call auryn_fill
-    mov dword [rel bastian_sel], 1
+    mov dword [rel bastian_sel], 0
 
 .redraw:
     mov edi, COLOR_BLACK
     call auryn_fill
     call cursor_home
-    lea rsi, [rel str_bastian_head]
     mov dword [rel current_color], COLOR_GOLD
+    lea rsi, [rel str_bh_pad]
     call auryn_puts
-
-    mov ecx, 1
-.sl:
-    cmp ecx, [rel bastian_sel]
-    jne .sn
+    lea rsi, [rel str_bastian_head]
+    call auryn_puts
+    mov dword [rel current_color], COLOR_WHITE
+    xor ecx, ecx
+.row:
+    push rcx
+    mov eax, [rel bastian_sel]
+    cmp eax, ecx
+    jne .row_no_sel
     mov dword [rel current_color], COLOR_GOLD
     lea rsi, [rel str_sel_pre]
-    call auryn_puts
-    jmp .sp
-.sn:
-    mov dword [rel current_color], COLOR_WHITE
+    jmp .row_puts_pfx
+.row_no_sel:
     lea rsi, [rel str_sel_none]
+.row_puts_pfx:
     call auryn_puts
-.sp:
+    pop rcx
+    push rcx
     lea rbx, [rel surface_table]
-    mov rsi, [rbx + rcx*8 - 8]
+    mov rsi, [rbx + rcx*8]
     call auryn_puts
-    lea rsi, [rel str_nl]
-    call auryn_puts
-
+    mov edi, 10
+    call auryn_putc
+    mov dword [rel current_color], COLOR_WHITE
+    pop rcx
     inc ecx
-    cmp ecx, 13
-    jl .sl
+    cmp ecx, 12
+    jl .row
 
-.rk:
-    lea rbx,[rel uefi_data]
-    mov rax,[rbx+32]
-    mov rax,[rax+BS_WAITFOREVENT]
-    mov ecx,1
-    mov rdx,[rbx+24]
-    lea rdx,[rdx+CONIN_WAITKEY]
-    lea r8,[rel event_index]
+.key:
+    cmp byte [rel uefi_exited], 1
+    je .key_native
+.key_uefi:
+    lea rbx, [rel uefi_data]
+    mov rax, [rbx+32]
+    mov rax, [rax+BS_WAITFOREVENT]
+    mov ecx, 1
+    mov rdx, [rbx+24]
+    lea rdx, [rdx+CONIN_WAITKEY]
+    lea r8, [rel event_index]
     call rax
-    lea rbx,[rel uefi_data]
-    mov rcx,[rbx+24]
-    mov rax,[rcx+CONIN_READKEY]
-    lea rdx,[rel key_data]
+    lea rbx, [rel uefi_data]
+    mov rcx, [rbx+24]
+    mov rax, [rcx+CONIN_READKEY]
+    lea rdx, [rel key_data]
     call rax
-    test rax,rax
-    jnz .rk
+    test rax, rax
+    jnz .key
+    jmp .key_dispatch
+.key_native:
+    call native_keyboard_read
+    test rax, rax
+    jnz .key_native
 
-    movzx eax,word [rel key_data]     ; ScanCode
-    cmp eax, 0x01   ; UP
+.key_dispatch:
+    ; key_data[0..1] = ScanCode, key_data[2..3] = UnicodeChar
+    ; UEFI ScanCodes: 0x01=Up  0x02=Down  0x17=Esc
+    movzx eax, word [rel key_data]
+    movzx edx, word [rel key_data+2]
+    cmp ax, 0x01
     je .up
-    cmp eax, 0x02   ; DOWN
+    cmp ax, 0x02
     je .down
-
-    movzx eax,word [rel key_data+2]   ; UnicodeChar
-    cmp al, 13      ; ENTER
+    cmp ax, 0x17
+    je .exit
+    cmp dl, 13
     je .launch
-    jmp .rk
+    cmp dl, 27
+    je .exit
+    jmp .key
 
 .up:
     mov eax, [rel bastian_sel]
-    dec eax
     test eax, eax
-    jnz .up_ok
-    mov eax, 12
-.up_ok:
+    jz .redraw
+    dec eax
     mov [rel bastian_sel], eax
     jmp .redraw
-
 .down:
     mov eax, [rel bastian_sel]
+    cmp eax, 11
+    jge .redraw
     inc eax
-    cmp eax, 13
-    jl .dn_ok
-    mov eax, 1
-.dn_ok:
     mov [rel bastian_sel], eax
     jmp .redraw
 
 .launch:
     mov eax, [rel bastian_sel]
+    cmp eax, 0
+    je .l_bastian
     cmp eax, 1
-    je gmork_main
-    ; Else, stub
-    lea rsi, [rel str_stub]
-    call auryn_puts
-    call stall_1500
+    je .l_gmork
+    cmp eax, 2
+    je .l_morla
+    cmp eax, 3
+    je .l_atreyu
+    cmp eax, 4
+    je .l_rockbiter
+    cmp eax, 5
+    je .l_auryn
+    cmp eax, 6
+    je .l_empress
+    cmp eax, 7
+    je .l_koreander
+    cmp eax, 8
+    je .l_falkor
+    cmp eax, 9
+    je .l_sphinx
+    cmp eax, 10
+    je .l_artax
+    cmp eax, 11
+    je .l_engywook
     jmp .redraw
+
+.l_bastian:
+    jmp bastian_home
+.l_gmork:
+    jmp gmork_main
+.l_atreyu:
+    mov edi, COLOR_BLACK
+    call auryn_fill
+    call cursor_home
+    lea r12, [rel atreyu_cbs_prog]
+    mov r14d, 100000
+    call cbs_run
+    jmp .redraw
+.l_rockbiter:
+    mov edi, COLOR_BLACK
+    call auryn_fill
+    call cursor_home
+    lea r12, [rel rockbiter_cbs_prog]
+    mov r14d, 100000
+    call cbs_run
+    jmp .redraw
+.l_morla:
+    lea rsi, [rel str_soon_morla]
+    call show_coming_soon
+    jmp .redraw
+.l_auryn:
+    lea rsi, [rel str_soon_auryn]
+    call show_coming_soon
+    jmp .redraw
+.l_empress:
+    lea rsi, [rel str_soon_empress]
+    call show_coming_soon
+    jmp .redraw
+.l_koreander:
+    lea rsi, [rel str_soon_koreander]
+    call show_coming_soon
+    jmp .redraw
+.l_falkor:
+    lea rsi, [rel str_soon_falkor]
+    call show_coming_soon
+    jmp .redraw
+.l_sphinx:
+    lea rsi, [rel str_soon_sphinx]
+    call show_coming_soon
+    jmp .redraw
+.l_artax:
+    lea rsi, [rel str_soon_artax]
+    call show_coming_soon
+    jmp .redraw
+.l_engywook:
+    lea rsi, [rel str_soon_engywook]
+    call show_coming_soon
+    jmp .redraw
+
+.exit:
+    jmp bastian_home
 
 surface_table:
     dq str_s1, str_s2, str_s3, str_s4, str_s5, str_s6, str_s7, str_s8, str_s9, str_s10, str_s11, str_s12
