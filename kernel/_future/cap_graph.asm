@@ -1,3 +1,31 @@
+; =============================================================
+; Capability Graph + Energy Budgeting — RESERVED FOR V1.1+
+; =============================================================
+; This file is NOT included in the V1.0 boot image.
+;
+; Issues blocking reintegration:
+;   - cap_root: CAP_NODE is not valid NASM struct instantiation.
+;     Correct form: cap_root: istruc CAP_NODE ... iend.
+;   - Uses 32-bit registers (eax/ebx/ecx) for pointers throughout.
+;     In long mode, 32-bit ops zero the upper 32 bits -- every
+;     pointer deref is corrupt.
+;   - lea eax, [cap_graph + ecx * CAP_NODE_size]: invalid 64-bit
+;     effective address.
+;
+; Note: OP_GRANT_CAP_NEW (0xCA000003) and OP_USE_CAP_NEW (0xCA000004)
+; in boot/defines.asm are 32-bit opcode values, but the CBS VM fetch
+; loop reads ONE byte per opcode. The new handlers were unreachable
+; dead code and have been removed from cbs_vm.asm.
+;
+; Resurrection checklist:
+;   1. Convert all pointer math to 64-bit (rax/rbx/rcx/rdx/rdi/rsi).
+;   2. Fix struct instantiation using istruc ... iend.
+;   3. Choose single-byte opcode values for the new caps and wire
+;      them into the existing .op_grant_cap / .op_use_cap dispatch.
+;   4. Test capability chain with energy accounting.
+;
+; Core concept preserved. Atreyu named it.
+; =============================================================
 ; =============================================================================
 ; Capability Graph + Energy Budgeting for CodebookOS
 ; =============================================================================

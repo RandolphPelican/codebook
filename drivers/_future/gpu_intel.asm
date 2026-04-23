@@ -1,3 +1,24 @@
+; =============================================================
+; Intel iGPU Framebuffer Ownership — RESERVED FOR V1.1+
+; =============================================================
+; This file is NOT included in the V1.0 boot image.
+;
+; Issues blocking reintegration:
+;   - mov eax, 0x80000000 | (ebx << 8) | 0x00: NASM cannot shift
+;     a register value at assemble time. PCI address composition
+;     must happen at runtime.
+;   - out PCI_CONF_ADDRESS, eax: out with immediate port accepts
+;     only 8-bit ports. 0xCF8 needs mov dx, 0xCF8; out dx, eax.
+;   - section .data: invalid in NASM -f bin mode.
+;
+; Resurrection checklist:
+;   1. Rewrite gpu_intel_scan_pci with runtime PCI address math.
+;   2. Replace all out imm16, eax with mov dx, port; out dx, eax.
+;   3. Move pci_intel_bus_dev declaration to boot/data.asm.
+;   4. Smoke-test PCI enumeration in QEMU and on Chauncey hardware.
+;
+; Core concept preserved. Atreyu named it.
+; =============================================================
 ; =============================================================================
 ; Intel iGPU Framebuffer Ownership Lock for Codebook OS
 ; =============================================================================

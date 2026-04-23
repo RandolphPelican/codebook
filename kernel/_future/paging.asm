@@ -1,3 +1,24 @@
+; =============================================================
+; Identity-Mapped Page Tables — RESERVED FOR V1.1+
+; =============================================================
+; This file is NOT included in the V1.0 boot image.
+;
+; Issues blocking reintegration:
+;   - call memory_allocate: symbol undefined anywhere in the tree.
+;   - paging_get_pt_entry(rcx): C call syntax, not valid NASM.
+;   - PTE_PCD referenced but never equ'd.
+;   - new_cr3 dq 0 data declaration mixed into code section.
+;
+; Resurrection checklist:
+;   1. Implement a bump allocator OR reserve a static page pool.
+;   2. Rewrite paging_get_pt_entry as a proper label with [rel ...]
+;      addressing; no C-style call syntax.
+;   3. Define all PTE_* constants (including PTE_PCD) at top of file.
+;   4. Move new_cr3 to boot/data.asm.
+;   5. Smoke-test CR3 switch in QEMU before real hardware.
+;
+; Core concept preserved. Atreyu named it.
+; =============================================================
 ; =============================================================================
 ; Identity-Mapped Page Table Builder for Codebook OS
 ; =============================================================================

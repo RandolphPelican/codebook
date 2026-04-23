@@ -394,15 +394,6 @@ cbs_run:
     add     r13, 8
     jmp     .fetch
 
-.op_grant_cap_new:
-    ; Grant capability (new)
-    call cap_grant
-    jmp .fetch
-
-.op_use_cap_new:
-    ; Use capability (new)
-    call cap_use
-    jmp .fetch
 
 .cap_atreyu:
     cmp     rcx, 1
