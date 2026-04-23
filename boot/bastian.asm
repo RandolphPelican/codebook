@@ -4,6 +4,47 @@
 ; Depends: auryn_puts, auryn_fill, morla_run_file, gmork_main
 ; =============================================================
 
+show_coming_soon:
+    ; In:  rsi = pointer to null-terminated flavor string
+    ; Clobbers: rax, rbx, rcx, rdx, rsi, r8
+    push rsi
+    mov edi, COLOR_BLACK
+    call auryn_fill
+    call cursor_home
+    mov dword [rel current_color], COLOR_GOLD
+    lea rsi, [rel str_bh_pad]
+    call auryn_puts
+    pop rsi
+    call auryn_puts
+    mov dword [rel current_color], COLOR_WHITE
+    lea rsi, [rel str_soon_press]
+    call auryn_puts
+.scs_wait:
+    cmp byte [rel uefi_exited], 1
+    je .scs_wait_native
+.scs_wait_uefi:
+    lea rbx,[rel uefi_data]
+    mov rax,[rbx+32]
+    mov rax,[rax+BS_WAITFOREVENT]
+    mov ecx,1
+    mov rdx,[rbx+24]
+    lea rdx,[rdx+CONIN_WAITKEY]
+    lea r8,[rel event_index]
+    call rax
+    lea rbx,[rel uefi_data]
+    mov rcx,[rbx+24]
+    mov rax,[rcx+CONIN_READKEY]
+    lea rdx,[rel key_data]
+    call rax
+    test rax,rax
+    jnz .scs_wait_uefi
+    ret
+.scs_wait_native:
+    call native_keyboard_read
+    test rax, rax
+    jnz .scs_wait_native
+    ret
+
 bastian_home:
     mov edi, COLOR_BLACK
     call auryn_fill
@@ -43,19 +84,41 @@ bastian_home:
     movzx eax,word [rel key_data+2]
     jmp     .key_dispatch
 .key_native:
-    call    native_keyboard_read        ; poll PS/2 port 0x60 via kbd_ps2.asm
-    test    rax, rax                    ; rax=0 → key ready, rax=1 → not yet
-    jnz     .key_native                 ; spin until a make event lands
-    movzx   eax, word [rel key_data+2]  ; pick up translated ASCII char
+    call    native_keyboard_read
+    test    rax, rax
+    jnz     .key_native
+    movzx   eax, word [rel key_data+2]
 .key_dispatch:
     cmp al,'1'
-    je .go_gmork
+    je bastian_home
     cmp al,'2'
-    je .go_atreyu
+    je .go_gmork
     cmp al,'3'
-    je .go_rockbiter
+    je .soon_morla
     cmp al,'4'
-    je .go_run
+    je .go_atreyu
+    cmp al,'5'
+    je .go_rockbiter
+    cmp al,'6'
+    je .soon_auryn
+    cmp al,'7'
+    je .soon_empress
+    cmp al,'8'
+    je .soon_koreander
+    cmp al,'9'
+    je .soon_falkor
+    cmp al,'a'
+    je .soon_sphinx
+    cmp al,'A'
+    je .soon_sphinx
+    cmp al,'b'
+    je .soon_artax
+    cmp al,'B'
+    je .soon_artax
+    cmp al,'c'
+    je .soon_engywook
+    cmp al,'C'
+    je .soon_engywook
     jmp .key
 
 .go_gmork:
@@ -79,39 +142,37 @@ bastian_home:
     call cbs_run
     jmp bastian_home
 
-.go_run:
-    lea rsi, [rel str_bh_run_prompt]
-    call auryn_puts
-.gr_key:
-    lea rbx,[rel uefi_data]
-    mov rax,[rbx+32]
-    mov rax,[rax+BS_WAITFOREVENT]
-    mov ecx,1
-    mov rdx,[rbx+24]
-    lea rdx,[rdx+CONIN_WAITKEY]
-    lea r8,[rel event_index]
-    call rax
-    lea rbx,[rel uefi_data]
-    mov rcx,[rbx+24]
-    mov rax,[rcx+CONIN_READKEY]
-    lea rdx,[rel key_data]
-    call rax
-    test rax,rax
-    jnz .gr_key
-    movzx eax,word [rel key_data+2]
-    cmp al,'0'
-    jb .go_run
-    cmp al,'7'
-    ja .go_run
-    movzx edi, al
-    call auryn_putc
-    mov edi, 10
-    call auryn_putc
-    sub eax, '0'
-    lea rbx, [rel prog_table]
-    mov r12, [rbx + rax*8]
-    mov r14d, 100000
-    call cbs_run
+.soon_morla:
+    lea rsi, [rel str_soon_morla]
+    call show_coming_soon
+    jmp bastian_home
+.soon_auryn:
+    lea rsi, [rel str_soon_auryn]
+    call show_coming_soon
+    jmp bastian_home
+.soon_empress:
+    lea rsi, [rel str_soon_empress]
+    call show_coming_soon
+    jmp bastian_home
+.soon_koreander:
+    lea rsi, [rel str_soon_koreander]
+    call show_coming_soon
+    jmp bastian_home
+.soon_falkor:
+    lea rsi, [rel str_soon_falkor]
+    call show_coming_soon
+    jmp bastian_home
+.soon_sphinx:
+    lea rsi, [rel str_soon_sphinx]
+    call show_coming_soon
+    jmp bastian_home
+.soon_artax:
+    lea rsi, [rel str_soon_artax]
+    call show_coming_soon
+    jmp bastian_home
+.soon_engywook:
+    lea rsi, [rel str_soon_engywook]
+    call show_coming_soon
     jmp bastian_home
 
 bastian_main:
@@ -215,15 +276,15 @@ str_bastian_head: db '         --- BASTIAN HOME ---',10,10,0
 str_sel_pre:  db '> ',0
 str_sel_none: db '  ',0
 str_stub:     db '  Surface stubbed. Coming soon...',10,0
-str_s1: db 'Gmork (Terminal)',0
-str_s2: db 'Auryn (Display)',0
-str_s3: db 'Morla (Filesystem)',0
+str_s1: db 'Bastian (Home)',0
+str_s2: db 'Gmork (Terminal)',0
+str_s3: db 'Morla (Files)',0
 str_s4: db 'Atreyu (Editor)',0
-str_s5: db 'Bastian (Home)',0
-str_s6: db 'Empress (Search)',0
-str_s7: db 'Falkor (Browser)',0
-str_s8: db 'Auryn msg (Messenger)',0
-str_s9: db 'Rockbiter (Processes)',0
-str_s10: db 'Bullies (Security)',0
+str_s5: db 'Rockbiter (Stats)',0
+str_s6: db 'Auryn (Settings)',0
+str_s7: db 'Empress (Search)',0
+str_s8: db 'Koreander (Docs)',0
+str_s9: db 'Falkor (Messenger)',0
+str_s10: db 'Sphinx (Security)',0
 str_s11: db 'Artax (Recovery)',0
-str_s12: db 'Koreander (Docs)',0
+str_s12: db 'Engywook (Calculator)',0

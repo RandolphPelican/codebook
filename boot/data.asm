@@ -130,12 +130,63 @@ str_bh_pad:   db 10,10,10,10,10,0
 str_bh_title: db '     C O D E B O O K  O S',10,10,0
 str_bh_sub:   db '  Metabolic Computing -- StableTech Enterprises LLC',10,10,0
 str_bh_menu:
-    db '  1. Gmork Terminal',10
-    db '  2. Atreyu Editor',10
-    db '  3. Rockbiter System Stats',10
-    db '  4. Run CBS Program',10,10,0
-str_bh_prompt:     db 'Select [1-4]: ',0
-str_bh_run_prompt: db 'Program [0-7]: ',0
+    db '  1. Bastian (Home)',10
+    db '  2. Gmork Terminal',10
+    db '  3. Morla Files',10
+    db '  4. Atreyu Editor',10
+    db '  5. Rockbiter Stats',10
+    db '  6. Auryn Settings',10
+    db '  7. Empress Search',10
+    db '  8. Koreander Docs',10
+    db '  9. Falkor Messenger',10
+    db '  a. Sphinx Security',10
+    db '  b. Artax Recovery',10
+    db '  c. Engywook Calc',10,10,0
+str_bh_prompt: db 'Select [1-9/a-c]: ',0
+
+; Coming-soon flavor strings (rendered by show_coming_soon).
+str_soon_press: db 10,'  Press any key to return to Bastian.',10,0
+
+str_soon_morla:
+    db '         Morla -- Ancient One',10,10
+    db '  She sleeps beneath the Swamps of Sadness.',10
+    db '  The visual file surface awakens in V1.1.',10
+    db '  For now: ls and load <file> in Gmork.',10,0
+
+str_soon_auryn:
+    db '         Auryn -- Settings & Identity',10,10
+    db '  The Childlike Empress has not yet granted',10
+    db '  you the amulet. Persistence arrives in V1.1.',10,0
+
+str_soon_empress:
+    db '         Empress -- Content Search',10,10
+    db '  The Childlike Empress awaits. She will name',10
+    db '  what you have lost. V1.1.',10,0
+
+str_soon_koreander:
+    db '         Koreander -- Docs Browser',10,10
+    db '  The bookshop on the corner is closed today.',10
+    db '  Opens in V1.1 with the full CodebookOS manual.',10,0
+
+str_soon_falkor:
+    db '         Falkor -- Messenger',10,10
+    db '  The luckdragon rests on the Ivory Tower.',10
+    db '  Inter-surface messaging takes flight in V1.1.',10,0
+
+str_soon_sphinx:
+    db '         Sphinx -- Capability Inspector',10,10
+    db '  The Gate tests you. Only those pure of',10
+    db '  intent may inspect their caps. V1.1.',10,0
+
+str_soon_artax:
+    db '         Artax -- Recovery & Journal',10,10
+    db '  Artax has not yet emerged from the Swamps.',10
+    db '  System snapshots return in V1.1.',10,0
+
+str_soon_engywook:
+    db '         Engywook -- Calculator',10,10
+    db '  The observatory is under repair.',10
+    db '  Scientific calc returns in V1.1.',10,0
 
 str_nl:     db 10,0
 str_sp:     db ' ',0

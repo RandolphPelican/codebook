@@ -6,6 +6,9 @@
 ; =============================================================
 
 gmork_main:
+    mov edi, COLOR_BLACK
+    call auryn_fill
+    call cursor_home
     lea rsi,[rel str_banner]
     call auryn_puts
 
