@@ -1,43 +1,4 @@
-; CBS DEMO PROGRAMS (raw bytecode)
 ; =============================================================
-
-; Program table (0-indexed internally, user sees 1-4)
-prog_table:
-    dq cbs_demo              ; 0 = full CBS demo
-    dq prog1                 ; run 1
-    dq prog2                 ; run 2
-    dq prog3                 ; run 3
-    dq prog4                 ; run 4
-    dq surface_hello         ; run 5
-    dq surface_sched_stub    ; run 6
-    dq surface_compiler_stub ; run 7
-=======
-; =============================================================
-; CBS Surfaces as First-Class Tokens
-; =============================================================
-; All .cbc files in boot/ are pre-compiled from surfaces/ at build time.
-; Compiler tools (lexer.py, parser.py, compiler.py) are DEV TOOLS ONLY.
-; They are not shipped in the final image.
-
-section .rodata
-str_cbs_tools_doc:
-    db "CBS compiler tools (lexer.py, parser.py, compiler.py) are dev-only.", 10
-    db "Final image contains only pre-compiled .cbc files.", 10, 0
-
-; =============================================================
-; CBS DEMO PROGRAMS (raw bytecode)
-; =============================================================
-
-; Program table (0-indexed internally, user sees 1-4)
-prog_table:
-    dq cbs_demo              ; 0 = full CBS demo
-    dq prog1                 ; run 1
-    dq prog2                 ; run 2
-    dq prog3                 ; run 3
-    dq prog4                 ; run 4
-    dq surface_hello         ; run 5
-    dq surface_sched_stub    ; run 6
-    dq surface_compiler_stub ; run 7=============================================================
 ; Static Data — String literals, tables, font, program buffers
 ; font_data: 8x8 bitmap font, 760 bytes (ASCII 0x20–0x7E)
 ; prog_table: embedded .cbc program index
