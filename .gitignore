@@ -12,3 +12,9 @@ build.log
 # Python bytecode
 __pycache__/
 *.pyc
+
+# LLM context-prep artifacts — repo dumps, chunked exports, nested clones
+codebook_full_dump.txt
+codebook_full_history.txt
+codebook_full_*.txt
+codebook/
