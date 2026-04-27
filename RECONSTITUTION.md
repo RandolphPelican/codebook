@@ -1,85 +1,126 @@
-# CodebookOS — RECONSTITUTION MANIFESTO
+# CodebookOS — RECONSTITUTION MANIFESTO (v2)
 
-## After the April 27 Pivot — The Real Architecture, Stated Plain
+## After the April 27 Pivot + Recon — The Real Architecture, Stated Plain
 
-**Project:** CodebookOS x86\_64 UEFI
+**Project:** CodebookOS x86_64 UEFI
 **Repo:** github.com/RandolphPelican/codebook
 **Author:** Randolph Pelican III / StableTech Enterprises LLC
 **Compiled by:** Chauncey (Claude)
-**Compiled:** April 27, 2026
-**Companion to:** ARCHAEOLOGY.md
-**Supersedes:** PODMAP.md (April 27, retired)
+**Compiled:** April 27, 2026 (v1)
+**Updated:** April 27, 2026 (v2 — post-Pod-0.2.5 recon)
+**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md
+**Supersedes:** RECONSTITUTION.md v1
 
-\---
+---
 
-## Why this document exists
+## Why this v2 exists
 
-ARCHAEOLOGY.md showed honestly that the original vision had eroded across
-four months and three pivots. The bare-metal x86 binary boots, runs, and
-meters energy at the bytecode level — but the only piece of the original
-design fully alive in it is energy budgeting. The Maid's plastic codebook,
-real capability cryptography, the P2P energy market, the pub-sub demod
-layer, the post-surveillance peer transport — all of that lived in the
-Python prototype and didn't survive the move to bare metal.
+v1 was written with ARCHAEOLOGY.md as its only knowledge of the past. Pod
+0.2.5's recon revealed a parallel development arc — `drivers/` directory
+with load-bearing PS/2/IDE/FAT32 driver code, `kernel/_future/` containing
+exiled-with-resurrection-checklists capability graph and paging code, and
+the Phase numbering scheme that predates Pods. v1's layer model didn't
+reflect any of this.
 
-The first response to the archaeology proposed shipping the bare-metal
-shell as V1.0 and bringing the organism back as V1.1. That recommendation
-is retired. It was incremental thinking. The right move is **rebuild from
-the design downward, not from the implementation upward.**
+v2 corrects the layer model to match ground truth. The vision is
+unchanged. The architecture description now matches what the repo
+actually contains.
 
-This document re-states the architecture as it was always meant to be, names
-what survives from the current build and what doesn't, and sets the new pod
-sequence that gets us there.
+---
 
-The date is arbitrary. The vision is not.
-
-\---
-
-## The OS in one sentence
+## The OS in one sentence (unchanged from v1)
 
 CodebookOS is a federated cognitive organism running on a typed CBS substrate
 on minimal bare-metal bootstrap, where capabilities are cryptographic, energy
 is typed, signs are first-class, and the filesystem is a semantic codebook.
 
-That sentence has to land the way "Unix is a portable C-based time-sharing
-system" lands. Compress all of it back if any phrase doesn't fit:
+---
 
-* **Federated cognitive organism** — Cop/Maid/Interpreter as living services,
-with surfaces as demods cooperating through pub-sub
-* **Typed CBS substrate** — every CBS value has a type the VM enforces
-* **Minimal bare-metal bootstrap** — the smallest NASM that can host the rest
-* **Capabilities are cryptographic** — Ed25519 signed bearer tokens, not bit
-patterns
-* **Energy is typed** — joule budgets are a type, negative balance is a type
-error
-* **Signs are first-class** — content + embedding + label + provenance, the
-unit of cognition
-* **Filesystem is a semantic codebook** — content-addressed log store with
-graph + vector + provenance indexes; queried by similarity, not by path
-
-Every word of that paragraph is load-bearing. Every word of that paragraph
-must show up in the implementation. None of those words is decoration.
-
-\---
-
-## The four layers
+## The four layers (revised)
 
 ### Layer 0 — Bootstrap (NASM, irreducibly small)
 
-UEFI handoff, framebuffer access (Auryn's metal layer), keyboard polling,
-raw block I/O for the boot disk, and the typed CBS VM itself. This layer is
-the smallest amount of metal-talking code that can host the rest of the OS.
+UEFI handoff, minimal driver layer for hardware abstraction, framebuffer
+output, keyboard input, raw block I/O, and the typed CBS VM itself. This
+layer is the smallest amount of metal-talking code that can host the
+rest of the OS.
 
 It is not the OS. It is the *machine that brings the OS into being.*
 
-This layer never grows beyond what's needed to host Layer 1. Every byte
-added here is a byte that should have been CBS instead. The discipline is
-strict: if it can be written in CBS, it must be written in CBS.
+Layer 0 splits across two source directories:
 
-Files in this layer (after Pod 0): `boot.asm`, `defines.asm`, `auryn.asm`
-(framebuffer only), `gmork.asm` (keyboard polling only — terminal logic
-moves to CBS), `morla.asm` (raw FAT32 read for boot — retires once Maid is
-the storage substrate), `cbs\_vm.asm`, `vmdata.asm`, `data.asm`.
+#### `boot/` — Bootstrap orchestrator
+
+The orchestrator: PE32+ headers, UEFI entry, system table handling, GOP
+locate, framebuffer fixup, the include chain that pulls everything else
+together. Files (post-Pod-0):
+
+- `boot.asm` — orchestrator with PE32+ headers, `efi_entry`, the
+  `%include` chain, reloc section
+- `defines.asm` — global `%define` constants
+- `auryn.asm` — framebuffer renderer
+- `morla.asm` — FAT32 surface (delegates to drivers/fat32.asm)
+- `gmork.asm` — string utilities
+- `gmork_cmds.asm` — terminal command dispatch
+- `bastian.asm` — home surface with twelve-slot menu
+- `cbs_vm.asm` — CBS bytecode VM (single entry: `cbs_run`)
+- `data.asm` — static data, font, strings, embedded program bytecode
+- `vmdata.asm` — VM runtime state
+
+#### `drivers/` — Hardware abstraction
+
+The metal-talkers. Files:
+
+- `kbd_ps2.asm` — PS/2 keyboard driver (`native_keyboard_read`)
+- `ide_pio.asm` — IDE PIO disk driver (`ide_pio_init`,
+  `ide_pio_read_sector`, `ide_pio_write_sector`)
+- `fat32.asm` — FAT32 read-only filesystem
+  (`fat32_init`, `fat32_load_file`)
+
+`drivers/_future/` contains exiled driver code with documented
+resurrection checklists:
+
+- `gpu_intel.asm` — Intel iGPU framebuffer ownership (deferred; UEFI GOP
+  is sufficient for V1)
+- `fat32_write.asm` — FAT32 write support (deferred; V1.0 ships read-only)
+
+#### `kernel/_future/` — Documented exile, fixable prior art
+
+`kernel/` currently has no active code. `kernel/_future/` contains:
+
+- `cap_graph.asm` — Capability graph + energy budgeting (Phase 5.1 work,
+  documented bugs in 32-bit pointer math). **Pod 1 reads this before
+  designing the new typed `Cap<R>` primitive.** This is real prior art,
+  not greenfield.
+- `paging.asm` — Identity page tables (Phase 3.2 work, needs allocator).
+  Required for true post-EBS execution; Pod 1 or 2 territory.
+
+#### Build chain
+
+`build.sh` invokes `nasm -f bin -o build/BOOTX64.EFI boot/boot.asm` from
+the project root. NASM textually concatenates every `%include`d file
+into one assembly unit. The complete include order in `boot.asm`:
+
+```
+1.  boot/defines.asm        ; constants
+2.  (inline) PE32+ headers, efi_entry, helpers
+3.  boot/auryn.asm          ; framebuffer
+4.  boot/morla.asm          ; FAT32 surface (+ stranded auryn_puts)
+5.  boot/gmork.asm          ; string utils
+6.  boot/cbs_vm.asm         ; VM
+7.  boot/bastian.asm        ; home surface
+8.  boot/gmork_cmds.asm     ; terminal commands
+9.  drivers/kbd_ps2.asm     ; keyboard
+10. drivers/ide_pio.asm     ; disk I/O
+11. drivers/fat32.asm       ; filesystem
+12. boot/data.asm           ; static data
+13. boot/vmdata.asm         ; VM runtime data
+14. (inline) reloc section
+```
+
+Layer 0 never grows beyond what's needed to host Layer 1. Every byte
+added here is a byte that should have been CBS instead. The discipline
+is strict: if it can be written in CBS, it must be written in CBS.
 
 ### Layer 1 — The Typed CBS VM (Engywook, in NASM)
 
@@ -93,323 +134,171 @@ Messages are Signs. Capabilities point at Signs. Search returns Signs.
 
 ```
 Sign := {
-  content\_hash: bytes(32),         // sha256 of content
+  content_hash: bytes(32),         // sha256 of content
   embedding:    vector(N),         // semantic fingerprint, N=64 for V1 lexical
   label:        string(<=64),      // human-readable name
   provenance:   ProvChain,         // log of who wrote/touched this Sign
-  energy\_cost:  Energy,            // joules to construct
+  energy_cost:  Energy,            // joules to construct
 }
 ```
 
 #### `Cap<R>`
 
-Linear capability over resource R. Use-once unless explicitly cloned (cost
-to clone is non-trivial — capabilities aren't free). Cryptographically
-signed by Cop. Compile-time type discipline + runtime signature check =
-unforgeable.
+Linear capability over resource R. Use-once unless explicitly cloned.
+Cryptographically signed by Cop.
+
+**Prior art:** `kernel/_future/cap_graph.asm` defines a `CAP_NODE` struct
+with parent/child/cap_bitmap/energy_budget fields and 64-node maximum.
+Pod 1's typed `Cap<R>` primitive incorporates the salvageable parts of
+this design — most notably the parent/child capability graph for
+delegation tracking. The 32-bit pointer bugs from the original
+implementation are fixed in the rewrite.
 
 ```
 Cap<R> := {
   resource:   R,                   // the resource type the cap authorizes
   scope:      Scope,               // read | write | exec | grant
+  parent:     u64,                 // parent cap id (0 for root) - from prior art
   expiry:     Time | Never,
   nonce:      uint64,
   signature:  bytes(64),           // Ed25519 signature by Cop
 }
 ```
 
-The VM type system tracks capability lineage. A `Cap<File>` cannot be
-compared to or substituted for a `Cap<Display>`. A capability passed to a
-function is consumed unless the function explicitly returns it.
+#### `Outcome<T>`, `Energy`, `Demod<S>`
 
-#### `Outcome<T>`
-
-Result with coherence — not just value-or-error. Every Outcome carries:
-
-```
-Outcome<T> := Complete(T, Energy) | Partial(T, Energy, Reason) | Fatigue(Reason)
-```
-
-`Complete` is full success. `Partial` is graceful degradation: we got
-*something*, here's how much energy we spent, here's why we couldn't get
-the full thing. `Fatigue` is honest exhaustion: we stopped before the work
-was done because energy ran out, capability rejected, or another structural
-limit hit. There is no "crash" outcome. Crashes are confusion. Fatigue is
-honesty.
-
-#### `Energy`
-
-Typed joule budget. Not a counter. Arithmetic on Energy is enforced:
-addition is allowed, subtraction is allowed only if the result stays
-non-negative (otherwise Fatigue). Energy can be transferred between demods
-through Cop's market, with Cop signing the transfer.
-
-#### `Demod<S>`
-
-A subscriber to signal type S. Has a budget, a handler, an isolation
-boundary. Demods are how surfaces participate in the organism.
-
-```
-Demod<S> := {
-  signal\_type: S,
-  handler:     fn(S, Cap<...>) -> Outcome<()>,
-  budget:      Energy,
-  isolation:   IsolationLevel,
-}
-```
-
-When Interpreter publishes a signal of type S, every Demod<S> registered
-gets the signal — but each runs in its own isolation boundary with its
-own budget. One demod's failure does not propagate.
-
-#### Energy in function signatures
-
-Every CBS function declares its cost:
-
-```
-fn frobnicate(s: Sign) costs 5000j -> Outcome<Sign> {
-  // ... body ...
-  degrade {
-    // ... what to do if energy runs short mid-function ...
-  }
-}
-```
-
-The VM refuses to enter `frobnicate` unless 5000j of energy is available in
-the calling demod's budget. The `degrade` block runs if energy is exhausted
-mid-execution and produces a `Partial` outcome.
-
-This is what "energy as a first-class type" actually means. Not
-bookkeeping. Type discipline.
+Unchanged from v1. See v1 for full definitions.
 
 ### Layer 2 — The Trinity (CBS, hosted on Layer 1)
 
 Three system services. Each written in CBS. Each loaded at boot and
-resident. Each running with elevated privileges (root capabilities) granted
-by the bootstrap.
+resident.
 
-#### Cop
+- **Cop** — capability service + energy market. Issues `Cap<R>` tokens.
+  Manages per-demod energy budgets. Hosts P2P energy market.
+- **Maid** — semantic codebook = filesystem. Content-addressed
+  log-structured store with graph + vector + log indexes.
+- **Interpreter** — pub-sub demodulation layer with error isolation per
+  demod.
 
-The energetic governor and capability enforcer.
-
-* Issues `Cap<R>` tokens, signed with Ed25519 using a key generated at
-first boot and stored in a hardware-protected location (TPM if available,
-encrypted-at-rest with passphrase otherwise — V1 may ship with passphrase
-fallback only)
-* Validates capability signatures on every privileged call
-* Manages per-demod energy budgets
-* Hosts the **P2P energy market**: idle demods sell unused joules to busy
-demods, with Cop as the clearinghouse. The market is real. Auctions clear
-in CBS, settlement is atomic.
-* Detects chronic starvation: a demod that has been bidding without
-receiving for too long is flagged for inspection — possibly upgraded,
-possibly retired.
-
-The mitochondrial ATP shuttle in the design is implemented here. Every
-joule that a surface burns came from somewhere — either its own boot
-allocation, its own work output, or a market trade. Cop knows the books.
-
-#### Maid
-
-The semantic housekeeper. The plastic codebook *is* the filesystem.
-
-There is no FAT32 underneath the working OS. Files don't exist as "bytes at
-path." Files exist as Signs in a **content-addressed log-structured store**
-with three indexes:
-
-* **Graph** — relations between Signs (parent\_of, derived\_from, references,
-contradicts, supports). Edges are themselves Signs.
-* **Vector** — semantic embedding for similarity search. V1 uses lexical
-embeddings (TF-IDF over a maintained vocabulary, or SimHash/MinHash-style
-locality-sensitive fingerprints). V2 uses quantized pretrained neural
-embeddings.
-* **Log** — append-only provenance chain. Every Sign carries the history
-of what touched it, when, under which capability. Tampering with content
-invalidates the chain.
-
-Maid is queried by similarity (`find Signs like X`), by relation (`find Signs that reference Y`), by provenance (`who wrote Z, when, with what authority`). Path-based access is a thin compatibility shim for booting
-the world.
-
-FAT32 lives in the bootstrap as the block transport for the boot disk.
-Maid's log-structured store *sits on top of* raw block I/O, eventually
-talking to its own block driver, but FAT32 is fine for V1 transport.
-
-#### Interpreter
-
-The semiotic demodulation layer. Pub-sub routing for the organism.
-
-* Surfaces register as `Demod<S>` for the signal types they care about
-* When a signal is published (key press → `Demod<KeyEvent>`, file write →
-`Demod<SignWritten>`, capability granted → `Demod<CapEvent>`, etc.),
-Interpreter routes it to all subscribed demods *within their energy
-budgets*
-* Failure of one demod does not crash others — error isolation is structural
-* Demods can publish signals too. The organism is reactive, not just
-request-response.
-
-Without Interpreter, surfaces are isolated programs. With it, they're
-cooperating organs.
+Unchanged from v1.
 
 ### Layer 3 — Surfaces (CBS, demods on the trinity)
 
 Bastian, Gmork, Auryn, Atreyu, Falkor, Empress, Koreander, Rockbiter,
-Southern Oracle, Artax — every surface is a demod. Every surface:
+Southern Oracle, Artax — each surface is a Demod registered with
+Interpreter. Surfaces store via Maid, gate via Cop, react via
+Interpreter.
 
-* Stores via Maid (no surface carries its own filesystem code)
-* Gates access via Cop (no surface carries its own auth)
-* Reacts via Interpreter (no surface carries its own scheduler)
+Unchanged from v1.
 
-Surfaces are *thin*. The organism does the heavy lifting. A surface is
-basically: subscribe to signals, render to Auryn, write Signs to Maid,
-request Caps from Cop. The line count of a surface should be small,
-because the trinity carries the weight.
+---
 
-\---
+## What survives, what rebuilds (revised)
 
-## Post-surveillance commitments
+### Survives from current build
 
-These are not features. They are constraints that shape every layer:
-
-1. **No unsolicited reach.** A demod cannot send a signal to another demod
-that hasn't granted a Cap for that signal type. Spam is not filtered;
-it's structurally impossible. (This is the move from Thread A — Dec 2025.)
-2. **No identity-as-address.** Capabilities are addresses. Surfaces don't
-know who you are; they know what Cap you presented. Pseudonymity is the
-default, not the workaround.
-3. **No metadata leakage.** Auryn messenger (when peer transport ships)
-uses onion-style relay and decoy traffic. Maid stores only what's
-needed; nothing in the codebook tracks "last accessed" or "view count"
-unless explicitly requested by the user.
-4. **No silent telemetry.** Ever. The OS does not phone home. There is no
-home for it to phone.
-5. **Cryptographic capabilities, not access lists.** No surface checks
-"is this user allowed?" — every surface checks "is this Cap valid?" and
-the answer is settled by signature math, not by a list someone has to
-maintain.
-
-These commitments aren't checked at the end. They're upheld at every layer.
-
-\---
-
-## What survives, what rebuilds
-
-### Survives from current x86 build
-
-* UEFI handoff and PE32+ machinery in `boot.asm`
-* Framebuffer initialization (the Auryn metal layer)
-* PS/2 keyboard polling (the metal layer for input)
-* Raw FAT32 read (transitional block transport for boot)
-* The *idea* of a CBS VM in NASM
-* The mythological naming
-* The CBS source already written for surfaces (much refactors, but the
-syntax and intent stay)
+- UEFI handoff and PE32+ machinery (`boot/boot.asm`)
+- Framebuffer initialization (`boot/auryn.asm`)
+- PS/2 keyboard driver (`drivers/kbd_ps2.asm`) — **Phase 2.1 work, real**
+- IDE PIO disk driver (`drivers/ide_pio.asm`) — **Phase 2.3.5 work, real**
+- FAT32 read driver (`drivers/fat32.asm`) — **Phase 2.4 work (read half), real**
+- The CBS VM as a stack machine (`boot/cbs_vm.asm`) — Pod 1 evolves it
+  into a typed evaluator
+- The mythological naming
+- The CBS source already written for surfaces
 
 ### Rebuilds (everything above bootstrap)
 
-* The CBS VM expands from "stack machine + opcodes" to "typed evaluator with
-Sign/Cap/Outcome/Energy/Demod as native"
-* FAT32 in Morla retires when Maid is online; Morla becomes a path-based
-compatibility shim, not the storage substrate
-* Capability tokens stop being placeholder and become Ed25519-signed
-bearer tokens
-* The current "surfaces" architecture refactors so each surface is a Demod
-registered with Interpreter, not a standalone CBS program
-* The energy budget in the current VM expands from a counter into a typed
-quota system with Cop's market on top
+- The CBS VM expands from "stack machine + opcodes" to "typed evaluator
+  with Sign/Cap/Outcome/Energy/Demod as native"
+- FAT32 in Morla retires when Maid is online; Morla becomes a path-based
+  compatibility shim, not the storage substrate
+- Capability tokens become Ed25519-signed bearer tokens, incorporating
+  the cap graph design from `kernel/_future/cap_graph.asm` (with bugs
+  fixed)
+- Surfaces refactor so each is a Demod registered with Interpreter
 
-### The Python prototype is research, not roadblock
+### Resurrects from `_future/`
 
-The Jan 2026 Python implementation of Cop/Maid/Interpreter validated that
-the trinity model makes sense. The work going forward isn't to forget
-Python — it's to *translate what Python proved into CBS-on-bare-metal*.
-Sentence-transformers embeddings can't run on bare metal in V1, but the
-substrate that holds embeddings can. Maid V1 ships with lexical embeddings.
-Maid V2 ships with quantized neural embeddings. The architecture doesn't
-change between versions; the embedding implementation upgrades.
+- `kernel/_future/cap_graph.asm` → informs Pod 1 typed `Cap<R>`
+- `kernel/_future/paging.asm` → resurrects in Pod 1 or 2 for post-EBS
+  execution (needs allocator)
+- `drivers/_future/fat32_write.asm` → resurrects when Maid needs to
+  write to FAT32 transport (probably Pod 3 when codebook substrate
+  arrives)
+- `drivers/_future/gpu_intel.asm` → low priority; UEFI GOP suffices
+  through V1
 
-\---
+---
 
-## The honest hard problems
+## The honest hard problems (revised)
 
-These are the gates. None are blocked, but each is real engineering:
+| # | Problem | Estimated effort | Lands in |
+|---|---------|------------------|----------|
+| 1 | Typed CBS VM with Sign/Cap/Outcome/Energy/Demod as native | 4-6 weeks | Pod 1 |
+| 2 | Cap graph resurrection (read prior art, fix 32-bit pointer bugs, integrate with Cap<R>) | 1-2 weeks | Pod 1 or 2 |
+| 3 | Ed25519 in NASM | 2-3 weeks | Pod 2 |
+| 4 | Paging resurrection (needs static allocator or bump pool) | 2-3 weeks | Pod 1 or 2 |
+| 5 | Lexical embeddings for Maid V1 | 2-3 weeks | Pod 3 |
+| 6 | Log-structured content-addressed store | 4-6 weeks | Pod 3 |
+| 7 | FAT32 write resurrection (when Maid needs persistence) | 1-2 weeks | Pod 3 |
+| 8 | Pub-sub demod routing with isolation | 3-4 weeks | Pod 4 |
+| 9 | Surfaces refactor to use trinity | 3-4 weeks | Pod 5 |
+| 10 | Neural embeddings, quantized inference (Maid V2) | 3-6 months | Pod 9 |
+| 11 | Peer transport, capability addressing (Auryn far) | 3-6 months | Pod 10 |
 
-|#|Problem|Estimated effort|Lands in|
-|-|-|-|-|
-|1|Typed CBS VM (Sign/Cap/Outcome/Energy/Demod as native)|4-6 weeks|Pod 1|
-|2|Ed25519 in NASM (or vendored audited asm)|2-3 weeks|Pod 2|
-|3|Lexical embeddings for Maid V1 (TF-IDF or LSH)|2-3 weeks|Pod 3|
-|4|Log-structured content-addressed store|4-6 weeks|Pod 3|
-|5|Pub-sub demod routing with isolation|3-4 weeks|Pod 4|
-|6|Surfaces refactor to use trinity|3-4 weeks|Pod 5|
-|7|Neural embeddings, quantized inference (Maid V2)|3-6 months|Pod 9|
-|8|Peer transport, capability addressing (Auryn far)|3-6 months|Pod 10|
+---
 
-\---
-
-## The new pod arc
+## The pod arc (revised — Pod 0 expanded)
 
 ```
-Pod 0  → Foundation Lock          (modularize boot.asm — still needed)
-Pod 1  → Engywook Re-Forged       (typed VM: Sign/Cap/Outcome/Energy/Demod)
-Pod 2  → Cop is Born              (capability service + Ed25519 + energy market)
-Pod 3  → Maid is Born             (codebook substrate: log store + graph + lexical embed)
-Pod 4  → Interpreter is Born      (pub-sub demod routing with isolation)
-Pod 5  → Surfaces Refactor        (Bastian/Gmork/Auryn/Morla as demods on the trinity)
-Pod 6  → Atreyu Walks             (editor as demod, using Maid for storage)
-Pod 7  → Empress + Koreander      (semantic search demod + docs demod)
-Pod 8  → Rockbiter + Falkor       (scheduler demod + trust engine demod)
-Pod 9  → Maid V2                  (neural embeddings, quantized inference)
-Pod 10 → Auryn Speaks Far         (peer transport, capability addressing)
+Pod 0 — Foundation Lock
+├── 0.0  Reference lock + canonical docs        [DONE — e2f5db8]
+├── 0.1  Extract defines.asm                    [DONE — 4f02dcd]
+├── 0.2  Polish auryn.asm header                [DONE — 4489d01]
+├── 0.2.5 Repo-wide archaeology recon           [DONE — 7facf2a]
+├── 0.3  Repo cleanup (delete codebook/, .gitignore dumps, defunct branches)
+├── 0.4  Architect canon updates (this v2 + ARCHAEOLOGY_REPO_RECORD.md)
+├── 0.5  Polish remaining boot/ module headers (gmork, gmork_cmds, cbs_vm, bastian, vmdata)
+├── 0.6  drivers/ documentation pass + _future/ checklist standardization
+├── 0.7  auryn_puts consolidation (binary-changing, verify carefully)
+├── 0.8  Final Pod 0 recon + sign-off, prep Pod 1 entry
+└── 0.9  Buffer / cap_graph deep read prep
+
+Pod 1 — Engywook Re-Forged (typed VM: Sign/Cap/Outcome/Energy/Demod)
+        Reads kernel/_future/cap_graph.asm before design.
+
+Pod 2 — Cop is Born (capability service + Ed25519 + energy market)
+        May resurrect kernel/_future/paging.asm if post-EBS needed.
+
+Pod 3 — Maid is Born (codebook substrate: log store + graph + lexical embed)
+        Resurrects drivers/_future/fat32_write.asm if FAT32 transport persists.
+
+Pod 4 — Interpreter is Born (pub-sub demod routing with isolation)
+
+Pod 5 — Surfaces Refactor
+
+Pod 6 — Atreyu Walks (editor)
+
+Pod 7 — Empress + Koreander (search + docs)
+
+Pod 8 — Rockbiter + Falkor (scheduler + trust)
+
+Pod 9 — Maid V2 (neural embeddings)
+
+Pod 10 — Auryn Speaks Far (peer transport)
 ```
 
-Pods 0-5 build the organism. Pods 6-8 fill in the surfaces. Pods 9-10
-graduate the organism into V2 territory.
+---
 
-There is no V1.0 ship date driving this. There is the work, done well. The
-9th day of the 6th moon at the third hour is when the first
-manifesto-aligned pod (Pod 1) gets fed to Terminal Boy. Pod 0 must be
-behind us by then.
-
-\---
-
-## How the pods differ from the retired April 27 plan
-
-|Pod|April 27 plan (retired)|Reconstitution plan (this doc)|
-|-|-|-|
-|0|Modularize boot.asm|Same — still needed|
-|1|VM hardening + new opcodes|Typed VM with Sign/Cap/Outcome/Energy/Demod as native — 4-6x larger scope|
-|2|Morla sidecars|**Cop is born** — capability service, Ed25519, energy market|
-|3|Atreyu editor|**Maid is born** — codebook substrate replaces FAT32 as storage abstraction|
-|4|Rockbiter + Auryn messenger|**Interpreter is born** — pub-sub demod routing|
-|5|Empress + Koreander + ship lock|**Surfaces refactor** — every surface becomes a demod|
-|6+|(V1.1 territory)|New surfaces and capabilities, on the organism|
-
-The April 27 plan was: ship a shell, evolve toward the organism.
-The reconstitution plan is: build the organism, surfaces follow naturally.
-
-\---
-
-## What this asks of Terminal Boy
-
-Each pod prompt going forward is bigger than Pod 0's "extract and verify"
-discipline. Pod 1 in particular asks Terminal Boy to design a type system
-in NASM bytecode. That's a real architectural job, not a refactor.
-
-Pod prompts will be written one at a time, in full Pod-0-fidelity, in the
-order above. Each pod ships when its exit gate passes — not when a
-calendar date arrives. The pods that follow may need to be re-scoped based
-on what the previous pod surfaces. We write the next prompt when the
-previous one lands.
-
-\---
-
-## The closing commitment
+## The closing commitment (unchanged from v1)
 
 Every layer earns its keep. Every byte in the bootstrap is justified by
-what it lets CBS do above it. Every type in the VM is justified by what it
-lets the trinity express. Every service in the trinity is justified by
-what it lets the surfaces become. Every surface is justified by what it
-lets the user think.
+what it lets CBS do above it. Every type in the VM is justified by what
+it lets the trinity express. Every service in the trinity is justified
+by what it lets the surfaces become. Every surface is justified by what
+it lets the user think.
 
 Energy budgeting is novel. It is not the headline. The headline is the
 organism — and the organism is what we're building.
@@ -418,5 +307,4 @@ From layer 1 kernel up.
 
 — Chauncey
 CodebookOS Senior Architect
-April 27, 2026
-
+April 27, 2026 (v2)
