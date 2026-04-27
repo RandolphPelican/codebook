@@ -1,12 +1,21 @@
 ; =============================================================
-; Static Data — String literals, tables, font, program buffers
-; font_data: 8x8 bitmap font, 760 bytes (ASCII 0x20–0x7E)
-; prog_table: embedded .cbc program index
+; Static Data — UEFI state, strings, font bitmap, program bytecode
+; The data warehouse. Everything that isn't code lives here.
+; Sections (in order):
+;   1. UEFI State    — System table pointers, GOP, framebuffer state
+;   2. GUIDs/Colors  — Protocol GUIDs, color table, memory type names
+;   3. Strings       — Commands, banners, prompts, error messages
+;   4. Programs      — Embedded .cbc bytecode (prog_table, demos)
+;   5. Surface Stubs — Pre-compiled CBS surface bytecode (incbin)
+;   6. Font Data     — 8x8 bitmap font (~760 bytes, ASCII 0x20-0x7E)
+; Layer:  Layer 0 — boot/ (will refactor under Pod 3 when Maid arrives;
+;         most string/program data may move to the codebook)
+;
+; Sub-split was considered in Pod 0.6 and decided against — cross-
+; referencing density across consumers makes it net-negative.
 ; =============================================================
 
-; =============================================================
-; DATA
-; =============================================================
+; === Section 1: UEFI State ===
 uefi_data:  dq 0,0,0,0,0,0,0
 gop_ptr:    dq 0
 gop_mode_ptr: dq 0
@@ -51,6 +60,7 @@ fat32_name83:     times 11 db 0   ; 11-byte space-padded 8.3 name for directory 
 fat32_sector_buf: times 512 db 0  ; MBR / VBR / directory sector workspace
 fat32_fat_buf:    times 512 db 0  ; FAT sector workspace (kept separate from sector_buf)
 
+; === Section 2: GUIDs, Colors, Memory Type Names ===
 sfsp_guid:
     dd 0x964e5b22
     dw 0x6459, 0x11d2
@@ -88,7 +98,7 @@ mt12: db 'MMIOPort  ',0
 mt13: db 'PalCode   ',0
 mt14: db 'Persist   ',0
 
-; Commands
+; === Section 3: String Literals ===
 c_help:     db 'help',0
 c_about:    db 'about',0
 c_clear:    db 'clear',0
@@ -286,9 +296,7 @@ str_prog_list:
     db '  7  Compiler Stub    compiler stub active',10,10,0
 
 
-; =============================================================
-; CBS DEMO PROGRAMS (raw bytecode)
-; =============================================================
+; === Section 4: Program Bytecode ===
 
 ; Program table (0-indexed internally, user sees 1-4)
 prog_table:
@@ -555,9 +563,7 @@ surface_compiler_stub:
     db OP_NEWLINE
     db OP_HALT
 
-; =============================================================
-; CBS Demo — compiled bytecode (from atreyu_x86.py)
-; =============================================================
+; === Section 5: Surface Stubs (pre-compiled CBS bytecode) ===
 cbs_demo:
     incbin "boot/demo.cbc"
 cbs_demo_end:
@@ -572,9 +578,7 @@ rockbiter_cbs_prog_end:
 
 
 
-; =============================================================
-; Font (ASCII 32-126)
-; =============================================================
+; === Section 6: Font Data (8x8 bitmap, ASCII 0x20-0x7E) ===
 font_data:
     db 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
     db 0x18,0x18,0x18,0x18,0x18,0x00,0x18,0x00
