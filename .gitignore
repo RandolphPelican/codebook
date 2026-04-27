@@ -1,4 +1,8 @@
-﻿
+# build/ is normally ignored, EXCEPT the reference binary which is the
+# Pod 0 exit-gate contract. Do NOT delete BOOTX64_reference.EFI.
+build/*
+!build/BOOTX64_reference.EFI
+
 # Transient build artifacts
 build.log
 
@@ -8,14 +12,3 @@ build.log
 # Python bytecode
 __pycache__/
 *.pyc
-
-# Transient build + tool artifacts
-build.log
-__pycache__/
-*.pyc
-
-# Claude Code local state
-.claude/
-
-# OVMF runtime (test_qemu.sh writes to /tmp now, but be defensive)
-build/OVMF_VARS_tmp.fd
