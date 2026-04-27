@@ -1,16 +1,18 @@
 ; =============================================================
 ; FAT32 Read-Only Driver
-; fat32_init, fat32_read_sector, fat32_load_file
+; The librarian. Knows where bytes live on the disk.
+; Functions: fat32_read_sector, fat32_init, fat32_parse_name83,
+;            fat32_next_cluster, fat32_load_file
+; Depends:   ide_pio_read_sector (drivers/ide_pio.asm), data.asm
+;            labels for FAT state (fat32_*, root_*, file_*)
+; Layer:     Layer 0 — drivers/ (hardware abstraction)
+; History:   Phase 2.4 work (read half; write half exiled to
+;            drivers/_future/fat32_write.asm)
+; Future:    Maid (Pod 3) replaces this with the codebook substrate;
+;            fat32_write resurrects when Maid needs FAT32 transport.
+;
 ; No UEFI dependency. Ring 0 required (IN/OUT instructions).
 ; Primary IDE PIO channel only (ports 0x1F0-0x1F7, 28-bit LBA).
-;
-; Exports: fat32_init, fat32_read_sector, fat32_load_file,
-;          fat32_next_cluster, fat32_parse_name83
-; Data:    fat32_* variables declared in boot/data.asm
-;
-; Write support lives in drivers/_future/fat32_write.asm
-; pending V1.1 smoke-testing. Core concept preserved.
-; Atreyu named it.
 ; =============================================================
 
 %define IDE_DATA        0x1F0   ; 16-bit data (read 256 words per sector)

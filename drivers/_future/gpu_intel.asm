@@ -1,9 +1,12 @@
 ; =============================================================
-; Intel iGPU Framebuffer Ownership � RESERVED FOR V1.1+
-; =============================================================
-; This file is NOT included in the V1.0 boot image.
+; Intel iGPU Framebuffer Ownership — EXILED
+; Validates fb_base via PCI enumeration, detects Intel iGPU,
+; confirms framebuffer ownership for post-EBS rendering.
 ;
-; Issues blocking reintegration:
+; STATUS:    Exiled in commit b0fe54d (per ARCHAEOLOGY_REPO_RECORD.md)
+; ORIGINAL:  Phase 3.1 work — Framebuffer Ownership Lock
+;
+; ISSUES BLOCKING REINTEGRATION:
 ;   - mov eax, 0x80000000 | (ebx << 8) | 0x00: NASM cannot shift
 ;     a register value at assemble time. PCI address composition
 ;     must happen at runtime.
@@ -11,28 +14,26 @@
 ;     only 8-bit ports. 0xCF8 needs mov dx, 0xCF8; out dx, eax.
 ;   - section .data: invalid in NASM -f bin mode.
 ;
-; Resurrection checklist:
+; RESURRECTION CHECKLIST:
 ;   1. Rewrite gpu_intel_scan_pci with runtime PCI address math.
 ;   2. Replace all out imm16, eax with mov dx, port; out dx, eax.
 ;   3. Move pci_intel_bus_dev declaration to boot/data.asm.
 ;   4. Smoke-test PCI enumeration in QEMU and on Chauncey hardware.
 ;
-; Core concept preserved. Atreyu named it.
-; =============================================================
-; =============================================================================
-; Intel iGPU Framebuffer Ownership Lock for Codebook OS
-; =============================================================================
+; DEPENDENCIES (when resurrected):
+;   fb_base, fb_width, fb_height, fb_pitch (from GOP, in data.asm)
+;   mmap_buf (from UEFI memory map, in vmdata.asm)
 ;
 ; Functions:
 ;   gpu_intel_validate_framebuffer - Validates fb_base, detects Intel iGPU, sets flag.
 ;   gpu_intel_read_bar0           - Reads BAR0 from PCI for MMIO base.
 ;
-; Inputs (from UEFI GOP):
-;   - fb_base, fb_width, fb_height, fb_pitch (from GOP)
-;   - mmap_buf (from UEFI memory map)
-;
 ; Outputs:
-;   - Sets [fb_native_confirmed] = 1 on success, 0 on failure.
+;   Sets [fb_native_confirmed] = 1 on success, 0 on failure.
+;
+; PRIORITY: LOW for V1 — framebuffer works via GOP without native
+;           GPU validation. Needed for post-EBS rendering confidence.
+; =============================================================
 
 ; --- Constants ---
 PCI_VENDOR_INTEL       equ 0x8086

@@ -1,27 +1,37 @@
 ; =============================================================
-; FAT32 Write Support � RESERVED FOR V1.1
-; =============================================================
-; This file is NOT included in the V1.0 boot image. Contents:
-;   fat32_write_sector, fat32_allocate_cluster_chain,
-;   fat32_update_directory_entry, fat32_write_file,
-;   fat32_validate_filename, fat32_find_file_cluster,
-;   fat32_update_fat_chain
+; FAT32 Write Support — EXILED
+; Full FAT32 write path: allocate clusters, update directory
+; entries, write sectors, manage FAT chain.
 ;
-; Dependencies for resurrection:
-;   - ide_pio_write_sector (drivers/ide_pio.asm; untested)
-;   - fat32_read_sector (drivers/fat32.asm)
-;   - fat32_* runtime state (boot/data.asm)
+; STATUS:    Exiled in commit 1c189c9 (per ARCHAEOLOGY_REPO_RECORD.md)
+; ORIGINAL:  Phase 2.4 work — Native FAT32 Write Support
 ;
-; Resurrection checklist:
+; ISSUES BLOCKING REINTEGRATION:
+;   (No assembly-level bugs documented — exiled for scope reduction,
+;    not for correctness issues. ide_pio_write_sector is untested.)
+;
+; RESURRECTION CHECKLIST:
 ;   1. Hoist into drivers/fat32.asm OR %include from boot.asm
 ;   2. Smoke-test fat32_write_sector in QEMU with a known pattern
 ;   3. Stress-test dir entry update with long and short filenames
 ;   4. Wire a Morla surface command or CBS cap to expose writes
 ;
+; DEPENDENCIES (when resurrected):
+;   ide_pio_write_sector (drivers/ide_pio.asm; untested)
+;   fat32_read_sector (drivers/fat32.asm)
+;   fat32_* runtime state (boot/data.asm)
+;
+; Functions:
+;   fat32_write_sector, fat32_allocate_cluster_chain,
+;   fat32_update_directory_entry, fat32_write_file,
+;   fat32_validate_filename, fat32_find_file_cluster,
+;   fat32_update_fat_chain
+;
 ; %defines below are duplicated from drivers/fat32.asm so this
 ; file is self-contained when resurrected.
 ;
-; Atreyu named it.
+; PRIORITY: MEDIUM for V1.1 — required when Maid needs FAT32
+;           transport for codebook persistence.
 ; =============================================================
 
 %define IDE_DATA        0x1F0   ; 16-bit data (read 256 words per sector)

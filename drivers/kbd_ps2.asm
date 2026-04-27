@@ -1,10 +1,13 @@
 ; =============================================================
-; PS/2 Keyboard Driver — Scancode Set 1, US QWERTY
-; Polls 8042 controller ports 0x60/0x64 directly.
-; No UEFI dependency. Requires ring 0 I/O access (UEFI loader runs ring 0).
+; PS/2 Keyboard Driver
+; The hand at the gate. Translates scancodes into intent.
+; Functions: native_keyboard_read, kbd_sc1_to_ascii
+; Depends:   (none — pure hardware I/O via in/out)
+; Layer:     Layer 0 — drivers/ (hardware abstraction)
+; History:   Phase 2.1 work (per ARCHAEOLOGY_REPO_RECORD.md)
 ;
-; Exports: native_keyboard_read
-; Data:    kbd_sc1_to_ascii  (128-byte table, inline below)
+; Scancode Set 1, US QWERTY. Polls 8042 controller ports 0x60/0x64.
+; No UEFI dependency. Requires ring 0 I/O access (UEFI loader runs ring 0).
 ; =============================================================
 
 ; native_keyboard_read

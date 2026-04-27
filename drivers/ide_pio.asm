@@ -1,15 +1,18 @@
-; =============================================================================
-; IDE PIO Driver for Codebook OS
-; =============================================================================
+; =============================================================
+; IDE PIO Disk Driver
+; The arm that reaches into the spinning rust. Legacy PIO mode.
+; Functions: ide_pio_init, ide_pio_detect_drive, ide_pio_check_lba48,
+;            ide_pio_wait_drq, ide_pio_read_sector, ide_pio_write_sector
+; Depends:   (none — pure hardware I/O via in/out)
+; Layer:     Layer 0 — drivers/ (hardware abstraction)
+; History:   Phase 2.3.5 work (per ARCHAEOLOGY_REPO_RECORD.md)
+; Note:      Emits NASM warnings for unsigned-byte conversion in
+;            sector arithmetic. Investigated Pod 0.8; not blocking.
 ;
+; --- Technical Documentation (preserved from original) ---
 ; Supports:
 ;   - Primary IDE (0x1F0–0x1F7)
 ;   - Secondary IDE (0x170–0x177)
-;
-; Functions:
-;   ide_pio_init     - Detects IDE drives and initializes.
-;   ide_pio_read_sector  - Reads a sector via PIO.
-;   ide_pio_write_sector - Writes a sector via PIO.
 ;
 ; Inputs (for read/write):
 ;   RSI = LBA (64-bit)
@@ -24,6 +27,7 @@
 ;   -2: Timeout
 ;   -3: IDE error (ERR bit set)
 ;   -4: Unsupported LBA48
+; =============================================================
 
 ; --- Constants ---
 ; Primary IDE
