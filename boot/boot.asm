@@ -9,6 +9,13 @@ BITS 64
 
 %include "boot/defines.asm"
 
+; CHECK_BS_LIVE — guard macro for any code that calls into Boot Services.
+; Reads uefi_exited; jumps to .bs_dead in the caller if EBS has run.
+%macro CHECK_BS_LIVE 0
+    cmp byte [rel uefi_exited], 1
+    je  .bs_dead
+%endmacro
+
 ; =============================================================
 ; PE32+ Headers
 ; =============================================================

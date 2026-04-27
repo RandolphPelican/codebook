@@ -1,15 +1,8 @@
 ; =============================================================
 ; CodebookOS — Global Defines
 ; UEFI offsets, PE layout, colors, CBS VM opcodes
+; Extracted from boot.asm (Pod 0.1)
 ; =============================================================
-
-; =============================================================
-; CodebookOS Phase 1 + CBS VM — x86_64 UEFI
-; Pure NASM, zero dependencies
-; "Atreyu named it."
-; =============================================================
-
-BITS 64
 
 %define FILE_ALIGN   0x200
 %define SECT_ALIGN   0x1000
@@ -94,10 +87,3 @@ BITS 64
 %define OP_HALT       0xFF
 %define OP_GRANT_CAP_NEW 0xCA000003
 %define OP_USE_CAP_NEW 0xCA000004
-
-; CHECK_BS_LIVE — guard macro for any code that calls into Boot Services.
-; Reads uefi_exited; jumps to .bs_dead in the caller if EBS has run.
-%macro CHECK_BS_LIVE 0
-    cmp byte [rel uefi_exited], 1
-    je  .bs_dead
-%endmacro
