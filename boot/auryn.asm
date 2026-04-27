@@ -1,12 +1,11 @@
 ; =============================================================
 ; Auryn — Framebuffer Renderer
-; auryn_fill, auryn_scroll, auryn_paint, auryn_putc, auryn_puts
-; Depends: fb_base, fb_width, fb_height, fb_ppsl, cursor_x,
-;          cursor_y, current_color, font_data (in data.asm)
-; =============================================================
-
-; =============================================================
-; AURYN — Framebuffer
+; The amulet of Fantastica. Turns memory into visible reality.
+; Functions: auryn_fill, auryn_scroll, auryn_paint, auryn_putc
+; (auryn_puts lives in morla.asm — non-contiguous in original monolith)
+; Depends: fb_base, fb_width, fb_height, fb_ppsl, cursor_x, cursor_y,
+;          current_color, font_data (in data.asm, extracted Pod 0.7)
+; Extracted from boot.asm (Pod 0.2)
 ; =============================================================
 auryn_fill:
     push rbx
