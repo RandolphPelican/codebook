@@ -1,8 +1,11 @@
 ; =============================================================
-; Gmork — Terminal Commands + System Info
-; gmork_main, get_mmap, show_memmap, paint_bars
-; Included after bastian.asm to preserve original assembly order.
-; Depends: auryn_*, morla_*, cbs_run, bastian_home, bastian_main
+; Gmork Commands — Terminal Dispatch
+; Where words become contracts. The agreement to comply, declared.
+; Functions: gmork_main (terminal command loop), get_mmap, show_memmap, paint_bars
+; Depends:   auryn_*, morla_*, cbs_run, bastian_home, native_keyboard_read,
+;            ide_pio_*, str_eq, starts_with, parse_hex, print_*
+; Layer:     Layer 0 — boot/ orchestrator (will move into surfaces under
+;            Pod 5 refactor when terminal becomes a Demod)
 ; =============================================================
 
 gmork_main:

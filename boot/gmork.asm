@@ -1,12 +1,10 @@
 ; =============================================================
-; Gmork — Terminal & Command Dispatch
-; gmork_main, get_mmap, show_memmap, paint_bars
-; String utils: str_eq, starts_with, parse_hex, print_dec, print_sdec
-; Depends: auryn_puts, auryn_putc, auryn_fill, morla_*, cbs_run
-; =============================================================
-
-; =============================================================
-; String utilities
+; Gmork — String Utilities
+; The wolf of the Nothing. Knows what words are, knows when they are not.
+; Functions: str_eq, starts_with, parse_hex, print_hex32, print_hex64,
+;            print_dec, print_sdec
+; Depends:   auryn_putc (for hex/dec output), data.asm labels
+; Layer:     Layer 0 — boot/ orchestrator
 ; =============================================================
 str_eq:
     push rdi

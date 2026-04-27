@@ -1,20 +1,30 @@
 ; =============================================================
-; CBS VM — CodebookScript Bytecode Interpreter
-; cbs_run: r12=bytecode ptr, r14=energy budget
-; Stack: vm_stack[], vars: vm_vars[], energy: energy_budget
-; Opcodes: see defines.asm OP_* constants
-; =============================================================
-
-; =============================================================
-; CBS BYTECODE VM
-; =============================================================
-; Registers used:
-;   r12 = program counter (bytecode pointer)
-;   r13 = VM stack pointer (grows upward)
-;   r14 = energy budget (signed 32-bit)
-;   r15 = energy used
-; VM stack at vm_stack[], 256 entries (1024 qwords for safety)
-; Variables at vm_vars[], 64 entries
+; CBS VM — Stack Machine + Energy Budgets (V1)
+; Engywook's first incarnation. Watches the borders. Knows when they break.
+;
+; This V1 is a stack machine with energy metering — the proof that
+; bytecode can carry a thermodynamic accounting at the opcode level.
+; Pod 1 evolves this into the typed evaluator with Sign/Cap/Outcome/
+; Energy/Demod as native primitives.
+;
+; Functions: cbs_run (single entry; all else .local labels)
+; Depends:   auryn_putc, auryn_puts, morla_run_file_main,
+;            energy_budget, energy_used, vm_stack, vm_vars,
+;            vm_ret_stack, vm_ret_ptr (all in vmdata.asm)
+; Layer:     Layer 1 — Typed CBS VM (V1; reforged in Pod 1)
+;
+; --- Register allocation (preserve when extending) ---
+;   r12 = PC (program counter, points into bytecode)
+;   r13 = SP (CBS stack pointer, points into vm_stack)
+;   r14 = energy budget (joules available for current run)
+;   r15 = energy used (cumulative joules consumed this run)
+;
+; Stack layout:    vm_stack[]  — operand stack, grows up
+; Variable layout: vm_vars[]   — addressable slots
+; Return stack:    vm_ret_stack[] — function call frames
+;
+; See kernel/_future/cap_graph.asm for prior art on capability graph
+; (Phase 5.1 work, exiled with documented bugs, salvageable for Pod 1).
 ; =============================================================
 
 ; cbs_run: r12 = pointer to bytecode, r14d = energy budget

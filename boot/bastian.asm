@@ -1,7 +1,11 @@
 ; =============================================================
 ; Bastian — Home Surface
-; bastian_home, bastian_main, surface_table
-; Depends: auryn_puts, auryn_fill, morla_run_file, gmork_main
+; The boy who climbs into the attic. The one who speaks the name.
+; Twelve-slot menu. Arrow nav. The launching point for every other surface.
+; Functions: bastian_home, bastian_main, surface_table, show_coming_soon
+; Depends:   auryn_*, morla_run_file, gmork_main, native_keyboard_read,
+;            data.asm string labels
+; Layer:     Layer 3 — Surface (V1 inline; will become a Demod under Pod 5)
 ; =============================================================
 
 show_coming_soon:
