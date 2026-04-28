@@ -45,7 +45,7 @@ into 64-bit registers must use `movsxd`, not `mov eax, [...]`
 
 ### D3 — Python toolchain coupling
 
-**Decision:** The Python toolchain update (`tools/cbsc.cbs`) is
+**Decision:** The Python toolchain update (`tools/atreyu_x86.py`) is
 mandatory and atomic with the runtime format change. No pod ships
 a widened runtime without a toolchain that emits the matching format.
 

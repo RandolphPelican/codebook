@@ -16,3 +16,4 @@ pods do the same. Only source pods produce new hashes.
 | 1.2  | cee5c4fc71045edde0a5fd5ef9625a479014bc6ecb4b5cf5d820ead622369e3a | RECONSTITUTION v4 — preserved |
 | 1.3  | fedcd682031e8cab36dcd8a9a519cb47ffea34c047c80d2d4db20f561196dc28 | OP_RET wired to vm_ret_stack |
 | 1.4  | fedcd682031e8cab36dcd8a9a519cb47ffea34c047c80d2d4db20f561196dc28 | RECONSTITUTION v5 — preserved |
+| 1.5  | 32d404ed779fbc3ea9a06d44c0f3e7b801b8a04db7f67d9e549a12964344c0c6 | 64-bit integer width migration |

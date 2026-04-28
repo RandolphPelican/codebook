@@ -158,19 +158,19 @@ print_dec:
     push rcx
     push rdx
     push rsi
-    mov eax,edi
-    lea rsi,[rel dec_buf+11]
+    mov rax,rdi
+    lea rsi,[rel dec_buf+21]
     mov byte [rsi],0
-    test eax,eax
+    test rax,rax
     jnz .l
     dec rsi
     mov byte [rsi],'0'
     jmp .p
-.l: test eax,eax
+.l: test rax,rax
     jz .p
-    xor edx,edx
-    mov ecx,10
-    div ecx
+    xor rdx,rdx
+    mov rcx,10
+    div rcx
     add dl,'0'
     dec rsi
     mov [rsi],dl
@@ -182,13 +182,13 @@ print_dec:
     pop rax
     ret
 
-; print signed 32-bit
+; print signed 64-bit (Pod 1.5 widened)
 print_sdec:
-    test edi,edi
+    test rdi,rdi
     jns print_dec
     push rdi
     mov edi,'-'
     call auryn_putc
     pop rdi
-    neg edi
+    neg rdi
     jmp print_dec

@@ -14,7 +14,7 @@ energy_used:   dq 0
 vm_ret_ptr:     dq 0
 vm_ret_stack:   times 256 dq 0
 vm_stack:   times 512 dq 0     ; 4KB VM stack
-vm_vars:    times 64 dd 0      ; 256 bytes variables
+vm_vars:    times 64 dq 0      ; 512 bytes variables (64-bit, Pod 1.5)
 
 ; Memory map buffer (8KB)
     align 16

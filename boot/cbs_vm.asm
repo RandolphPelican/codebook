@@ -27,8 +27,9 @@
 ; (Phase 5.1 work, exiled with documented bugs, salvageable for Pod 1).
 ; =============================================================
 
-; cbs_run: r12 = pointer to bytecode, r14d = energy budget
+; cbs_run: r12 = pointer to bytecode, r14 = energy budget (64-bit)
 ; Returns when HALT (OP_RET is subroutine return, not VM exit)
+; Pod 1.5: all CBS values are 64-bit; positional offsets stay 4-byte signed
 cbs_run:
     push    rbx
     push    rbp
@@ -46,9 +47,9 @@ cbs_run:
 
 .fetch:
     ; Metabolic energy check
-    test    r14d, r14d
+    test    r14, r14
     jz      .fatigue
-    dec     r14d
+    dec     r14
     inc     qword [rel energy_used]
     movzx   eax, byte [r12]
     inc     r12
@@ -130,164 +131,165 @@ cbs_run:
     call    auryn_puts
     jmp     .done
 
-; --- PUSH imm32 ---
+; --- PUSH imm64 ---
 .op_push:
-    mov     eax, [r12]
-    add     r12, 4
-    mov     [r13], eax
+    mov     rax, [r12]
+    add     r12, 8
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
-; --- Arithmetic (pop b, pop a, push result) ---
+; --- Arithmetic (pop b, pop a, push result) — 64-bit (Pod 1.5) ---
 .op_add:
     sub     r13, 8
-    mov     ebx, [r13]      ; b
+    mov     rbx, [r13]      ; b
     sub     r13, 8
-    mov     eax, [r13]      ; a
-    add     eax, ebx
-    mov     [r13], eax
+    mov     rax, [r13]      ; a
+    add     rax, rbx
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
 .op_sub:
     sub     r13, 8
-    mov     ebx, [r13]
+    mov     rbx, [r13]
     sub     r13, 8
-    mov     eax, [r13]
-    sub     eax, ebx
-    mov     [r13], eax
+    mov     rax, [r13]
+    sub     rax, rbx
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
 .op_mul:
     sub     r13, 8
-    mov     ebx, [r13]
+    mov     rbx, [r13]
     sub     r13, 8
-    mov     eax, [r13]
-    imul    eax, ebx
-    mov     [r13], eax
+    mov     rax, [r13]
+    imul    rax, rbx
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
 .op_mod:
     sub     r13, 8
-    mov     ebx, [r13]
+    mov     rbx, [r13]
     sub     r13, 8
-    mov     eax, [r13]
-    test    ebx, ebx
+    mov     rax, [r13]
+    test    rbx, rbx
     jz      .mod_zero
-    xor     edx, edx
-    div     ebx
-    mov     [r13], edx
+    xor     rdx, rdx
+    div     rbx
+    mov     [r13], rdx
     add     r13, 8
     jmp     .fetch
 .mod_zero:
-    mov     dword [r13], 0
+    mov     qword [r13], 0
     add     r13, 8
     jmp     .fetch
 
 .op_div:
     sub     r13, 8
-    mov     ebx, [r13]
+    mov     rbx, [r13]
     sub     r13, 8
-    mov     eax, [r13]
-    test    ebx, ebx
+    mov     rax, [r13]
+    test    rbx, rbx
     jz      .div_zero
-    cdq
-    idiv    ebx
-    mov     [r13], eax
+    cqo
+    idiv    rbx
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 .div_zero:
-    mov     dword [r13], 0
+    mov     qword [r13], 0
     add     r13, 8
     jmp     .fetch
 
-; --- Comparisons ---
+; --- Comparisons — 64-bit (Pod 1.5) ---
 .op_eq:
     sub     r13, 8
-    mov     ebx, [r13]
+    mov     rbx, [r13]
     sub     r13, 8
-    mov     eax, [r13]
-    cmp     eax, ebx
+    mov     rax, [r13]
+    cmp     rax, rbx
     sete    al
     movzx   eax, al
-    mov     [r13], eax
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
 .op_ne:
     sub     r13, 8
-    mov     ebx, [r13]
+    mov     rbx, [r13]
     sub     r13, 8
-    mov     eax, [r13]
-    cmp     eax, ebx
+    mov     rax, [r13]
+    cmp     rax, rbx
     setne   al
     movzx   eax, al
-    mov     [r13], eax
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
 .op_lt:
     sub     r13, 8
-    mov     ebx, [r13]
+    mov     rbx, [r13]
     sub     r13, 8
-    mov     eax, [r13]
-    cmp     eax, ebx
+    mov     rax, [r13]
+    cmp     rax, rbx
     setl    al
     movzx   eax, al
-    mov     [r13], eax
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
 .op_gt:
     sub     r13, 8
-    mov     ebx, [r13]
+    mov     rbx, [r13]
     sub     r13, 8
-    mov     eax, [r13]
-    cmp     eax, ebx
+    mov     rax, [r13]
+    cmp     rax, rbx
     setg    al
     movzx   eax, al
-    mov     [r13], eax
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
 .op_le:
     sub     r13, 8
-    mov     ebx, [r13]
+    mov     rbx, [r13]
     sub     r13, 8
-    mov     eax, [r13]
-    cmp     eax, ebx
+    mov     rax, [r13]
+    cmp     rax, rbx
     setle   al
     movzx   eax, al
-    mov     [r13], eax
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
 .op_ge:
     sub     r13, 8
-    mov     ebx, [r13]
+    mov     rbx, [r13]
     sub     r13, 8
-    mov     eax, [r13]
-    cmp     eax, ebx
+    mov     rax, [r13]
+    cmp     rax, rbx
     setge   al
     movzx   eax, al
-    mov     [r13], eax
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
-; --- RESERVE energy ---
+; --- RESERVE energy (64-bit operand, Pod 1.5) ---
 .op_reserve:
-    mov     eax, [r12]
-    add     r12, 4
-    cmp     r14d, eax
+    mov     rax, [r12]
+    add     r12, 8
+    cmp     r14, rax
     jl      .reserve_fail
-    sub     r14d, eax
-    add     r15d, eax
+    sub     r14, rax
+    add     r15, rax
     ; Print reservation
+    push    rax
     lea     rsi, [rel str_vm_rsv]
     call    auryn_puts
-    mov     edi, eax
+    pop     rdi
     call    print_dec
     lea     rsi, [rel str_vm_jok]
     call    auryn_puts
@@ -302,10 +304,12 @@ cbs_run:
     cmp     al, OP_HALT
     je      .op_halt
     ; Skip operands for known opcodes
+    ; Value operands: 8 bytes (Pod 1.5 widened)
     cmp     al, OP_PUSH
-    je      .skip4
+    je      .skip8
     cmp     al, OP_RESERVE
-    je      .skip4
+    je      .skip8
+    ; Positional operands: 4 bytes (D1)
     cmp     al, OP_JIF
     je      .skip4
     cmp     al, OP_JBACK
@@ -318,6 +322,9 @@ cbs_run:
     je      .skip4
     cmp     al, OP_PUSH_STR
     je      .skip_str
+    jmp     .skip_to_end
+.skip8:
+    add     r12, 8
     jmp     .skip_to_end
 .skip4:
     add     r12, 4
@@ -355,42 +362,42 @@ cbs_run:
     call    auryn_puts
     jmp     .done
 
-; --- JUMP_IF_FALSE ---
+; --- JUMP_IF_FALSE (4-byte signed offset per D1, movsxd per D2) ---
 .op_jif:
-    mov     eax, [r12]      ; offset (signed)
+    movsxd  rax, dword [r12] ; offset (signed, 4-byte per D1)
     add     r12, 4
     sub     r13, 8
-    mov     ebx, [r13]      ; condition
-    test    ebx, ebx
-    jnz     .fetch           ; not zero = true, don't jump
-    add     r12, rax         ; jump forward by offset
+    mov     rbx, [r13]       ; condition (64-bit value)
+    test    rbx, rbx
+    jnz     .fetch            ; not zero = true, don't jump
+    add     r12, rax          ; jump forward by offset
     jmp     .fetch
 
-; --- JUMP_BACK ---
+; --- JUMP_BACK (4-byte signed offset per D1, movsxd per D2) ---
 .op_jback:
-    mov     eax, [r12]
+    movsxd  rax, dword [r12]
     add     r12, 4
-    sub     r12, rax         ; jump backward
+    sub     r12, rax          ; jump backward
     jmp     .fetch
 
-; --- LOAD var ---
+; --- LOAD var (index 4-byte per D1, value 64-bit, vm_vars qword slots) ---
 .op_load:
-    mov     eax, [r12]
+    movsxd  rax, dword [r12]
     add     r12, 4
     lea     rbx, [rel vm_vars]
-    mov     eax, [rbx + rax*4]
-    mov     [r13], eax
+    mov     rax, [rbx + rax*8]
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
-; --- STORE var ---
+; --- STORE var (index 4-byte per D1, value 64-bit, vm_vars qword slots) ---
 .op_store:
-    mov     eax, [r12]
+    movsxd  rax, dword [r12]
     add     r12, 4
     sub     r13, 8
-    mov     ebx, [r13]
+    mov     rbx, [r13]
     lea     rcx, [rel vm_vars]
-    mov     [rcx + rax*4], ebx
+    mov     [rcx + rax*8], rbx
     jmp     .fetch
 
 .op_grant_cap:
@@ -563,7 +570,7 @@ cbs_run:
     add     r13, 8
     jmp     .fetch
 .conin_none:
-    mov     dword [r13], 0
+    mov     qword [r13], 0
     add     r13, 8
     jmp     .fetch
 
@@ -590,7 +597,7 @@ cbs_run:
 
 .op_print_num:
     sub     r13, 8
-    mov     edi, [r13]
+    mov     rdi, [r13]
     call    print_sdec
     jmp     .fetch
 
@@ -605,10 +612,10 @@ cbs_run:
     call    auryn_putc
     jmp     .fetch
 
-; --- Stack ops ---
+; --- Stack ops (64-bit values, Pod 1.5) ---
 .op_dup:
-    mov     eax, [r13 - 8]
-    mov     [r13], eax
+    mov     rax, [r13 - 8]
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
@@ -617,10 +624,10 @@ cbs_run:
     jmp     .fetch
 
 .op_swap:
-    mov     eax, [r13 - 8]
-    mov     ebx, [r13 - 16]
-    mov     [r13 - 16], eax
-    mov     [r13 - 8], ebx
+    mov     rax, [r13 - 8]
+    mov     rbx, [r13 - 16]
+    mov     [r13 - 16], rax
+    mov     [r13 - 8], rbx
     jmp     .fetch
 
 ; --- CALL (pop signed offset, save return addr, jump) ---
@@ -639,9 +646,9 @@ cbs_run:
     lea     rdx, [rel vm_ret_stack]
     mov     [rdx + rax], r12
     inc     qword [rbx]
-    ; Pop signed offset from operand stack, jump PC-relative
+    ; Pop offset from operand stack (qword after Pod 1.5 widening), jump PC-relative
     sub     r13, 8
-    movsxd  rax, dword [r13]
+    mov     rax, [r13]
     add     r12, rax
     jmp     .fetch
 
@@ -713,11 +720,11 @@ cbs_run:
     ; Print energy summary
     lea     rsi, [rel str_vm_eu]
     call    auryn_puts
-    mov     edi, r15d
+    mov     rdi, r15
     call    print_dec
     lea     rsi, [rel str_vm_jr]
     call    auryn_puts
-    mov     edi, r14d
+    mov     rdi, r14
     call    print_dec
     lea     rsi, [rel str_vm_jl]
     call    auryn_puts

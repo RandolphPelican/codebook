@@ -200,11 +200,11 @@ offsets (jump targets in `OP_JMP`/`OP_JZ`/`OP_JNZ`, call offsets in
 `OP_CALL`) remain 4-byte signed — ±2 GB reach is sufficient and
 avoids bloating every branch instruction. Sign-extension via `movsxd`
 is the default when widening a 4-byte operand to 64-bit register
-width. The Python toolchain (`tools/cbsc.cbs`) update is mandatory
+width. The Python toolchain (`tools/atreyu_x86.py`) update is mandatory
 and atomic with the runtime format change — no pod ships widened
 runtime without a toolchain that emits the matching format. Bytecode
 format changes accordingly; pre-Pod-1.5 `.cbc` programs require
-recompilation (DEFERRED #12).
+recompilation (DEFERRED #12, resolved in Pod 1.5).
 
 **Opcode space allocation (Q5).** Typed primitives claim the
 `0xA0–0xEF` range (80 slots), allocated by primitive:
@@ -222,7 +222,7 @@ The existing `0x00–0x9F` range retains current opcode assignments
 reserved for future expansion.
 
 **Surface token header (Q6).** The 23-byte surface token header
-referenced in README is a Python-toolchain artifact (`tools/cbsc.cbs`).
+referenced in README is a Python-toolchain artifact (`tools/cbsc.cbs`, Phase 8 detritus).
 The NASM VM does not parse it — `cbs_run` begins execution at the
 first byte of the bytecode stream. Pod 1's typed system ignores this
 header entirely. The NASM VM is the authority; the Python toolchain

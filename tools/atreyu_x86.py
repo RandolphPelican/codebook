@@ -45,6 +45,7 @@ class Emitter:
     def pos(self): return len(self.code)
     def emit(self, b): self.code.append(b & 0xFF)
     def emit_i32(self, v): self.code.extend(struct.pack('<i', v))
+    def emit_i64(self, v): self.code.extend(struct.pack('<q', v))
     def emit_u16(self, v): self.code.extend(struct.pack('<H', v))
     def patch_i32(self, off, val): self.code[off:off+4] = struct.pack('<i', val)
     def get(self): return bytes(self.code)
@@ -81,9 +82,9 @@ class AtreyuX86:
             self.e.emit(OP_STORE); self.e.emit_i32(self.var_id(p))
         cost = n.get('cost', 0)
         if cost > 0:
-            self.e.emit(OP_RESERVE); self.e.emit_i32(cost)
+            self.e.emit(OP_RESERVE); self.e.emit_i64(cost)
         self._block(n['body'])
-        self.e.emit(OP_PUSH); self.e.emit_i32(0)
+        self.e.emit(OP_PUSH); self.e.emit_i64(0)
         self.e.emit(OP_RET)
 
     def _block(self, n):
@@ -141,12 +142,12 @@ class AtreyuX86:
 
     def _expr(self, n):
         e = self.e; t = n['type']
-        if t == 'int': e.emit(OP_PUSH); e.emit_i32(n['value'])
-        elif t == 'bool': e.emit(OP_PUSH); e.emit_i32(1 if n['value'] else 0)
+        if t == 'int': e.emit(OP_PUSH); e.emit_i64(n['value'])
+        elif t == 'bool': e.emit(OP_PUSH); e.emit_i64(1 if n['value'] else 0)
         elif t == 'str': self._push_str(n['value'])
         elif t == 'var': e.emit(OP_LOAD); e.emit_i32(self.var_id(n['name']))
-        elif t == 'neg': self._expr(n['value']); e.emit(OP_PUSH); e.emit_i32(0); e.emit(OP_SWAP); e.emit(OP_SUB)
-        elif t == 'not': self._expr(n['value']); e.emit(OP_PUSH); e.emit_i32(0); e.emit(OP_EQ)
+        elif t == 'neg': self._expr(n['value']); e.emit(OP_PUSH); e.emit_i64(0); e.emit(OP_SWAP); e.emit(OP_SUB)
+        elif t == 'not': self._expr(n['value']); e.emit(OP_PUSH); e.emit_i64(0); e.emit(OP_EQ)
         elif t in ('add','sub','mul','div','mod','eq','ne','lt','gt','le','ge'):
             self._expr(n['left']); self._expr(n['right'])
             m = {'add':OP_ADD,'sub':OP_SUB,'mul':OP_MUL,'div':OP_DIV,'mod':OP_MOD,

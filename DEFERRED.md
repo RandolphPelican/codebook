@@ -77,11 +77,11 @@ is a Python-toolchain-only artifact. The NASM VM does not parse it
 (per Pod 1.1 audit, Q6 decision). The README rewrite should remove
 or correctly scope the token header reference.
 
-The Python toolchain itself (`tools/cbsc.cbs`) will require updates
-as part of Pod 1.5's 64-bit width migration (D3 decision: toolchain
-update is mandatory and atomic with runtime format changes). The
-README rewrite should follow the toolchain update, not precede it,
-to avoid documenting a state that is about to change again.
+The Python toolchain (`tools/atreyu_x86.py`) was updated atomically
+with the runtime in Pod 1.5 (D3 decision). Note: `tools/cbsc.cbs` is
+Phase 8 detritus with a different bytecode format — the actual CBS
+compiler is `tools/atreyu_x86.py`. The README rewrite should reference
+the correct toolchain.
 
 ## 9. Paging implementation, post-V1
 
@@ -118,16 +118,12 @@ cap ops retirement (Pod 1.10). Pod 6 (Atreyu Walks) decides whether
 to rebuild from this skeleton or start fresh. See RECONSTITUTION v4
 "Exiled in place" section and `recon/POD1.1_VM_AUDIT.md` T7.
 
-## 12. Surface .cbc recompilation after 64-bit migration (revised Pod 1.4)
+## ~~12. Surface .cbc recompilation after 64-bit migration~~ (RESOLVED — Pod 1.5)
 
-Pod 1.5 widens VM integers from 32-bit to 64-bit, changing `OP_PUSH`
-value operands from 4 bytes to 8 bytes (positional offsets remain
-4-byte signed per D1 decision). All embedded `.cbc` programs
-(`cbs_demo`, `atreyu_cbs_prog`, `rockbiter_cbs_prog` in `data.asm`)
-and all `.cbc` surface files (`atreyu.cbc`, `bastian.cbc`,
-`rockbiter.cbc`) must be recompiled or hand-patched to match the new
-operand width. This is a mandatory follow-on to Pod 1.5, not a
-separate pod — it ships as part of Pod 1.5's verification gate.
+Resolved in Pod 1.5. demo.cbc regenerated via `tools/atreyu_x86.py --build`;
+surface .cbc files (atreyu.cbc, bastian.cbc, rockbiter.cbc) hand-patched
+with automated widening script. All value operands now 8-byte; positional
+operands unchanged at 4-byte per D1.
 
 ## 13. Stack-error mechanism design (revised Pod 1.4)
 

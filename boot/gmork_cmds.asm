@@ -410,7 +410,7 @@ gmork_main:
     jmp .run_go
 
 .run_go:
-    mov r14d, 10000             ; energy budget = 10000j
+    mov r14, 10000              ; energy budget = 10000j (64-bit, Pod 1.5)
     call cbs_run
     jmp .prompt
 

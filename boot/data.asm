@@ -37,7 +37,7 @@ input_buf:  times 128 db 0
 key_data:   dd 0
 event_index: dq 0
 hex_buf:    times 20 db 0
-dec_buf:    times 12 db 0
+dec_buf:    times 22 db 0
 mmap_size:  dq 0
 mmap_key:   dq 0
 mmap_desc_sz: dd 0
@@ -313,175 +313,158 @@ prog_table:
     dq surface_compiler_stub ; run 7
     dq prog8                 ; run 8
 
-; --- Program 1: Hello ---
+; --- Program 1: Hello (64-bit operands, Pod 1.5) ---
 ; Prints "Hello CodebookOS!" char by char
 prog1:
     db OP_RESERVE
-    dd 100                  ; 100j
-    ; H=72 e=101 l=108 l=108 o=111 ' '=32
-    ; C=67 o=111 d=100 e=101 b=98 o=111 o=111 k=107
-    ; O=79 S=83 !=33
+    dq 100                  ; 100j
     db OP_PUSH
-    dd 72
+    dq 72
     db OP_EMIT              ; H
     db OP_PUSH
-    dd 101
+    dq 101
     db OP_EMIT              ; e
     db OP_PUSH
-    dd 108
+    dq 108
     db OP_EMIT              ; l
     db OP_PUSH
-    dd 108
+    dq 108
     db OP_EMIT              ; l
     db OP_PUSH
-    dd 111
+    dq 111
     db OP_EMIT              ; o
     db OP_PUSH
-    dd 32
+    dq 32
     db OP_EMIT              ; ' '
     db OP_PUSH
-    dd 67
+    dq 67
     db OP_EMIT              ; C
     db OP_PUSH
-    dd 111
+    dq 111
     db OP_EMIT              ; o
     db OP_PUSH
-    dd 100
+    dq 100
     db OP_EMIT              ; d
     db OP_PUSH
-    dd 101
+    dq 101
     db OP_EMIT              ; e
     db OP_PUSH
-    dd 98
+    dq 98
     db OP_EMIT              ; b
     db OP_PUSH
-    dd 111
+    dq 111
     db OP_EMIT              ; o
     db OP_PUSH
-    dd 111
+    dq 111
     db OP_EMIT              ; o
     db OP_PUSH
-    dd 107
+    dq 107
     db OP_EMIT              ; k
     db OP_PUSH
-    dd 79
+    dq 79
     db OP_EMIT              ; O
     db OP_PUSH
-    dd 83
+    dq 83
     db OP_EMIT              ; S
     db OP_PUSH
-    dd 33
+    dq 33
     db OP_EMIT              ; !
     db OP_NEWLINE
     db OP_HALT
 
-; --- Program 2: Math with energy ---
-; reserve 300j, push 42, push 8, add, print result
+; --- Program 2: Math with energy (64-bit operands, Pod 1.5) ---
 prog2:
     db OP_RESERVE
-    dd 300
+    dq 300
     db OP_PUSH
-    dd 42
+    dq 42
     db OP_PUSH
-    dd 8
+    dq 8
     db OP_ADD
     db OP_PRINT_NUM         ; prints 50
     db OP_NEWLINE
-    ; Now multiply: 50 is consumed, redo
     db OP_PUSH
-    dd 6
+    dq 6
     db OP_PUSH
-    dd 7
+    dq 7
     db OP_MUL
     db OP_PRINT_NUM         ; prints 42
     db OP_NEWLINE
-    ; Subtraction
     db OP_PUSH
-    dd 100
+    dq 100
     db OP_PUSH
-    dd 58
+    dq 58
     db OP_SUB
     db OP_PRINT_NUM         ; prints 42
     db OP_NEWLINE
     db OP_PUSH
-    dd 42
-    db OP_PRINT_NUM         ; print 42 (was OP_RET; Pod 1.3 migration)
+    dq 42
+    db OP_PRINT_NUM
     db OP_NEWLINE
     db OP_HALT
 
-; --- Program 3: Loop 1 to 10 ---
-; var0 = 1, while var0 <= 10: print var0, var0 += 1
+; --- Program 3: Loop 1 to 10 (64-bit values, 4-byte offsets, Pod 1.5) ---
 prog3:
     db OP_RESERVE
-    dd 500
+    dq 500
     ; var0 = 1
     db OP_PUSH
-    dd 1
+    dq 1
     db OP_STORE
     dd 0
-    ; loop start (offset from here)
 .loop3:
-    ; load var0, push 10, compare LE
     db OP_LOAD
     dd 0
     db OP_PUSH
-    dd 10
+    dq 10
     db OP_LE
-    ; if false, jump past loop body
     db OP_JIF
     dd (.loop3_end - .loop3_body)
 .loop3_body:
-    ; print var0
     db OP_LOAD
     dd 0
     db OP_PRINT_NUM
     db OP_PUSH
-    dd 32              ; space
+    dq 32              ; space
     db OP_EMIT
-    ; var0 = var0 + 1
     db OP_LOAD
     dd 0
     db OP_PUSH
-    dd 1
+    dq 1
     db OP_ADD
     db OP_STORE
     dd 0
-    ; jump back to loop start
     db OP_JBACK
     dd ($ + 4 - .loop3)
 .loop3_end:
     db OP_NEWLINE
     db OP_HALT
 
-; --- Program 4: Fibonacci fib(10) ---
-; var0 = a = 0, var1 = b = 1, var2 = counter = 10
-; loop: tmp=a+b, a=b, b=tmp, counter--, if counter>0 loop
-; print b
+; --- Program 4: Fibonacci fib(10) (64-bit values, 4-byte offsets, Pod 1.5) ---
 prog4:
     db OP_RESERVE
-    dd 800
+    dq 800
     ; a = 0
     db OP_PUSH
-    dd 0
+    dq 0
     db OP_STORE
     dd 0
     ; b = 1
     db OP_PUSH
-    dd 1
+    dq 1
     db OP_STORE
     dd 1
     ; counter = 10
     db OP_PUSH
-    dd 10
+    dq 10
     db OP_STORE
     dd 2
 .fib_loop:
-    ; print current b
     db OP_LOAD
     dd 1
     db OP_PRINT_NUM
     db OP_PUSH
-    dd 32
+    dq 32
     db OP_EMIT
     ; tmp = a + b -> var3
     db OP_LOAD
@@ -490,7 +473,7 @@ prog4:
     dd 1
     db OP_ADD
     db OP_STORE
-    dd 3        ; var3 = tmp
+    dd 3
     ; a = b
     db OP_LOAD
     dd 1
@@ -505,7 +488,7 @@ prog4:
     db OP_LOAD
     dd 2
     db OP_PUSH
-    dd 1
+    dq 1
     db OP_SUB
     db OP_STORE
     dd 2
@@ -513,7 +496,7 @@ prog4:
     db OP_LOAD
     dd 2
     db OP_PUSH
-    dd 0
+    dq 0
     db OP_GT
     db OP_JIF
     dd (.fib_end - .fib_cont)
@@ -522,10 +505,9 @@ prog4:
     dd ($ + 4 - .fib_loop)
 .fib_end:
     db OP_NEWLINE
-    ; final result = b
     db OP_LOAD
     dd 1
-    db OP_PRINT_NUM         ; print result (was OP_RET; Pod 1.3 migration)
+    db OP_PRINT_NUM
     db OP_NEWLINE
     db OP_HALT
 
@@ -535,7 +517,7 @@ prog4:
 ; "hello CBS surface" = 17 bytes; 17 & 3 = 1 → pad 3
 surface_hello:
     db OP_RESERVE
-    dd 50
+    dq 50
     db OP_PUSH_STR
     dw 17
     db 'hello CBS surface'
@@ -549,7 +531,7 @@ surface_hello:
 ; "scheduler stub active" = 21 bytes; 21 & 3 = 1 → pad 3
 surface_sched_stub:
     db OP_RESERVE
-    dd 100
+    dq 100
     db OP_PUSH_STR
     dw 21
     db 'scheduler stub active'
@@ -563,7 +545,7 @@ surface_sched_stub:
 ; "compiler stub active" = 20 bytes; 20 & 3 = 0 → no pad
 surface_compiler_stub:
     db OP_RESERVE
-    dd 100
+    dq 100
     db OP_PUSH_STR
     dw 20
     db 'compiler stub active' ; no alignment pad needed (20 % 4 = 0)
@@ -571,28 +553,23 @@ surface_compiler_stub:
     db OP_NEWLINE
     db OP_HALT
 
-; --- Program 8: Call/Ret roundtrip test ---
-; Main: RESERVE 200, PUSH sentinel 99, PUSH offset-to-sub, CALL
-;       (sub prints 42, returns), PRINT_NUM (prints 99), NEWLINE, HALT
-; Sub:  PUSH 42, PRINT_NUM, NEWLINE, RET
+; --- Program 8: Call/Ret roundtrip test (64-bit values, Pod 1.5) ---
 ; Expected output: 42\n99\n  HALT
-; If OP_CALL/OP_RET are broken, output will differ.
 prog8:
     db OP_RESERVE
-    dd 200
+    dq 200
     db OP_PUSH
-    dd 99                               ; sentinel — stays on stack across call
+    dq 99                               ; sentinel — stays on stack across call
     db OP_PUSH
-    dd (prog8_sub - prog8_ret)          ; signed offset from return point to sub
+    dq (prog8_sub - prog8_ret)          ; signed offset from return point to sub
     db OP_CALL                           ; saves return addr, jumps to sub
 prog8_ret:
-    ; --- OP_RET returns here (r12 = prog8_ret) ---
     db OP_PRINT_NUM                      ; prints 99 (sentinel still on stack)
     db OP_NEWLINE
     db OP_HALT
 prog8_sub:
     db OP_PUSH
-    dd 42
+    dq 42
     db OP_PRINT_NUM                      ; prints 42
     db OP_NEWLINE
     db OP_RET                            ; pops vm_ret_stack, returns to caller
