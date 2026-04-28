@@ -4,6 +4,11 @@ Items surfaced during Pod 0 that deserve future attention but didn't
 warrant their own Pod 0 section. Append-only across pods. Items are
 removed when resolved (with a note in the resolving pod's commit).
 
+> **Numbering policy:** Numbers are stable across pods. Resolved items are
+> removed; gaps are preserved to avoid breaking cross-document references.
+> Item #N always means item #N. If you find a gap, that's an item that
+> got resolved in some pod's commit; check git log for `DEFERRED #N`.
+
 ---
 
 ## 1. LLC / signing entity rename
@@ -65,15 +70,6 @@ NASM-only build. Pod 0.8 patched it with a "Where to start" section
 pointing at canon docs, but the body still describes an earlier
 project state. Full rewrite deferred until V1.0 architecture is
 fully implemented (post-Pod-5).
-
-## 8. prompts/ directory backfill
-
-Most Pod 0 prompts were delivered conversationally and never saved
-to the repo. Only `POD0.0_REFERENCE_LOCK.md` and `POD0.3_CLEANUP.md`
-exist in `prompts/`. The other Pod 0 prompts (0.1, 0.2, 0.2.5, 0.5,
-0.6, 0.7, 0.8) need backfilling for posterity. Probably Pod 1's
-first task, before any source work begins. Future readers should be
-able to walk the entire pod history from `prompts/` alone.
 
 ## 9. Paging implementation, post-V1
 
