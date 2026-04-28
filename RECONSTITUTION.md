@@ -62,7 +62,11 @@ together. Files (post-Pod-0):
 - `morla.asm` — FAT32 surface (delegates to drivers/fat32.asm)
 - `gmork.asm` — string utilities
 - `gmork_cmds.asm` — terminal command dispatch
-- `bastian.asm` — home surface with twelve-slot menu
+- `bastian.asm` — home surface with twelve-slot menu (table, dispatch,
+  key bindings all twelve-slot; V1 has 4 surfaces wired — Bastian,
+  Gmork, Atreyu, Rockbiter — and 8 stubs routing to coming-soon cards:
+  Morla, Auryn, Empress, Koreander, Falkor, Sphinx, Artax, Engywook.
+  Stubs become real surfaces in Pods 5-8.)
 - `cbs_vm.asm` — CBS bytecode VM (single entry: `cbs_run`)
 - `data.asm` — static data, font, strings, embedded program bytecode
 - `vmdata.asm` — VM runtime state
@@ -105,7 +109,7 @@ into one assembly unit. The complete include order in `boot.asm`:
 1.  boot/defines.asm        ; constants
 2.  (inline) PE32+ headers, efi_entry, helpers
 3.  boot/auryn.asm          ; framebuffer
-4.  boot/morla.asm          ; FAT32 surface (+ stranded auryn_puts)
+4.  boot/morla.asm          ; FAT32 surface
 5.  boot/gmork.asm          ; string utils
 6.  boot/cbs_vm.asm         ; VM
 7.  boot/bastian.asm        ; home surface
@@ -171,6 +175,9 @@ Unchanged from v1. See v1 for full definitions.
 
 ### Layer 2 — The Trinity (CBS, hosted on Layer 1)
 
+**Status: Design only — no implementation exists yet. Layer 2 arrives
+in Pods 2-4 (Cop in Pod 2, Maid in Pod 3, Interpreter in Pod 4).**
+
 Three system services. Each written in CBS. Each loaded at boot and
 resident.
 
@@ -181,16 +188,16 @@ resident.
 - **Interpreter** — pub-sub demodulation layer with error isolation per
   demod.
 
-Unchanged from v1.
-
 ### Layer 3 — Surfaces (CBS, demods on the trinity)
+
+**Status: Design only — no demod registration mechanism exists yet.
+Current surfaces run as direct NASM dispatch from Bastian. Layer 3
+refactor lands in Pod 5.**
 
 Bastian, Gmork, Auryn, Atreyu, Falkor, Empress, Koreander, Rockbiter,
 Southern Oracle, Artax — each surface is a Demod registered with
 Interpreter. Surfaces store via Maid, gate via Cop, react via
 Interpreter.
-
-Unchanged from v1.
 
 ---
 

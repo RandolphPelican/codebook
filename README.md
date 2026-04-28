@@ -1,5 +1,15 @@
 # Codebook OS
 
+## Where to start
+
+- **[RECONSTITUTION.md](RECONSTITUTION.md)** — current architecture (layers, types, pod arc)
+- **[ARCHAEOLOGY.md](ARCHAEOLOGY.md)** / **[ARCHAEOLOGY_REPO_RECORD.md](ARCHAEOLOGY_REPO_RECORD.md)** — project history
+- **[RECON_PROTOCOL.md](RECON_PROTOCOL.md)** — verify-before-build discipline
+- **[ROADMAP.md](ROADMAP.md)** — 14-week calendar, surfaces, pricing
+- **[DEFERRED.md](DEFERRED.md)** — known gaps logged for future pods
+- `prompts/` — pod-by-pod build prompts
+- `recon/` — recon reports from each pod
+
 ---
 ## Context
 - **CBS ASM VM:** The bytecode is executed natively by the CBS toolchain (`tools/cbsc.cbs` calling internal VM logic derived from `tools/vm.cbs`). The VM expects a 23-byte surface token header followed by bytecode payloads.
