@@ -53,16 +53,16 @@ Three opcodes are defined in `boot/defines.asm` but not handled in
 `boot/cbs_vm.asm`:
 
 - `OP_DUP2` (0x87) — defined, handler exists at `cbs_vm.asm:645–652`
-  but is not in the dispatch chain (dead code). Pod 1.3 either wires
-  it into the dispatch chain or removes both the handler and the
-  define.
+  but is not in the dispatch chain (dead code). Not addressed in
+  Pod 1.3 (scope was OP_CALL/OP_RET only). Wire into dispatch or
+  remove in a future cleanup pod.
 - `OP_GRANT_CAP_NEW` (0xCA000003) — Phase 5.1 ghost. Not an opcode:
   4-byte value, but VM dispatches on single bytes — unreachable as
   an opcode. Actually a capability token constant, misnamed with OP_
-  prefix. Removed when cap ops are retired in Pod 1.9.
+  prefix. Removed when cap ops are retired in Pod 1.10.
 - `OP_USE_CAP_NEW` (0xCA000004) — same as above.
 
-## 7. README full rewrite + token header cleanup (revised Pod 1.2)
+## 7. README full rewrite + token header cleanup (revised Pod 1.4)
 
 Current `README.md` is from the Python-era CBS toolchain phase. It
 references `tools/cbsc.cbs` and `tools/vm.cbs`, mentions "Phase 8"
@@ -76,6 +76,12 @@ Additionally, README references a "23-byte surface token header" that
 is a Python-toolchain-only artifact. The NASM VM does not parse it
 (per Pod 1.1 audit, Q6 decision). The README rewrite should remove
 or correctly scope the token header reference.
+
+The Python toolchain itself (`tools/cbsc.cbs`) will require updates
+as part of Pod 1.5's 64-bit width migration (D3 decision: toolchain
+update is mandatory and atomic with runtime format changes). The
+README rewrite should follow the toolchain update, not precede it,
+to avoid documenting a state that is about to change again.
 
 ## 9. Paging implementation, post-V1
 
@@ -108,24 +114,28 @@ next maintenance pod runs.
 `cbs_vm.asm:408–493` implements six Atreyu editor operations
 (get/set_size, get/set_char, insert, delete) with no dispatch entry
 in `op_use_cap` — unreachable dead code. Left in place through Pod 1
-cap ops retirement (Pod 1.9). Pod 6 (Atreyu Walks) decides whether
+cap ops retirement (Pod 1.10). Pod 6 (Atreyu Walks) decides whether
 to rebuild from this skeleton or start fresh. See RECONSTITUTION v4
 "Exiled in place" section and `recon/POD1.1_VM_AUDIT.md` T7.
 
-## 12. Surface .cbc recompilation after 64-bit migration (added Pod 1.2)
+## 12. Surface .cbc recompilation after 64-bit migration (revised Pod 1.4)
 
-Pod 1.4 widens VM integers from 32-bit to 64-bit, changing `OP_PUSH`
-operands from 4 bytes to 8 bytes. All embedded `.cbc` programs
+Pod 1.5 widens VM integers from 32-bit to 64-bit, changing `OP_PUSH`
+value operands from 4 bytes to 8 bytes (positional offsets remain
+4-byte signed per D1 decision). All embedded `.cbc` programs
 (`cbs_demo`, `atreyu_cbs_prog`, `rockbiter_cbs_prog` in `data.asm`)
-must be recompiled or hand-patched to match the new operand width.
-This is a mandatory follow-on to Pod 1.4, not a separate pod — it
-ships as part of Pod 1.4's verification gate.
+and all `.cbc` surface files (`atreyu.cbc`, `bastian.cbc`,
+`rockbiter.cbc`) must be recompiled or hand-patched to match the new
+operand width. This is a mandatory follow-on to Pod 1.5, not a
+separate pod — it ships as part of Pod 1.5's verification gate.
 
-## 13. Stack-error mechanism design (added Pod 1.2)
+## 13. Stack-error mechanism design (revised Pod 1.4)
 
-Pod 1.7 (Outcome<T>) must define the specific representation for
+Pod 1.8 (Outcome<T>) must define the specific representation for
 stack-violation errors: error codes, stack-frame tagging, how a
 typed `Err(StackOverflow)` or `Err(StackUnderflow)` sits on the VM
 stack alongside normal values. The principle is decided (Q8: stack
 violations are typed Outcome results, not fatal traps), but the
-encoding is deferred to Pod 1.7's recon phase.
+encoding is deferred to Pod 1.8's recon phase. Pod 1.3's interim
+implementation halts with diagnostic messages (`str_ret_underflow`,
+`str_call_overflow`); Pod 1.8 replaces these with typed results.

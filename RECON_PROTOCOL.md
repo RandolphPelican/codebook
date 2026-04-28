@@ -228,7 +228,7 @@ will move; what header text will be written.
 
 ## Architect Authorization
 
-After reading the recon report, the architect responds with one of three
+After reading the recon report, the architect responds with one of four
 states:
 
 - **AUTHORIZED** — Phase 2 may proceed as proposed. May include minor
@@ -239,6 +239,19 @@ states:
 - **HALTED** — Something in the recon revealed a gap that needs a separate
   investigative pod (a "0.x.5" pod, like the one this document accompanies).
   The current pod is paused until the investigation completes.
+- **PAUSED-MID-EXECUTION** — Phase 2 has been authorized and partially
+  executed, but the conversation context was exhausted or interrupted
+  before completion. This state records what was done, what remains,
+  and the exact point of interruption. The next conversation resumes
+  Phase 2 from the recorded state — it does not re-run Phase 1 or
+  re-request authorization. The architect may issue PAUSED-MID-EXECUTION
+  proactively when context limits approach, or TB may request it when
+  detecting imminent exhaustion. The pause record includes: (a) which
+  X-sections or build steps completed, (b) which remain, (c) any
+  intermediate state that the resuming session needs (file hashes,
+  partial edits, decisions made during execution). PAUSED-MID-EXECUTION
+  is not a failure state — it is the disciplined acknowledgment that
+  some pods exceed a single context window.
 
 There is no implicit authorization. Silence is not consent. TB does not
 proceed to Phase 2 without an explicit AUTHORIZED response from the

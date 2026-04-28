@@ -1,6 +1,6 @@
-# CodebookOS — RECONSTITUTION MANIFESTO (v4)
+# CodebookOS — RECONSTITUTION MANIFESTO (v5)
 
-## Post-Pod-1.1 — VM Audit Decisions Canonized
+## Post-Pod-1.3 — VM Fixes Complete, Width Migration Canonized
 
 **Project:** CodebookOS x86_64 UEFI
 **Repo:** github.com/RandolphPelican/codebook
@@ -10,41 +10,58 @@
 **Updated:** April 27, 2026 (v2 — post-Pod-0.2.5 recon)
 **Updated:** April 27, 2026 (v3 — post-Pod-0.9 cap_graph deep read)
 **Updated:** April 27, 2026 (v4 — post-Pod-1.1 VM audit decisions)
-**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md, recon/POD0.9_CAP_GRAPH_DEEP_READ.md, recon/POD1.1_VM_AUDIT.md, recon/POD1.2_DECISION_RECORD.md
-**Supersedes:** RECONSTITUTION.md v3
+**Updated:** April 27, 2026 (v5 — post-Pod-1.3 VM fixes, width-migration decisions)
+**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md, recon/POD0.9_CAP_GRAPH_DEEP_READ.md, recon/POD1.1_VM_AUDIT.md, recon/POD1.2_DECISION_RECORD.md, recon/POD1.4_DECISION_RECORD.md
+**Supersedes:** RECONSTITUTION.md v4
 
 ---
 
-## Why v4 exists
+## Why v5 exists
 
-v3 incorporated Pod 0.9's cap_graph deep read — the spatial-merge
-mechanic, the paging deferral, the "80% design / 0% code" verdict.
-v4 canonizes eight architect decisions from Pod 1.1's VM substrate
-audit (see `recon/POD1.1_VM_AUDIT.md` for the audit,
-`recon/POD1.2_DECISION_RECORD.md` for the decision rationale):
+v4 canonized eight architect decisions from Pod 1.1's VM substrate
+audit. v5 records what happened next: Pod 1.3 executed the first
+two VM fixes (OP_CALL/OP_RET semantics, OP_HALT already present),
+and the architect made three width-migration decisions (D1/D2/D3)
+that refine how 64-bit migration works. v5 also adds the
+PAUSED-MID-EXECUTION protocol state to the recon canon, slides the
+pod arc to thirteen sub-pods, and retroactively documents Pod 1.3's
+implementation details.
 
-1. **Current cap ops replaced.** The VM's existing `OP_GRANT_CAP`
-   (0x90) and `OP_USE_CAP` (0x91) are retired in Pod 1.9. Cap<R>
+See `recon/POD1.4_DECISION_RECORD.md` for the D1/D2/D3 rationale.
+
+1. **VM semantics fixed (Pod 1.3 — complete).** `OP_RET` is now a
+   subroutine return (pops `vm_ret_stack`). `OP_CALL` uses
+   PC-relative signed offsets (was broken absolute addressing).
+   `OP_HALT` (0xFF, pre-existing) exits the VM. `vm_ret_ptr` is
+   reset in `cbs_run` prologue. All `.cbc` surface files patched
+   from trailing `OP_RET` to `OP_HALT`.
+
+2. **Width migration refined (D1/D2/D3).** CBS values widen to
+   8 bytes; positional offsets (jump targets, call offsets) stay
+   4-byte signed. Sign-extension (`movsxd`) is the default on
+   widening. Python toolchain update is mandatory and atomic with
+   runtime format changes. Width migration lands in Pod 1.5.
+
+3. **Current cap ops replaced.** The VM's existing `OP_GRANT_CAP`
+   (0x90) and `OP_USE_CAP` (0x91) are retired in Pod 1.10. Cap<R>
    typed primitives replace them entirely — the spatial-merge design
    from Pod 0.9 informs the replacement, but no current cap code
    survives.
 
-2. **VM semantics fixed.** `OP_RET` becomes a subroutine return
-   (pops `vm_ret_stack`), not a VM exit. `OP_CALL`/`OP_RET` become
-   a functioning pair in Pod 1.3. Integer width widens to 64-bit
-   throughout in Pod 1.4.
-
-3. **Opcode space allocated.** Typed primitives claim `0xA0–0xEF`
+4. **Opcode space allocated.** Typed primitives claim `0xA0–0xEF`
    (80 slots). Energy moves from per-fetch flat cost to per-opcode
-   cost table in Pod 1.6. Stack bounds produce `Outcome<T>` errors
-   in Pod 1.7.
+   cost table in Pod 1.7. Stack bounds produce `Outcome<T>` errors
+   in Pod 1.8.
 
-4. **Pod 1 sub-pod arc defined.** Twelve sub-pods (1.0–1.11) with
-   explicit sequencing. Duration estimates removed from canon —
-   pace is set by recon-protocol discipline, not by calendar.
+5. **Pod 1 sub-pod arc expanded.** Thirteen sub-pods (1.0–1.12)
+   with explicit sequencing. Pod 1.4 (this canon update) inserted
+   after Pod 1.3, sliding all subsequent pods by one. Duration
+   estimates removed from canon — pace is set by recon-protocol
+   discipline, not by calendar.
 
 The four-layer model is unchanged. Layer 1 gains implementation
-detail from the audit decisions. The pod arc expands.
+detail from the completed VM fixes and the width-migration
+decisions. The pod arc expands.
 
 ---
 
@@ -105,14 +122,14 @@ Linear capability over resource R, organized as a graph with delegation
 chains. Pod 1's design incorporates the salvageable *design ideas* of
 `kernel/_future/cap_graph.asm` (the static-pool allocator, the
 parent/child graph structure, the bitmap-as-capability pattern, and
-**the spatial merge mechanic**) while widening to 64-bit throughout
+**the spatial merge mechanic**) while widening data fields to 64-bit
 and fixing the documented bugs.
 
 **v4 — current cap ops retired (Q1).** The existing `OP_GRANT_CAP`
 (0x90) and `OP_USE_CAP` (0x91) in `boot/cbs_vm.asm` are
 magic-number token dispatchers — they create and consume untyped
 `0xCA000000 + resource_id` tokens via hardcoded comparisons. These
-do not implement Cap<R> as described here. Pod 1.9 retires them
+do not implement Cap<R> as described here. Pod 1.10 retires them
 entirely and replaces them with typed capability opcodes in the
 `0xA0–0xEF` range (see opcode allocation below). No current cap
 code survives into the typed system.
@@ -156,33 +173,49 @@ The static cap pool is sized at 64 nodes for V1.0 (per the original
 Phase 5.1 design). 64 × 128 bytes = 8 KB total — modest for the
 header layer. Bumps to 256 in V1.1 if surface count expands.
 
-#### VM substrate fixes — v4 (Pod 1.1 audit decisions)
+#### VM substrate fixes — v5 (Pod 1.3 complete, Pod 1.5 width migration)
 
-**OP_CALL / OP_RET semantics (Q2).** The current VM's `OP_RET` exits
-the VM entirely. `OP_CALL` saves a return address to `vm_ret_stack`
-but nothing reads it back — `OP_CALL` and `OP_RET` are a half-built
-pair. Pod 1.3 fixes this: `OP_RET` pops from `vm_ret_stack` and
-resumes at the saved PC (subroutine return). A new `OP_HALT` opcode
-exits the VM. This makes `OP_CALL`/`OP_RET` a functioning
-call-and-return mechanism.
+**OP_CALL / OP_RET semantics (Q2) — fixed in Pod 1.3.** `OP_RET`
+now pops from `vm_ret_stack` and resumes at the saved PC (subroutine
+return). `OP_CALL` pushes the current PC to `vm_ret_stack` and jumps
+by a PC-relative signed 4-byte offset — not an absolute address, which
+was broken under UEFI relocation (`nasm -f bin` emits file offsets, but
+UEFI maps at IMAGE_BASE + TEXT_RVA). `OP_HALT` (0xFF) exits the VM;
+this opcode pre-existed and required no new code. The return stack
+(`vm_ret_stack`, 256 entries × 8 bytes, `vm_ret_ptr` as memory counter)
+has bounds checks: underflow on `OP_RET` and overflow on `OP_CALL`
+halt with violation messages. `vm_ret_ptr` is zeroed in `cbs_run`'s
+prologue to prevent stale state across invocations. All `.cbc` surface
+files (`atreyu.cbc`, `bastian.cbc`, `rockbiter.cbc`) were byte-patched
+from trailing `OP_RET` (0x53) to `OP_HALT` (0xFF). The `.done` exit
+path in `cbs_vm.asm` is shared by `OP_HALT`, energy exhaustion, and
+violation handlers. See `recon/POD1.3_OP_RET_RECON.md` for the full
+audit.
 
-**64-bit integer width (Q4).** The current VM uses 32-bit integers
-(`eax`/`ebx`) for arithmetic but 64-bit stack slots. Pod 1.4 migrates
-to 64-bit throughout — all arithmetic uses `rax`/`rbx`, `OP_PUSH`
-operands become 8 bytes. This simplifies the type system: one integer
-width, no dual-width edge cases. Bytecode format changes accordingly;
-pre-Pod-1.4 `.cbc` programs require recompilation.
+**64-bit integer width (Q4, refined by D1/D2/D3).** The current VM
+uses 32-bit integers (`eax`/`ebx`) for arithmetic but 64-bit stack
+slots. Pod 1.5 migrates to 64-bit values — all arithmetic uses
+`rax`/`rbx`, `OP_PUSH` value operands become 8 bytes. Positional
+offsets (jump targets in `OP_JMP`/`OP_JZ`/`OP_JNZ`, call offsets in
+`OP_CALL`) remain 4-byte signed — ±2 GB reach is sufficient and
+avoids bloating every branch instruction. Sign-extension via `movsxd`
+is the default when widening a 4-byte operand to 64-bit register
+width. The Python toolchain (`tools/cbsc.cbs`) update is mandatory
+and atomic with the runtime format change — no pod ships widened
+runtime without a toolchain that emits the matching format. Bytecode
+format changes accordingly; pre-Pod-1.5 `.cbc` programs require
+recompilation (DEFERRED #12).
 
 **Opcode space allocation (Q5).** Typed primitives claim the
 `0xA0–0xEF` range (80 slots), allocated by primitive:
 
 | Range | Primitive | Pod |
 |-------|-----------|-----|
-| `0xA0–0xAF` | Sign | 1.5 |
-| `0xB0–0xBF` | Cap<R> | 1.8–1.9 |
-| `0xC0–0xCF` | Outcome<T> | 1.7 |
-| `0xD0–0xDF` | Energy | 1.6 |
-| `0xE0–0xEF` | Demod<S> | 1.10 |
+| `0xA0–0xAF` | Sign | 1.6 |
+| `0xB0–0xBF` | Cap<R> | 1.9–1.10 |
+| `0xC0–0xCF` | Outcome<T> | 1.8 |
+| `0xD0–0xDF` | Energy | 1.7 |
+| `0xE0–0xEF` | Demod<S> | 1.11 |
 
 The existing `0x00–0x9F` range retains current opcode assignments
 (arithmetic, stack, flow control, I/O). The `0xF0–0xFF` range is
@@ -195,20 +228,23 @@ first byte of the bytecode stream. Pod 1's typed system ignores this
 header entirely. The NASM VM is the authority; the Python toolchain
 is historical.
 
-#### `Outcome<T>`, `Energy`, `Demod<S>` — v4 updates
+#### `Outcome<T>`, `Energy`, `Demod<S>` — v5 updates
 
 `Outcome<T>`, `Energy`, and `Demod<S>` definitions are unchanged from
-v1/v2. v4 adds implementation commitments from Pod 1.1 audit decisions:
+v1/v2. v4 added implementation commitments from Pod 1.1 audit decisions;
+v5 updates pod numbers after the arc slide.
 
 **Outcome<T> as stack-error mechanism (Q8).** Stack underflow and
 overflow produce `Outcome<T>` typed errors rather than halting the VM
 or silently corrupting state. The specific error representation
-(error codes, stack-frame tagging, etc.) is deferred to Pod 1.7 when
+(error codes, stack-frame tagging, etc.) is deferred to Pod 1.8 when
 `Outcome<T>` becomes a native VM type. The principle is decided: stack
-violations are typed results, not fatal traps.
+violations are typed results, not fatal traps. (Pod 1.3's interim
+implementation uses halt-on-violation with diagnostic messages;
+Pod 1.8 replaces these with typed `Outcome<T>` results.)
 
 **Energy: per-opcode cost table (Q7).** The current VM debits 1 joule
-per fetch cycle regardless of opcode. Pod 1.6 introduces a per-opcode
+per fetch cycle regardless of opcode. Pod 1.7 introduces a per-opcode
 cost table — `OP_MUL` costs more than `OP_NOP`, `OP_GRANT_CAP` costs
 more than `OP_ADD`. `OP_RESERVE` remains the per-program budget
 mechanism. The flat per-fetch base cost is replaced, not supplemented.
@@ -264,18 +300,18 @@ Interpreter.
 - **`cap_atreyu` handler (Q3):** Six editor operations (get/set_size,
   get/set_char, insert, delete) at `cbs_vm.asm:408–493` have no
   dispatch entry in `op_use_cap` — unreachable dead code. Left in
-  place until Pod 1.9 (cap ops retirement). Pod 6 (Atreyu Walks)
+  place until Pod 1.10 (cap ops retirement). Pod 6 (Atreyu Walks)
   decides whether to rebuild from this skeleton or start fresh.
   DEFERRED #11 tracks this.
 
 ---
 
-## The honest hard problems (v4 — durations removed, cap ops reframed)
+## The honest hard problems (v5 — durations removed, cap ops reframed)
 
 | # | Problem | Lands in |
 |---|---------|----------|
-| 1 | Typed CBS VM with Sign/Cap/Outcome/Energy/Demod as native | Pod 1 (12 sub-pods) |
-| 2 | Cap ops replacement (retire 0x90/0x91, typed Cap<R> opcodes) | Pod 1.8–1.9 |
+| 1 | Typed CBS VM with Sign/Cap/Outcome/Energy/Demod as native | Pod 1 (13 sub-pods) |
+| 2 | Cap ops replacement (retire 0x90/0x91, typed Cap<R> opcodes) | Pod 1.9–1.10 |
 | 3 | Ed25519 in NASM (placeholder field in V1.0; real in V1.1) | Pod 2 |
 | 4 | ~~Paging resurrection~~ → **deferred post-V1** (DEFERRED #9) | Post-V1 |
 | 5 | Lexical embeddings for Maid V1 | Pod 3 |
@@ -286,15 +322,15 @@ Interpreter.
 | 10 | Neural embeddings, quantized inference (Maid V2) | Pod 9 |
 | 11 | Peer transport, capability addressing (Auryn far) | Pod 10 |
 
-Pod 1 spans twelve sub-pods (1.0 through 1.11). Two prerequisite
-VM-fix pods precede typed-primitive work; five typed-primitive pods
-follow; one cap data pod, one cap ops pod, one Demod pod, and one
-cleanup pod close it out. Pace is set by recon-protocol discipline,
-not by calendar.
+Pod 1 spans thirteen sub-pods (1.0 through 1.12). Two prerequisite
+VM-fix pods and two canon-update pods precede typed-primitive work;
+five typed-primitive pods follow; one cap data pod, one cap ops pod,
+one Demod pod, and one cleanup pod close it out. Pace is set by
+recon-protocol discipline, not by calendar.
 
 ---
 
-## The pod arc (v4 — Pod 1 sub-pods defined)
+## The pod arc (v5 — Pod 1 sub-pods expanded to 13)
 
 ```
 Pod 0 — Foundation Lock                                    [SEALED — pod0-complete]
@@ -315,16 +351,17 @@ Pod 1 — Engywook Re-Forged (typed VM with Sign/Cap/Outcome/Energy/Demod)
 │       Current cap ops (0x90/0x91) replaced, not extended.
 ├── 1.0  prompts/ backfill                                 [DONE]
 ├── 1.1  VM substrate audit (recon-only)                   [DONE]
-├── 1.2  Canon update v4 (this document)                   [DONE]
-├── 1.3  OP_CALL/OP_RET fix + OP_HALT                     [planned — VM fixes]
-├── 1.4  64-bit integer width migration                    [planned — VM fixes]
-├── 1.5  Sign as native type (0xA0–0xAF)                   [planned — typed primitives]
-├── 1.6  Energy: per-opcode cost table (0xD0–0xDF)         [planned — typed primitives]
-├── 1.7  Outcome<T>: typed errors + stack bounds (0xC0–0xCF) [planned — typed primitives]
-├── 1.8  Cap<R> data structures (0xB0–0xBF)                [planned — cap replacement]
-├── 1.9  Cap ops retirement (retire 0x90/0x91)             [planned — cap replacement]
-├── 1.10 Demod<S> registration (0xE0–0xEF)                 [planned — demod]
-└── 1.11 Pod 1 cleanup + sign-off                          [planned — cleanup]
+├── 1.2  Canon update v4                                   [DONE]
+├── 1.3  OP_CALL/OP_RET fix + OP_HALT                     [DONE — ebc9554]
+├── 1.4  Canon update v5 (this document)                   [DONE]
+├── 1.5  64-bit integer width migration                    [planned — VM fixes]
+├── 1.6  Sign as native type (0xA0–0xAF)                   [planned — typed primitives]
+├── 1.7  Energy: per-opcode cost table (0xD0–0xDF)         [planned — typed primitives]
+├── 1.8  Outcome<T>: typed errors + stack bounds (0xC0–0xCF) [planned — typed primitives]
+├── 1.9  Cap<R> data structures (0xB0–0xBF)                [planned — cap replacement]
+├── 1.10 Cap ops retirement (retire 0x90/0x91)             [planned — cap replacement]
+├── 1.11 Demod<S> registration (0xE0–0xEF)                 [planned — demod]
+└── 1.12 Pod 1 cleanup + sign-off                          [planned — cleanup]
 
 Pod 2 — Cop is Born (capability service + Ed25519 + energy market)
 
@@ -366,4 +403,4 @@ From layer 1 kernel up.
 
 — Chauncey
 CodebookOS Senior Architect
-April 27, 2026 (v4)
+April 27, 2026 (v5)
