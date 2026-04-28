@@ -3,6 +3,8 @@
 ; morla_write_file, morla_ls, morla_run_file, boot_bastian,
 ; morla_run_file_main
 ; Depends: sfsp_ptr, root_ptr, file_ptr, auryn_puts, cbs_run
+; History: auryn_puts originally sat here from the monolith
+;          split; consolidated into auryn.asm in Pod 0.7.
 ; =============================================================
 
 morla_write_file:
@@ -195,16 +197,6 @@ morla_run_file:
     pop rbx
     ret
 
-auryn_puts:
-    push rsi
-.al: movzx edi,byte [rsi]
-    test dil,dil
-    jz .ad
-    call auryn_putc
-    inc rsi
-    jmp .al
-.ad: pop rsi
-    ret
 boot_bastian:
     lea rsi, [rel str_bastian_filename]
     call morla_run_file_main
