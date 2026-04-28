@@ -283,7 +283,9 @@ str_vm_rsv:   db '  Reserve ',0
 str_vm_jok:   db 'j: OK',10,0
 str_vm_deg:   db '  DEGRADED: insufficient energy',10,0
 str_vm_unk:   db '  Unknown opcode: ',0
-str_run_bad:  db '  Usage: run <0-7>',10,0
+str_ret_underflow: db '  VIOLATION: return stack underflow',10,0
+str_call_overflow: db '  VIOLATION: return stack overflow',10,0
+str_run_bad:  db '  Usage: run <0-8>',10,0
 
 str_prog_list:
     db '  CBS Demo Programs:',10
@@ -293,7 +295,8 @@ str_prog_list:
     db '  4  Fibonacci        fib(10) = 55',10
     db '  5  Hello Surface    hello CBS surface',10
     db '  6  Sched Stub       scheduler stub active',10
-    db '  7  Compiler Stub    compiler stub active',10,10,0
+    db '  7  Compiler Stub    compiler stub active',10
+    db '  8  Call/Ret Test    call sub, return, halt',10,10,0
 
 
 ; === Section 4: Program Bytecode ===
@@ -308,6 +311,7 @@ prog_table:
     dq surface_hello         ; run 5
     dq surface_sched_stub    ; run 6
     dq surface_compiler_stub ; run 7
+    dq prog8                 ; run 8
 
 ; --- Program 1: Hello ---
 ; Prints "Hello CodebookOS!" char by char
@@ -401,7 +405,9 @@ prog2:
     db OP_NEWLINE
     db OP_PUSH
     dd 42
-    db OP_RET               ; return 42
+    db OP_PRINT_NUM         ; print 42 (was OP_RET; Pod 1.3 migration)
+    db OP_NEWLINE
+    db OP_HALT
 
 ; --- Program 3: Loop 1 to 10 ---
 ; var0 = 1, while var0 <= 10: print var0, var0 += 1
@@ -519,7 +525,9 @@ prog4:
     ; final result = b
     db OP_LOAD
     dd 1
-    db OP_RET
+    db OP_PRINT_NUM         ; print result (was OP_RET; Pod 1.3 migration)
+    db OP_NEWLINE
+    db OP_HALT
 
 ; --- Program 5: surface_hello ---
 ; RESERVE 50j, PUSH_STR "hello CBS surface", PRINT_STR, NEWLINE, HALT
@@ -562,6 +570,32 @@ surface_compiler_stub:
     db OP_PRINT_STR
     db OP_NEWLINE
     db OP_HALT
+
+; --- Program 8: Call/Ret roundtrip test ---
+; Main: RESERVE 200, PUSH sentinel 99, PUSH offset-to-sub, CALL
+;       (sub prints 42, returns), PRINT_NUM (prints 99), NEWLINE, HALT
+; Sub:  PUSH 42, PRINT_NUM, NEWLINE, RET
+; Expected output: 42\n99\n  HALT
+; If OP_CALL/OP_RET are broken, output will differ.
+prog8:
+    db OP_RESERVE
+    dd 200
+    db OP_PUSH
+    dd 99                               ; sentinel — stays on stack across call
+    db OP_PUSH
+    dd (prog8_sub - prog8_ret)          ; signed offset from return point to sub
+    db OP_CALL                           ; saves return addr, jumps to sub
+prog8_ret:
+    ; --- OP_RET returns here (r12 = prog8_ret) ---
+    db OP_PRINT_NUM                      ; prints 99 (sentinel still on stack)
+    db OP_NEWLINE
+    db OP_HALT
+prog8_sub:
+    db OP_PUSH
+    dd 42
+    db OP_PRINT_NUM                      ; prints 42
+    db OP_NEWLINE
+    db OP_RET                            ; pops vm_ret_stack, returns to caller
 
 ; === Section 5: Surface Stubs (pre-compiled CBS bytecode) ===
 cbs_demo:

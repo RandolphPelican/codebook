@@ -28,7 +28,7 @@
 ; =============================================================
 
 ; cbs_run: r12 = pointer to bytecode, r14d = energy budget
-; Returns when HALT or RET
+; Returns when HALT (OP_RET is subroutine return, not VM exit)
 cbs_run:
     push    rbx
     push    rbp
@@ -38,6 +38,7 @@ cbs_run:
 
     lea     r13, [rel vm_stack]     ; VM stack base
     mov     qword [rel energy_used], 0
+    mov     qword [rel vm_ret_ptr], 0   ; reset return stack per invocation
 
     ; Print header
     lea     rsi, [rel str_vm_start]
@@ -294,14 +295,12 @@ cbs_run:
 .reserve_fail:
     lea     rsi, [rel str_vm_deg]
     call    auryn_puts
-    ; Skip to HALT or RET
+    ; Skip to HALT (OP_RET is subroutine return, not terminator)
 .skip_to_end:
     movzx   eax, byte [r12]
     inc     r12
     cmp     al, OP_HALT
     je      .op_halt
-    cmp     al, OP_RET
-    je      .op_ret
     ; Skip operands for known opcodes
     cmp     al, OP_PUSH
     je      .skip4
@@ -335,24 +334,24 @@ cbs_run:
     add     r12, rdx
     jmp     .skip_to_end
 
-; --- RET ---
+; --- RET (subroutine return — pops vm_ret_stack) ---
+; Pod 1.3: OP_RET is now a proper subroutine return.
+; VM exit is OP_HALT. Underflow = halt-on-violation (Pod 1.7 replaces
+; with typed Outcome).
 .op_ret:
-    ; Pop result if stack non-empty
-    lea     rax, [rel vm_stack]
-    cmp     r13, rax
-    jle     .ret_empty
-    sub     r13, 8
-    mov     edi, [r13]
-    lea     rsi, [rel str_vm_ret]
-    call    auryn_puts
-    call    print_sdec
-    lea     rsi, [rel str_nl]
-    call    auryn_puts
-    jmp     .done
-.ret_empty:
-    lea     rsi, [rel str_vm_ret]
-    call    auryn_puts
-    lea     rsi, [rel str_vm_void]
+    lea     rax, [rel vm_ret_ptr]
+    mov     rcx, [rax]
+    test    rcx, rcx
+    jz      .ret_underflow          ; empty return stack = violation
+    dec     rcx
+    mov     [rax], rcx              ; update vm_ret_ptr
+    shl     rcx, 3
+    lea     rdx, [rel vm_ret_stack]
+    mov     r12, [rdx + rcx]        ; restore PC from return stack
+    jmp     .fetch
+
+.ret_underflow:
+    lea     rsi, [rel str_ret_underflow]
     call    auryn_puts
     jmp     .done
 
@@ -624,23 +623,32 @@ cbs_run:
     mov     [r13 - 8], ebx
     jmp     .fetch
 
-; --- JMP (unconditional, signed i32 offset from next instr) ---
+; --- CALL (pop signed offset, save return addr, jump) ---
+; Pod 1.3: target is PC-relative offset (matching OP_JMP convention).
+; Pre-1.3 used absolute address but no program ever exercised it.
+; Overflow = halt-on-violation (Pod 1.7 replaces with typed Outcome).
 .op_call:
-    ; Pop target PC
-    sub     r13, 8
-    mov     rax, [r13]
-    ; Save current r12 to vm_ret_stack
-    push    rbx
+    ; Bounds check: is vm_ret_stack full?
     lea     rbx, [rel vm_ret_ptr]
     mov     rcx, [rbx]
-    shl     rcx, 3
+    cmp     rcx, 256
+    jge     .call_overflow
+    ; Save current r12 (return address) to vm_ret_stack
+    mov     rax, rcx
+    shl     rax, 3
     lea     rdx, [rel vm_ret_stack]
-    add     rdx, rcx
-    mov     [rdx], r12
+    mov     [rdx + rax], r12
     inc     qword [rbx]
-    pop     rbx
-    mov     r12, rax
+    ; Pop signed offset from operand stack, jump PC-relative
+    sub     r13, 8
+    movsxd  rax, dword [r13]
+    add     r12, rax
     jmp     .fetch
+
+.call_overflow:
+    lea     rsi, [rel str_call_overflow]
+    call    auryn_puts
+    jmp     .done
 
 .op_dup2:
     sub     r13, 16
