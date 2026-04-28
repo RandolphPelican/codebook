@@ -1,6 +1,6 @@
-# CodebookOS — RECONSTITUTION MANIFESTO (v2)
+# CodebookOS — RECONSTITUTION MANIFESTO (v3)
 
-## After the April 27 Pivot + Recon — The Real Architecture, Stated Plain
+## Post-Pod-0.9 — Cap Graph Prior Art Incorporated, Paging Deferred
 
 **Project:** CodebookOS x86_64 UEFI
 **Repo:** github.com/RandolphPelican/codebook
@@ -8,23 +8,34 @@
 **Compiled by:** Chauncey (Claude)
 **Compiled:** April 27, 2026 (v1)
 **Updated:** April 27, 2026 (v2 — post-Pod-0.2.5 recon)
-**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md
-**Supersedes:** RECONSTITUTION.md v1
+**Updated:** April 27, 2026 (v3 — post-Pod-0.9 cap_graph deep read)
+**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md, recon/POD0.9_CAP_GRAPH_DEEP_READ.md
+**Supersedes:** RECONSTITUTION.md v2
 
 ---
 
-## Why this v2 exists
+## Why v3 exists
 
-v1 was written with ARCHAEOLOGY.md as its only knowledge of the past. Pod
-0.2.5's recon revealed a parallel development arc — `drivers/` directory
-with load-bearing PS/2/IDE/FAT32 driver code, `kernel/_future/` containing
-exiled-with-resurrection-checklists capability graph and paging code, and
-the Phase numbering scheme that predates Pods. v1's layer model didn't
-reflect any of this.
+v2 corrected the Layer 0 model to include `drivers/` and acknowledged
+`kernel/_future/` as documented exile rather than graveyard. v3
+incorporates what Pod 0.9's deep read of the exiled files actually
+revealed:
 
-v2 corrects the layer model to match ground truth. The vision is
-unchanged. The architecture description now matches what the repo
-actually contains.
+1. The capability graph code (`kernel/_future/cap_graph.asm`) contained
+   a design mechanism — "spatial merge: parent pays half cost when
+   child uses cap" — that v2 did not articulate. This is the
+   delegation-tax principle that makes the federated organism
+   metabolically coherent. Pod 1's typed `Cap<R>` design incorporates
+   it.
+
+2. The paging code (`kernel/_future/paging.asm`) on close read is more
+   "design notes for post-V1" than "code to resurrect for V1." V1.0
+   ships using UEFI's identity-mapped memory and does not install its
+   own page tables. This is now an explicit architectural decision,
+   not an oversight.
+
+The four-layer model is unchanged. The Cap<R> definition is richer.
+One paragraph about V1.0 paging is added. Everything else holds.
 
 ---
 
@@ -36,105 +47,38 @@ is typed, signs are first-class, and the filesystem is a semantic codebook.
 
 ---
 
-## The four layers (revised)
+## The four layers (unchanged structure; Layer 1 enriched, Layer 0 paging note added)
 
 ### Layer 0 — Bootstrap (NASM, irreducibly small)
 
+(Unchanged from v2 except for the V1.0 paging note at the end.)
+
 UEFI handoff, minimal driver layer for hardware abstraction, framebuffer
-output, keyboard input, raw block I/O, and the typed CBS VM itself. This
-layer is the smallest amount of metal-talking code that can host the
-rest of the OS.
+output, keyboard input, raw block I/O, and the typed CBS VM itself.
+Layer 0 splits across `boot/` (orchestrator) and `drivers/` (hardware
+abstraction). `kernel/_future/` contains documented exile with
+resurrection checklists for cap_graph and paging.
 
-It is not the OS. It is the *machine that brings the OS into being.*
+#### V1.0 paging — UEFI identity map only
 
-Layer 0 splits across two source directories:
-
-#### `boot/` — Bootstrap orchestrator
-
-The orchestrator: PE32+ headers, UEFI entry, system table handling, GOP
-locate, framebuffer fixup, the include chain that pulls everything else
-together. Files (post-Pod-0):
-
-- `boot.asm` — orchestrator with PE32+ headers, `efi_entry`, the
-  `%include` chain, reloc section
-- `defines.asm` — global `%define` constants
-- `auryn.asm` — framebuffer renderer
-- `morla.asm` — FAT32 surface (delegates to drivers/fat32.asm)
-- `gmork.asm` — string utilities
-- `gmork_cmds.asm` — terminal command dispatch
-- `bastian.asm` — home surface with twelve-slot menu (table, dispatch,
-  key bindings all twelve-slot; V1 has 4 surfaces wired — Bastian,
-  Gmork, Atreyu, Rockbiter — and 8 stubs routing to coming-soon cards:
-  Morla, Auryn, Empress, Koreander, Falkor, Sphinx, Artax, Engywook.
-  Stubs become real surfaces in Pods 5-8.)
-- `cbs_vm.asm` — CBS bytecode VM (single entry: `cbs_run`)
-- `data.asm` — static data, font, strings, embedded program bytecode
-- `vmdata.asm` — VM runtime state
-
-#### `drivers/` — Hardware abstraction
-
-The metal-talkers. Files:
-
-- `kbd_ps2.asm` — PS/2 keyboard driver (`native_keyboard_read`)
-- `ide_pio.asm` — IDE PIO disk driver (`ide_pio_init`,
-  `ide_pio_read_sector`, `ide_pio_write_sector`)
-- `fat32.asm` — FAT32 read-only filesystem
-  (`fat32_init`, `fat32_load_file`)
-
-`drivers/_future/` contains exiled driver code with documented
-resurrection checklists:
-
-- `gpu_intel.asm` — Intel iGPU framebuffer ownership (deferred; UEFI GOP
-  is sufficient for V1)
-- `fat32_write.asm` — FAT32 write support (deferred; V1.0 ships read-only)
-
-#### `kernel/_future/` — Documented exile, fixable prior art
-
-`kernel/` currently has no active code. `kernel/_future/` contains:
-
-- `cap_graph.asm` — Capability graph + energy budgeting (Phase 5.1 work,
-  documented bugs in 32-bit pointer math). **Pod 1 reads this before
-  designing the new typed `Cap<R>` primitive.** This is real prior art,
-  not greenfield.
-- `paging.asm` — Identity page tables (Phase 3.2 work, needs allocator).
-  Required for true post-EBS execution; Pod 1 or 2 territory.
-
-#### Build chain
-
-`build.sh` invokes `nasm -f bin -o build/BOOTX64.EFI boot/boot.asm` from
-the project root. NASM textually concatenates every `%include`d file
-into one assembly unit. The complete include order in `boot.asm`:
-
-```
-1.  boot/defines.asm        ; constants
-2.  (inline) PE32+ headers, efi_entry, helpers
-3.  boot/auryn.asm          ; framebuffer
-4.  boot/morla.asm          ; FAT32 surface
-5.  boot/gmork.asm          ; string utils
-6.  boot/cbs_vm.asm         ; VM
-7.  boot/bastian.asm        ; home surface
-8.  boot/gmork_cmds.asm     ; terminal commands
-9.  drivers/kbd_ps2.asm     ; keyboard
-10. drivers/ide_pio.asm     ; disk I/O
-11. drivers/fat32.asm       ; filesystem
-12. boot/data.asm           ; static data
-13. boot/vmdata.asm         ; VM runtime data
-14. (inline) reloc section
-```
-
-Layer 0 never grows beyond what's needed to host Layer 1. Every byte
-added here is a byte that should have been CBS instead. The discipline
-is strict: if it can be written in CBS, it must be written in CBS.
+V1.0 runs in UEFI's identity-mapped flat memory model. CodebookOS does
+not install its own page tables in V1.0. The exiled
+`kernel/_future/paging.asm` contains design notes for post-V1 paging:
+1GB-page identity mapping for low memory, write-combining (PAT/PCD)
+for the framebuffer MMIO range, and post-EBS CR3 install ordering.
+Per Pod 0.9's analysis, V1.0 has no feature requirement that demands
+own-paging — UEFI's identity map suffices. Paging arrives in Pod 2 or
+later when a feature requires it (separate userspace, write-combining
+framebuffer performance, NX bit on data, etc.). DEFERRED.md item 9
+tracks this.
 
 ### Layer 1 — The Typed CBS VM (Engywook, in NASM)
 
-Not a stack machine with energy guards. A typed evaluator. The VM
-understands these as primitive types:
+A typed evaluator. Native primitives:
 
 #### `Sign`
 
-The unit of cognition. A Sign is what the OS thinks about. Files are Signs.
-Messages are Signs. Capabilities point at Signs. Search returns Signs.
+The unit of cognition. (Unchanged from v2.)
 
 ```
 Sign := {
@@ -146,145 +90,152 @@ Sign := {
 }
 ```
 
-#### `Cap<R>`
+#### `Cap<R>` — revised post-Pod-0.9
 
-Linear capability over resource R. Use-once unless explicitly cloned.
-Cryptographically signed by Cop.
-
-**Prior art:** `kernel/_future/cap_graph.asm` defines a `CAP_NODE` struct
-with parent/child/cap_bitmap/energy_budget fields and 64-node maximum.
-Pod 1's typed `Cap<R>` primitive incorporates the salvageable parts of
-this design — most notably the parent/child capability graph for
-delegation tracking. The 32-bit pointer bugs from the original
-implementation are fixed in the rewrite.
+Linear capability over resource R, organized as a graph with delegation
+chains. Pod 1's design incorporates the salvageable parts of
+`kernel/_future/cap_graph.asm` (the static-pool allocator, the
+parent/child graph structure, the bitmap-as-capability pattern, and
+**the spatial merge mechanic**) while widening to 64-bit throughout
+and fixing the documented bugs.
 
 ```
 Cap<R> := {
-  resource:   R,                   // the resource type the cap authorizes
-  scope:      Scope,               // read | write | exec | grant
-  parent:     u64,                 // parent cap id (0 for root) - from prior art
-  expiry:     Time | Never,
-  nonce:      uint64,
-  signature:  bytes(64),           // Ed25519 signature by Cop
+  resource:      R,                // resource type the cap authorizes
+  parent:        cap_id,           // parent in graph (0 = root)
+  child:         cap_id,           // first child (linked list head)
+  sibling:       cap_id,           // next sibling (for traversal)
+  cap_bitmap:    u64,              // 64 capability bits
+  energy_budget: u64,              // joules granted to this cap
+  energy_used:   u64,              // joules consumed by this cap + descendants
+  nonce:         u64,              // anti-replay
+  expiry:        Time | Never,     // time-bound caps
+  signature:     bytes(64),        // Ed25519 over the rest (V1.1+)
 }
 ```
 
+**Spatial merge — the delegation tax.** When a child capability
+exercises a power, the parent capability's `energy_used` increments by
+half the child's cost. This encodes the principle that
+*delegation chains pay a tax*: capabilities are not free once granted.
+The act of granting binds the parent's metabolism to the child's
+activity. This mechanism survives directly from
+`kernel/_future/cap_graph.asm` (the spatial_merge code in cap_use,
+lines 130-145).
+
+The signature field is present in V1.0's data layout but only enforced
+in V1.1+ when Ed25519 lands. V1.0 leaves the field as zeros and
+validates only structure (parent valid, bitmap match, energy
+sufficient). On-disk layout doesn't change between V1.0 and V1.1.
+
+The capability bitmap is 64 bits — wide enough for per-surface caps
+(8+), per-driver caps (3+), per-resource caps (4: read/write/exec/grant),
+per-network/peer caps (V1.1+), and headroom for V2+ extensions.
+v2's earlier 5-bit bitmap was inherited from the Phase 5.1 design and
+is too narrow.
+
+The static cap pool is sized at 64 nodes for V1.0 (per the original
+Phase 5.1 design). 64 × 128 bytes = 8 KB total — modest for the
+header layer. Bumps to 256 in V1.1 if surface count expands.
+
 #### `Outcome<T>`, `Energy`, `Demod<S>`
 
-Unchanged from v1. See v1 for full definitions.
+Unchanged from v1/v2. See v1 for full definitions.
 
 ### Layer 2 — The Trinity (CBS, hosted on Layer 1)
 
-**Status: Design only — no implementation exists yet. Layer 2 arrives
-in Pods 2-4 (Cop in Pod 2, Maid in Pod 3, Interpreter in Pod 4).**
+(Unchanged from v2.)
 
-Three system services. Each written in CBS. Each loaded at boot and
-resident.
+**Status: Design only. No implementation exists yet. Layer 2 arrives
+in Pods 2-4.**
 
-- **Cop** — capability service + energy market. Issues `Cap<R>` tokens.
-  Manages per-demod energy budgets. Hosts P2P energy market.
-- **Maid** — semantic codebook = filesystem. Content-addressed
-  log-structured store with graph + vector + log indexes.
-- **Interpreter** — pub-sub demodulation layer with error isolation per
-  demod.
+Three system services. Each written in CBS. Cop (capability service +
+energy market), Maid (semantic codebook = filesystem), Interpreter
+(pub-sub demodulation layer).
 
 ### Layer 3 — Surfaces (CBS, demods on the trinity)
 
-**Status: Design only — no demod registration mechanism exists yet.
-Current surfaces run as direct NASM dispatch from Bastian. Layer 3
-refactor lands in Pod 5.**
+(Unchanged from v2.)
+
+**Status: Design only. No demod registration mechanism exists yet.
+Layer 3 arrives in Pod 5.**
 
 Bastian, Gmork, Auryn, Atreyu, Falkor, Empress, Koreander, Rockbiter,
 Southern Oracle, Artax — each surface is a Demod registered with
-Interpreter. Surfaces store via Maid, gate via Cop, react via
 Interpreter.
 
 ---
 
-## What survives, what rebuilds (revised)
+## What survives, what rebuilds (v3 update)
 
-### Survives from current build
+### Resurrects from `_future/` — Pod 0.9 deep read clarified
 
-- UEFI handoff and PE32+ machinery (`boot/boot.asm`)
-- Framebuffer initialization (`boot/auryn.asm`)
-- PS/2 keyboard driver (`drivers/kbd_ps2.asm`) — **Phase 2.1 work, real**
-- IDE PIO disk driver (`drivers/ide_pio.asm`) — **Phase 2.3.5 work, real**
-- FAT32 read driver (`drivers/fat32.asm`) — **Phase 2.4 work (read half), real**
-- The CBS VM as a stack machine (`boot/cbs_vm.asm`) — Pod 1 evolves it
-  into a typed evaluator
-- The mythological naming
-- The CBS source already written for surfaces
-
-### Rebuilds (everything above bootstrap)
-
-- The CBS VM expands from "stack machine + opcodes" to "typed evaluator
-  with Sign/Cap/Outcome/Energy/Demod as native"
-- FAT32 in Morla retires when Maid is online; Morla becomes a path-based
-  compatibility shim, not the storage substrate
-- Capability tokens become Ed25519-signed bearer tokens, incorporating
-  the cap graph design from `kernel/_future/cap_graph.asm` (with bugs
-  fixed)
-- Surfaces refactor so each is a Demod registered with Interpreter
-
-### Resurrects from `_future/`
-
-- `kernel/_future/cap_graph.asm` → informs Pod 1 typed `Cap<R>`
-- `kernel/_future/paging.asm` → resurrects in Pod 1 or 2 for post-EBS
-  execution (needs allocator)
-- `drivers/_future/fat32_write.asm` → resurrects when Maid needs to
-  write to FAT32 transport (probably Pod 3 when codebook substrate
-  arrives)
+- `kernel/_future/cap_graph.asm` → **design ideas survive into Pod 1's
+  Cap<R>**, code is rewritten from scratch with proper 64-bit math,
+  bug-fixed budget accounting, and the spatial-merge mechanism
+  preserved as a feature. Per Pod 0.9 memo: cap_graph is "80%
+  recoverable as design, 0% recoverable as code." Pod 1 takes the
+  design and writes correct code.
+- `kernel/_future/paging.asm` → **design notes only**. V1.0 doesn't
+  need it. Resurrects in Pod 2+ as needed. The 1GB-page identity map,
+  write-combining framebuffer, and post-EBS CR3 ordering are the
+  design constraints to remember when paging arrives.
+- `drivers/_future/fat32_write.asm` → resurrects when Maid (Pod 3)
+  needs FAT32 transport. Unchanged from v2.
 - `drivers/_future/gpu_intel.asm` → low priority; UEFI GOP suffices
-  through V1
+  through V1. Unchanged from v2.
 
 ---
 
-## The honest hard problems (revised)
+## The honest hard problems (v3 — paging clarified)
 
 | # | Problem | Estimated effort | Lands in |
 |---|---------|------------------|----------|
 | 1 | Typed CBS VM with Sign/Cap/Outcome/Energy/Demod as native | 4-6 weeks | Pod 1 |
-| 2 | Cap graph resurrection (read prior art, fix 32-bit pointer bugs, integrate with Cap<R>) | 1-2 weeks | Pod 1 or 2 |
-| 3 | Ed25519 in NASM | 2-3 weeks | Pod 2 |
-| 4 | Paging resurrection (needs static allocator or bump pool) | 2-3 weeks | Pod 1 or 2 |
+| 2 | Cap graph rewrite (clean implementation per Pod 0.9 memo) | 1-2 weeks within Pod 1 | Pod 1 |
+| 3 | Ed25519 in NASM (placeholder field in V1.0; real in V1.1) | 2-3 weeks | Pod 2 |
+| 4 | ~~Paging resurrection~~ → **deferred post-V1** (DEFERRED #9) | TBD | Post-V1 |
 | 5 | Lexical embeddings for Maid V1 | 2-3 weeks | Pod 3 |
 | 6 | Log-structured content-addressed store | 4-6 weeks | Pod 3 |
-| 7 | FAT32 write resurrection (when Maid needs persistence) | 1-2 weeks | Pod 3 |
+| 7 | FAT32 write resurrection | 1-2 weeks | Pod 3 |
 | 8 | Pub-sub demod routing with isolation | 3-4 weeks | Pod 4 |
 | 9 | Surfaces refactor to use trinity | 3-4 weeks | Pod 5 |
 | 10 | Neural embeddings, quantized inference (Maid V2) | 3-6 months | Pod 9 |
 | 11 | Peer transport, capability addressing (Auryn far) | 3-6 months | Pod 10 |
 
+Total Pod 1 scope: typed VM with all five primitives plus cap_graph
+rewrite = ~5-7 weeks. The cap_graph prior art saves about a week of
+re-derivation; the spatial-merge mechanic alone would have taken
+multiple design iterations to discover from scratch.
+
 ---
 
-## The pod arc (revised — Pod 0 expanded)
+## The pod arc (v3 — Pod 0 sealed, Pod 1 ready)
 
 ```
-Pod 0 — Foundation Lock
-├── 0.0  Reference lock + canonical docs        [DONE — e2f5db8]
-├── 0.1  Extract defines.asm                    [DONE — 4f02dcd]
-├── 0.2  Polish auryn.asm header                [DONE — 4489d01]
-├── 0.2.5 Repo-wide archaeology recon           [DONE — 7facf2a]
-├── 0.3  Repo cleanup (delete codebook/, .gitignore dumps, defunct branches)
-├── 0.4  Architect canon updates (this v2 + ARCHAEOLOGY_REPO_RECORD.md)
-├── 0.5  Polish remaining boot/ module headers (gmork, gmork_cmds, cbs_vm, bastian, vmdata)
-├── 0.6  drivers/ documentation pass + _future/ checklist standardization
-├── 0.7  auryn_puts consolidation (binary-changing, verify carefully)
-├── 0.8  Final Pod 0 recon + sign-off, prep Pod 1 entry
-└── 0.9  Buffer / cap_graph deep read prep
+Pod 0 — Foundation Lock                                    [SEALED — pod0-complete]
+├── 0.0  Reference lock + canonical docs                   [DONE — e2f5db8]
+├── 0.1  Extract defines.asm                               [DONE — 4f02dcd]
+├── 0.2  Polish auryn.asm header                           [DONE — 4489d01]
+├── 0.2.5 Repo-wide archaeology recon                      [DONE — 7facf2a]
+├── 0.3  Repo cleanup                                      [DONE]
+├── 0.4  Canon updates v2                                  [DONE — a521db2/8a04b16]
+├── 0.5  Header polish (5 boot/ modules)                   [DONE]
+├── 0.6  Drivers + data.asm                                [DONE — fbb8ba3/e6d41b3]
+├── 0.7  auryn_puts consolidation                          [DONE — 4ff12d8]
+├── 0.8  Final sign-off + tag                              [DONE — d68167c, tagged pod0-complete]
+└── 0.9  cap_graph + paging deep read                      [DONE — 0ab996c, this v3 closes it]
 
-Pod 1 — Engywook Re-Forged (typed VM: Sign/Cap/Outcome/Energy/Demod)
-        Reads kernel/_future/cap_graph.asm before design.
+Pod 1 — Engywook Re-Forged (typed VM with Sign/Cap/Outcome/Energy/Demod)
+        Cap<R> design incorporates Pod 0.9's salvaged spatial-merge mechanic.
 
 Pod 2 — Cop is Born (capability service + Ed25519 + energy market)
-        May resurrect kernel/_future/paging.asm if post-EBS needed.
 
 Pod 3 — Maid is Born (codebook substrate: log store + graph + lexical embed)
-        Resurrects drivers/_future/fat32_write.asm if FAT32 transport persists.
 
 Pod 4 — Interpreter is Born (pub-sub demod routing with isolation)
 
-Pod 5 — Surfaces Refactor
+Pod 5 — Surfaces Refactor (every surface becomes a Demod)
 
 Pod 6 — Atreyu Walks (editor)
 
@@ -299,7 +250,7 @@ Pod 10 — Auryn Speaks Far (peer transport)
 
 ---
 
-## The closing commitment (unchanged from v1)
+## The closing commitment (unchanged)
 
 Every layer earns its keep. Every byte in the bootstrap is justified by
 what it lets CBS do above it. Every type in the VM is justified by what
@@ -310,8 +261,12 @@ it lets the user think.
 Energy budgeting is novel. It is not the headline. The headline is the
 organism — and the organism is what we're building.
 
+The previous engineer's discipline preserved the design ideas through
+exile. Pod 0 walked the perimeter and named what was there. Pod 0.9
+read what Atreyu found. Pod 1 lights Engywook's full forge.
+
 From layer 1 kernel up.
 
 — Chauncey
 CodebookOS Senior Architect
-April 27, 2026 (v2)
+April 27, 2026 (v3)
