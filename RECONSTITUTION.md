@@ -1,6 +1,6 @@
-# CodebookOS — RECONSTITUTION MANIFESTO (v5)
+# CodebookOS — RECONSTITUTION MANIFESTO (v6)
 
-## Post-Pod-1.3 — VM Fixes Complete, Width Migration Canonized
+## Post-Pod-1.6 — Sign as Native Type, Typed Primitive Pattern Established
 
 **Project:** CodebookOS x86_64 UEFI
 **Repo:** github.com/RandolphPelican/codebook
@@ -11,8 +11,9 @@
 **Updated:** April 27, 2026 (v3 — post-Pod-0.9 cap_graph deep read)
 **Updated:** April 27, 2026 (v4 — post-Pod-1.1 VM audit decisions)
 **Updated:** April 27, 2026 (v5 — post-Pod-1.3 VM fixes, width-migration decisions)
-**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md, recon/POD0.9_CAP_GRAPH_DEEP_READ.md, recon/POD1.1_VM_AUDIT.md, recon/POD1.2_DECISION_RECORD.md, recon/POD1.4_DECISION_RECORD.md
-**Supersedes:** RECONSTITUTION.md v4
+**Updated:** April 28, 2026 (v6 — post-Pod-1.6 Sign as native type, typed-primitive pattern)
+**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md, recon/POD0.9_CAP_GRAPH_DEEP_READ.md, recon/POD1.1_VM_AUDIT.md, recon/POD1.2_DECISION_RECORD.md, recon/POD1.4_DECISION_RECORD.md, recon/POD1.6_DECISION_RECORD.md
+**Supersedes:** RECONSTITUTION.md v5
 
 ---
 
@@ -28,6 +29,18 @@ pod arc to thirteen sub-pods, and retroactively documents Pod 1.3's
 implementation details.
 
 See `recon/POD1.4_DECISION_RECORD.md` for the D1/D2/D3 rationale.
+
+## Why v6 exists
+
+v5 canonized the VM substrate fixes and width-migration decisions.
+v6 codifies the typed-primitive representation pattern established by
+Sign in Pod 1.6: static pool with stack handles, construction-time
+validation, immutable values, separate pools for variable-sized fields.
+Subsequent typed primitives (Energy, Outcome, Cap, Demod) inherit this
+pattern. v6 also concretizes Sign's field layout and opcode allocation
+(0xA0–0xA3 wired in Pod 1.7, 0xA4–0xAF reserved for Pod 3+).
+
+See `recon/POD1.6_DECISION_RECORD.md` for the A1–A7 rationale.
 
 1. **VM semantics fixed (Pod 1.3 — complete).** `OP_RET` is now a
    subroutine return (pops `vm_ret_stack`). `OP_CALL` uses
@@ -102,9 +115,10 @@ tracks this.
 
 A typed evaluator. Native primitives:
 
-#### `Sign`
+#### `Sign` — concretized in v6 (Pod 1.6)
 
-The unit of cognition. (Unchanged from v2.)
+The unit of cognition. Abstract definition unchanged from v2; concrete
+layout ratified in Pod 1.6.
 
 ```
 Sign := {
@@ -115,6 +129,56 @@ Sign := {
   energy_cost:  Energy,            // joules to construct
 }
 ```
+
+**V1.0 concrete layout (128 bytes per slot, 8-byte aligned):**
+
+```
+offset  size    field
+0x00    32      content_hash       (sha256 raw bytes)
+0x20    64      label              (length-prefixed ASCII; byte 0 = length, bytes 1–63 = chars)
+0x60    8       energy_cost        (u64 joules; Pod 1.7 typed wrapper)
+0x68    8       embedding_handle   (u64; index into vm_embed_pool, defined Pod 3+)
+0x70    8       provenance_handle  (u64; index into vm_provchain_pool, defined Pod 3+)
+0x78    8       reserved           (V1.1 expansion sentinel)
+total   128
+```
+
+**Pool:** `vm_sign_pool`, 64 nodes × 128 bytes = 8 KB. Static allocation
+in `boot/data.asm` (placed by Pod 1.7). Matches cap pool sizing (64 ×
+128 = 8 KB) per the typed-primitive pool convention (see below).
+
+**Handles:** Operand stack carries an 8-byte `sign_id` (pool index).
+`sign_id` 0 = invalid/null; valid range 1–64.
+
+**Label representation:** Length-prefixed ASCII. Byte 0 holds length
+(0–63); bytes 1–63 hold characters. UTF-8 deferred to V1.1.
+
+**Embedding and ProvChain:** Forward-declared 8-byte handles to pools
+landing in Pod 3 (Maid) and Pod 9 (Maid V2). Handle value 0 = no
+embedding / no provenance, valid in V1.0.
+
+**Validation:** Construction-time only (OP_SIGN_NEW). Hash must be 32
+bytes, label length ≤ 63, energy_cost in valid range, handle values
+either 0 or within their pool ranges. If validation fails, OP_SIGN_NEW
+pushes sign_id 0 (null). Accessors (OP_SIGN_HASH, OP_SIGN_LABEL,
+OP_SIGN_ENERGY) check sign_id validity; push zero/empty/null on invalid.
+
+**Mutability:** Immutable post-construction. ProvChain is separately
+mutable via the ProvChain pool (Pod 3+); Sign's provenance_handle stays
+constant, the chain it points at grows.
+
+**Opcodes (0xA0–0xAF):**
+
+```
+OP_SIGN_NEW      0xA0   construct Sign from stack args, return sign_id
+OP_SIGN_HASH     0xA1   sign_id → content_hash (stack shape TBD Pod 1.7)
+OP_SIGN_LABEL    0xA2   sign_id → label as string
+OP_SIGN_ENERGY   0xA3   sign_id → energy_cost u64
+0xA4–0xAF        reserved (Pod 3+ provenance, embedding ops)
+```
+
+OP_SIGN_NEW stack inputs (top-down): provenance_handle, embedding_handle,
+energy_cost, label_addr, hash_addr. Returns sign_id on stack.
 
 #### `Cap<R>` — revised post-Pod-0.9, cap ops replaced post-Pod-1.1
 
@@ -220,6 +284,40 @@ recompilation (DEFERRED #12, resolved in Pod 1.5).
 The existing `0x00–0x9F` range retains current opcode assignments
 (arithmetic, stack, flow control, I/O). The `0xF0–0xFF` range is
 reserved for future expansion.
+
+Naming pattern for typed-primitive opcodes: `OP_<TYPE>_<OP>` — e.g.
+`OP_SIGN_NEW`, `OP_ENERGY_ADD`, `OP_CAP_GRANT`, `OP_OUTCOME_OK`.
+
+#### Typed primitive representation pattern — v6 (Pod 1.6)
+
+All typed primitives in the CBS VM follow a common representation
+pattern, established by Sign in Pod 1.6 and inherited by Energy
+(Pod 1.7), Outcome<T> (Pod 1.8), Cap<R> (Pod 1.9–1.10), and
+Demod<S> (Pod 1.11):
+
+1. **Static pool with stack handle.** Each primitive type has a
+   statically-allocated pool in `boot/data.asm`. The operand stack
+   carries an 8-byte handle (pool index) — not the struct itself.
+   Handle 0 = null/invalid; valid range 1–64.
+
+2. **Pool sizing.** 64 nodes per pool by default (matches cap pool
+   precedent from Pod 0.9). Slot size is 128 bytes per node (8 KB
+   per pool). V1.1 typed-primitive slot expansion happens across all
+   typed primitives in unison.
+
+3. **Construction-time validation.** The `OP_<TYPE>_NEW` constructor
+   validates inputs. If validation fails, it pushes handle 0 (null).
+   Accessors check handle validity; push zero/empty/null on invalid
+   handle. No use-time re-validation of field contents in V1.0.
+
+4. **Immutable values.** Once constructed, pool slots are read-only.
+   Variable-sized or appendable data (e.g. ProvChain) lives in
+   separate pools; the parent struct carries a fixed handle to the
+   external pool.
+
+5. **8-byte alignment.** All fields within a pool slot are aligned
+   to 8-byte boundaries. Variable-length fields (labels, hashes)
+   occupy fixed-size regions within the slot.
 
 **Surface token header (Q6).** The 23-byte surface token header
 referenced in README is a Python-toolchain artifact (`tools/cbsc.cbs`, Phase 8 detritus).
