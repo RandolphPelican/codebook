@@ -6,7 +6,7 @@ Opcodes match the bare-metal x86 VM in boot.asm exactly.
 import sys, struct
 
 # === Opcodes (MUST match boot.asm %define OP_* values) ===
-OP_PUSH      = 0x01  # push i32
+OP_PUSH      = 0x01  # push i64 (Pod 1.5)
 OP_PUSH_STR  = 0x02  # push string (2-byte len + data + pad)
 OP_ADD       = 0x10
 OP_SUB       = 0x11
@@ -38,6 +38,11 @@ OP_DUP2      = 0x87
 OP_GRANT_CAP = 0x90
 OP_USE_CAP   = 0x91
 OP_HALT      = 0xFF
+# --- Sign opcodes (Pod 1.7) ---
+OP_SIGN_NEW    = 0xA0
+OP_SIGN_HASH   = 0xA1
+OP_SIGN_LABEL  = 0xA2
+OP_SIGN_ENERGY = 0xA3
 
 class Emitter:
     def __init__(self):
@@ -108,6 +113,30 @@ class AtreyuX86:
         elif t == 'block': self._block(n)
         elif t == 'expr_stmt':
             self._expr(n['value']); e.emit(OP_DROP)
+        elif t == 'sign_label_print':
+            self._expr(n['value']); e.emit(OP_SIGN_LABEL); e.emit(OP_PRINT_STR); e.emit(OP_NEWLINE)
+
+    def _sign_new(self, n):
+        """Emit OP_SIGN_NEW with inline hash and label data."""
+        e = self.e
+        # Push hash_addr: embed 32 bytes inline via PUSH_STR, drop len
+        hash_data = n.get('hash', b'\x00' * 32)
+        e.emit(OP_PUSH_STR); e.emit_u16(32)
+        e.code.extend(hash_data[:32].ljust(32, b'\x00'))
+        e.emit(OP_DROP)         # drop len, keep addr (hash_addr)
+        # Push label_addr: embed 64 bytes inline (length-prefixed ASCII)
+        label = n.get('label', '')[:63]
+        label_data = bytearray(64)
+        label_data[0] = len(label)
+        label_data[1:1+len(label)] = label.encode('ascii')
+        e.emit(OP_PUSH_STR); e.emit_u16(64)
+        e.code.extend(label_data)
+        e.emit(OP_DROP)         # drop len, keep addr (label_addr)
+        # Push energy_cost, embedding_handle (0), provenance_handle (0)
+        e.emit(OP_PUSH); e.emit_i64(n.get('energy', 0))
+        e.emit(OP_PUSH); e.emit_i64(0)     # embedding_handle (V1.0: always 0)
+        e.emit(OP_PUSH); e.emit_i64(0)     # provenance_handle (V1.0: always 0)
+        e.emit(OP_SIGN_NEW)
 
     def _push_str(self, s):
         e = self.e; raw = s.encode('utf-8')
@@ -157,6 +186,12 @@ class AtreyuX86:
             for a in n['args']: self._expr(a)
             # Simple: inline call not supported yet, treat as error
             print(f"Warning: function calls not yet supported in bytecode", file=sys.stderr)
+        elif t == 'sign_new': self._sign_new(n)
+        elif t == 'sign_energy':
+            self._expr(n['operand']); e.emit(OP_SIGN_ENERGY)
+        elif t == 'sign_hash_first':
+            self._expr(n['operand']); e.emit(OP_SIGN_HASH)
+            e.emit(OP_DROP); e.emit(OP_DROP); e.emit(OP_DROP)  # drop top 3, keep slot0
 
 # === Demo Programs ===
 def demo_full():
@@ -194,6 +229,32 @@ def demo_full():
         {'type':'print','value':{'type':'str','value':'=== CBS complete ==='}},
     ]}
 
+def demo_sign():
+    """Pod 1.7 Sign typed primitive test — hardcoded AST demo"""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Sign Test (Pod 1.7) ==='}},
+        # Create a Sign: hash = 0xAB + 31 zero bytes, label = "hello", energy = 42
+        {'type':'let','name':'s','value':{
+            'type':'sign_new',
+            'hash': b'\xab' + b'\x00' * 31,
+            'label': 'hello',
+            'energy': 42,
+        }},
+        # Print sign_id (expect: 1)
+        {'type':'print','value':{'type':'str','value':'sign_id:'}},
+        {'type':'print','value':{'type':'var','name':'s'}},
+        # Print energy_cost (expect: 42)
+        {'type':'print','value':{'type':'str','value':'energy:'}},
+        {'type':'print','value':{'type':'sign_energy','operand':{'type':'var','name':'s'}}},
+        # Print label (expect: hello)
+        {'type':'print','value':{'type':'str','value':'label:'}},
+        {'type':'sign_label_print','value':{'type':'var','name':'s'}},
+        # Print first 8 bytes of hash as u64 (expect: 171 = 0xAB little-endian)
+        {'type':'print','value':{'type':'str','value':'hash[0:8]:'}},
+        {'type':'print','value':{'type':'sign_hash_first','operand':{'type':'var','name':'s'}}},
+        {'type':'print','value':{'type':'str','value':'=== Sign test complete ==='}},
+    ]}
+
 if __name__ == '__main__':
     if '--build' in sys.argv:
         c = AtreyuX86(); bc = c.compile(demo_full())
@@ -208,5 +269,18 @@ if __name__ == '__main__':
             h = ' '.join(f'{b:02X}' for b in bc[i:i+16])
             print(f"  {i:04X}: {h}")
         print(f"First: 0x{bc[0]:02X} Last: 0x{bc[-1]:02X}")
+    elif '--sign-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_sign())
+        out = sys.argv[sys.argv.index('--sign-build')+1] if len(sys.argv) > sys.argv.index('--sign-build')+1 else 'sign_test.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Sign test: compiled {len(bc)} bytes -> {out}")
+        print(f"Vars: {c.vars}")
+    elif '--sign-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_sign())
+        print(f"Sign test: {len(bc)} bytes, vars: {c.vars}")
+        for i in range(0, min(len(bc),128), 16):
+            h = ' '.join(f'{b:02X}' for b in bc[i:i+16])
+            print(f"  {i:04X}: {h}")
+        print(f"First: 0x{bc[0]:02X} Last: 0x{bc[-1]:02X}")
     else:
-        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test")
+        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test")

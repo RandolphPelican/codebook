@@ -17,3 +17,6 @@ pods do the same. Only source pods produce new hashes.
 | 1.3  | fedcd682031e8cab36dcd8a9a519cb47ffea34c047c80d2d4db20f561196dc28 | OP_RET wired to vm_ret_stack |
 | 1.4  | fedcd682031e8cab36dcd8a9a519cb47ffea34c047c80d2d4db20f561196dc28 | RECONSTITUTION v5 — preserved |
 | 1.5  | 32d404ed779fbc3ea9a06d44c0f3e7b801b8a04db7f67d9e549a12964344c0c6 | 64-bit integer width migration |
+| 1.5.5 | 32d404ed779fbc3ea9a06d44c0f3e7b801b8a04db7f67d9e549a12964344c0c6 | pre-Pod-1.6 recon — preserved |
+| 1.6  | 32d404ed779fbc3ea9a06d44c0f3e7b801b8a04db7f67d9e549a12964344c0c6 | Sign as native type (canon) — preserved |
+| 1.7  | 975a7f809c350d09b2031b9f5490261986d878d5a04e66709f97fae7083b05dc | Sign source implementation |

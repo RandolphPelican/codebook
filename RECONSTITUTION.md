@@ -1,6 +1,6 @@
-# CodebookOS — RECONSTITUTION MANIFESTO (v6)
+# CodebookOS — RECONSTITUTION MANIFESTO (v7)
 
-## Post-Pod-1.6 — Sign as Native Type, Typed Primitive Pattern Established
+## Post-Pod-1.7 — Sign Source Implementation, Typed Primitive Round-Trip Proven
 
 **Project:** CodebookOS x86_64 UEFI
 **Repo:** github.com/RandolphPelican/codebook
@@ -12,8 +12,9 @@
 **Updated:** April 27, 2026 (v4 — post-Pod-1.1 VM audit decisions)
 **Updated:** April 27, 2026 (v5 — post-Pod-1.3 VM fixes, width-migration decisions)
 **Updated:** April 28, 2026 (v6 — post-Pod-1.6 Sign as native type, typed-primitive pattern)
-**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md, recon/POD0.9_CAP_GRAPH_DEEP_READ.md, recon/POD1.1_VM_AUDIT.md, recon/POD1.2_DECISION_RECORD.md, recon/POD1.4_DECISION_RECORD.md, recon/POD1.6_DECISION_RECORD.md
-**Supersedes:** RECONSTITUTION.md v5
+**Updated:** April 28, 2026 (v7 — post-Pod-1.7 Sign source implementation, canon corrections)
+**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md, recon/POD0.9_CAP_GRAPH_DEEP_READ.md, recon/POD1.1_VM_AUDIT.md, recon/POD1.2_DECISION_RECORD.md, recon/POD1.4_DECISION_RECORD.md, recon/POD1.6_DECISION_RECORD.md, recon/POD1.7_DECISION_RECORD.md
+**Supersedes:** RECONSTITUTION.md v6
 
 ---
 
@@ -42,6 +43,21 @@ pattern. v6 also concretizes Sign's field layout and opcode allocation
 
 See `recon/POD1.6_DECISION_RECORD.md` for the A1–A7 rationale.
 
+## Why v7 exists
+
+v6 codified Sign's design and the typed-primitive representation pattern.
+v7 records Pod 1.7's source implementation: four opcode handlers
+(OP_SIGN_NEW, OP_SIGN_HASH, OP_SIGN_LABEL, OP_SIGN_ENERGY) wired in
+`boot/cbs_vm.asm`, pool allocation in `boot/vmdata.asm`, toolchain
+emission in `tools/atreyu_x86.py`, and a round-trip test program
+(`surfaces/sign_test.cbc`) verified end-to-end under QEMU on bare-metal
+UEFI. v7 also corrects a v6 error: the typed-primitive pool lives in
+`boot/vmdata.asm`, not `boot/data.asm` (D1.7.5b canon correction).
+OP_SIGN_HASH stack shape is ratified as 4-slot push (low-to-high u64
+quadrants). Pod arc expands to fourteen sub-pods (1.0–1.13).
+
+See `recon/POD1.7_DECISION_RECORD.md` for the D1.7.1–D1.7.8 rationale.
+
 1. **VM semantics fixed (Pod 1.3 — complete).** `OP_RET` is now a
    subroutine return (pops `vm_ret_stack`). `OP_CALL` uses
    PC-relative signed offsets (was broken absolute addressing).
@@ -56,15 +72,15 @@ See `recon/POD1.6_DECISION_RECORD.md` for the A1–A7 rationale.
    runtime format changes. Width migration lands in Pod 1.5.
 
 3. **Current cap ops replaced.** The VM's existing `OP_GRANT_CAP`
-   (0x90) and `OP_USE_CAP` (0x91) are retired in Pod 1.10. Cap<R>
+   (0x90) and `OP_USE_CAP` (0x91) are retired in Pod 1.11. Cap<R>
    typed primitives replace them entirely — the spatial-merge design
    from Pod 0.9 informs the replacement, but no current cap code
    survives.
 
 4. **Opcode space allocated.** Typed primitives claim `0xA0–0xEF`
    (80 slots). Energy moves from per-fetch flat cost to per-opcode
-   cost table in Pod 1.7. Stack bounds produce `Outcome<T>` errors
-   in Pod 1.8.
+   cost table in Pod 1.8. Stack bounds produce `Outcome<T>` errors
+   in Pod 1.9.
 
 5. **Pod 1 sub-pod arc expanded.** Thirteen sub-pods (1.0–1.12)
    with explicit sequencing. Pod 1.4 (this canon update) inserted
@@ -144,7 +160,7 @@ total   128
 ```
 
 **Pool:** `vm_sign_pool`, 64 nodes × 128 bytes = 8 KB. Static allocation
-in `boot/data.asm` (placed by Pod 1.7). Matches cap pool sizing (64 ×
+in `boot/vmdata.asm` (placed by Pod 1.7). Matches cap pool sizing (64 ×
 128 = 8 KB) per the typed-primitive pool convention (see below).
 
 **Handles:** Operand stack carries an 8-byte `sign_id` (pool index).
@@ -171,7 +187,7 @@ constant, the chain it points at grows.
 
 ```
 OP_SIGN_NEW      0xA0   construct Sign from stack args, return sign_id
-OP_SIGN_HASH     0xA1   sign_id → content_hash (stack shape TBD Pod 1.7)
+OP_SIGN_HASH     0xA1   sign_id → 4 × u64 (hash[0:8], hash[8:16], hash[16:24], hash[24:32])
 OP_SIGN_LABEL    0xA2   sign_id → label as string
 OP_SIGN_ENERGY   0xA3   sign_id → energy_cost u64
 0xA4–0xAF        reserved (Pod 3+ provenance, embedding ops)
@@ -179,6 +195,15 @@ OP_SIGN_ENERGY   0xA3   sign_id → energy_cost u64
 
 OP_SIGN_NEW stack inputs (top-down): provenance_handle, embedding_handle,
 energy_cost, label_addr, hash_addr. Returns sign_id on stack.
+
+**Implementation (Pod 1.7):** All four Sign opcodes are wired in
+`boot/cbs_vm.asm` with dispatch entries and handlers. `vm_sign_alloc`
+is a bump allocator returning (slot_ptr, 1-based sign_id). Energy costs:
+OP_SIGN_NEW = 100 joules, accessors = 5 joules each (placeholder costs,
+typed Energy deferred to Pod 1.8; see D1.7.6). Toolchain emission in
+`tools/atreyu_x86.py` embeds hash/label data inline via OP_PUSH_STR +
+OP_DROP. Round-trip verified under QEMU: sign_id=1, energy=42, label=hello,
+hash[0:8]=171 (0xAB little-endian). See `recon/POD1.7_DECISION_RECORD.md`.
 
 #### `Cap<R>` — revised post-Pod-0.9, cap ops replaced post-Pod-1.1
 
@@ -193,7 +218,7 @@ and fixing the documented bugs.
 (0x90) and `OP_USE_CAP` (0x91) in `boot/cbs_vm.asm` are
 magic-number token dispatchers — they create and consume untyped
 `0xCA000000 + resource_id` tokens via hardcoded comparisons. These
-do not implement Cap<R> as described here. Pod 1.10 retires them
+do not implement Cap<R> as described here. Pod 1.11 retires them
 entirely and replaces them with typed capability opcodes in the
 `0xA0–0xEF` range (see opcode allocation below). No current cap
 code survives into the typed system.
@@ -275,11 +300,11 @@ recompilation (DEFERRED #12, resolved in Pod 1.5).
 
 | Range | Primitive | Pod |
 |-------|-----------|-----|
-| `0xA0–0xAF` | Sign | 1.6 |
-| `0xB0–0xBF` | Cap<R> | 1.9–1.10 |
-| `0xC0–0xCF` | Outcome<T> | 1.8 |
-| `0xD0–0xDF` | Energy | 1.7 |
-| `0xE0–0xEF` | Demod<S> | 1.11 |
+| `0xA0–0xAF` | Sign | 1.6–1.7 |
+| `0xB0–0xBF` | Cap<R> | 1.10–1.11 |
+| `0xC0–0xCF` | Outcome<T> | 1.9 |
+| `0xD0–0xDF` | Energy | 1.8 |
+| `0xE0–0xEF` | Demod<S> | 1.12 |
 
 The existing `0x00–0x9F` range retains current opcode assignments
 (arithmetic, stack, flow control, I/O). The `0xF0–0xFF` range is
@@ -291,12 +316,12 @@ Naming pattern for typed-primitive opcodes: `OP_<TYPE>_<OP>` — e.g.
 #### Typed primitive representation pattern — v6 (Pod 1.6)
 
 All typed primitives in the CBS VM follow a common representation
-pattern, established by Sign in Pod 1.6 and inherited by Energy
-(Pod 1.7), Outcome<T> (Pod 1.8), Cap<R> (Pod 1.9–1.10), and
-Demod<S> (Pod 1.11):
+pattern, established by Sign in Pod 1.6–1.7 and inherited by Energy
+(Pod 1.8), Outcome<T> (Pod 1.9), Cap<R> (Pod 1.10–1.11), and
+Demod<S> (Pod 1.12):
 
 1. **Static pool with stack handle.** Each primitive type has a
-   statically-allocated pool in `boot/data.asm`. The operand stack
+   statically-allocated pool in `boot/vmdata.asm`. The operand stack
    carries an 8-byte handle (pool index) — not the struct itself.
    Handle 0 = null/invalid; valid range 1–64.
 
@@ -335,14 +360,14 @@ v5 updates pod numbers after the arc slide.
 **Outcome<T> as stack-error mechanism (Q8).** Stack underflow and
 overflow produce `Outcome<T>` typed errors rather than halting the VM
 or silently corrupting state. The specific error representation
-(error codes, stack-frame tagging, etc.) is deferred to Pod 1.8 when
+(error codes, stack-frame tagging, etc.) is deferred to Pod 1.9 when
 `Outcome<T>` becomes a native VM type. The principle is decided: stack
 violations are typed results, not fatal traps. (Pod 1.3's interim
 implementation uses halt-on-violation with diagnostic messages;
-Pod 1.8 replaces these with typed `Outcome<T>` results.)
+Pod 1.9 replaces these with typed `Outcome<T>` results.)
 
 **Energy: per-opcode cost table (Q7).** The current VM debits 1 joule
-per fetch cycle regardless of opcode. Pod 1.7 introduces a per-opcode
+per fetch cycle regardless of opcode. Pod 1.8 introduces a per-opcode
 cost table — `OP_MUL` costs more than `OP_NOP`, `OP_GRANT_CAP` costs
 more than `OP_ADD`. `OP_RESERVE` remains the per-program budget
 mechanism. The flat per-fetch base cost is replaced, not supplemented.
@@ -398,18 +423,18 @@ Interpreter.
 - **`cap_atreyu` handler (Q3):** Six editor operations (get/set_size,
   get/set_char, insert, delete) at `cbs_vm.asm:408–493` have no
   dispatch entry in `op_use_cap` — unreachable dead code. Left in
-  place until Pod 1.10 (cap ops retirement). Pod 6 (Atreyu Walks)
+  place until Pod 1.11 (cap ops retirement). Pod 6 (Atreyu Walks)
   decides whether to rebuild from this skeleton or start fresh.
   DEFERRED #11 tracks this.
 
 ---
 
-## The honest hard problems (v5 — durations removed, cap ops reframed)
+## The honest hard problems (v7 — pod numbers updated)
 
 | # | Problem | Lands in |
 |---|---------|----------|
-| 1 | Typed CBS VM with Sign/Cap/Outcome/Energy/Demod as native | Pod 1 (13 sub-pods) |
-| 2 | Cap ops replacement (retire 0x90/0x91, typed Cap<R> opcodes) | Pod 1.9–1.10 |
+| 1 | Typed CBS VM with Sign/Cap/Outcome/Energy/Demod as native | Pod 1 (14 sub-pods) |
+| 2 | Cap ops replacement (retire 0x90/0x91, typed Cap<R> opcodes) | Pod 1.10–1.11 |
 | 3 | Ed25519 in NASM (placeholder field in V1.0; real in V1.1) | Pod 2 |
 | 4 | ~~Paging resurrection~~ → **deferred post-V1** (DEFERRED #9) | Post-V1 |
 | 5 | Lexical embeddings for Maid V1 | Pod 3 |
@@ -420,15 +445,15 @@ Interpreter.
 | 10 | Neural embeddings, quantized inference (Maid V2) | Pod 9 |
 | 11 | Peer transport, capability addressing (Auryn far) | Pod 10 |
 
-Pod 1 spans thirteen sub-pods (1.0 through 1.12). Two prerequisite
+Pod 1 spans fourteen sub-pods (1.0 through 1.13). Two prerequisite
 VM-fix pods and two canon-update pods precede typed-primitive work;
-five typed-primitive pods follow; one cap data pod, one cap ops pod,
+six typed-primitive pods follow; one cap data pod, one cap ops pod,
 one Demod pod, and one cleanup pod close it out. Pace is set by
 recon-protocol discipline, not by calendar.
 
 ---
 
-## The pod arc (v5 — Pod 1 sub-pods expanded to 13)
+## The pod arc (v7 — Pod 1 sub-pods expanded to 14)
 
 ```
 Pod 0 — Foundation Lock                                    [SEALED — pod0-complete]
@@ -454,13 +479,14 @@ Pod 1 — Engywook Re-Forged (typed VM with Sign/Cap/Outcome/Energy/Demod)
 ├── 1.4  Canon update v5 (this document)                   [DONE — 7a825f2]
 ├── 1.5  64-bit integer width migration                    [DONE — e6a2cc2]
 ├── 1.5.5 Pre-Pod-1.6 architect orientation recon           [DONE — b560a6c]
-├── 1.6  Sign as native type (0xA0–0xAF)                   [planned — typed primitives]
-├── 1.7  Energy: per-opcode cost table (0xD0–0xDF)         [planned — typed primitives]
-├── 1.8  Outcome<T>: typed errors + stack bounds (0xC0–0xCF) [planned — typed primitives]
-├── 1.9  Cap<R> data structures (0xB0–0xBF)                [planned — cap replacement]
-├── 1.10 Cap ops retirement (retire 0x90/0x91)             [planned — cap replacement]
-├── 1.11 Demod<S> registration (0xE0–0xEF)                 [planned — demod]
-└── 1.12 Pod 1 cleanup + sign-off                          [planned — cleanup]
+├── 1.6  Sign as native type (0xA0–0xAF)                   [DONE — 6264dbc]
+├── 1.7  Sign source implementation (opcodes + pool + test) [DONE — Pod 1.7]
+├── 1.8  Energy: per-opcode cost table (0xD0–0xDF)         [planned — typed primitives]
+├── 1.9  Outcome<T>: typed errors + stack bounds (0xC0–0xCF) [planned — typed primitives]
+├── 1.10 Cap<R> data structures (0xB0–0xBF)                [planned — cap replacement]
+├── 1.11 Cap ops retirement (retire 0x90/0x91)             [planned — cap replacement]
+├── 1.12 Demod<S> registration (0xE0–0xEF)                 [planned — demod]
+└── 1.13 Pod 1 cleanup + sign-off                          [planned — cleanup]
 
 Pod 2 — Cop is Born (capability service + Ed25519 + energy market)
 
@@ -502,4 +528,4 @@ From layer 1 kernel up.
 
 — Chauncey
 CodebookOS Senior Architect
-April 27, 2026 (v5)
+April 28, 2026 (v7)

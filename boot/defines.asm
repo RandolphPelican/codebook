@@ -87,3 +87,9 @@
 %define OP_HALT       0xFF
 %define OP_GRANT_CAP_NEW 0xCA000003
 %define OP_USE_CAP_NEW 0xCA000004
+
+; --- Sign opcodes (Pod 1.7) ---
+%define OP_SIGN_NEW    0xA0
+%define OP_SIGN_HASH   0xA1
+%define OP_SIGN_LABEL  0xA2
+%define OP_SIGN_ENERGY 0xA3

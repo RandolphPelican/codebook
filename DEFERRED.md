@@ -59,7 +59,7 @@ Three opcodes are defined in `boot/defines.asm` but not handled in
 - `OP_GRANT_CAP_NEW` (0xCA000003) — Phase 5.1 ghost. Not an opcode:
   4-byte value, but VM dispatches on single bytes — unreachable as
   an opcode. Actually a capability token constant, misnamed with OP_
-  prefix. Removed when cap ops are retired in Pod 1.10.
+  prefix. Removed when cap ops are retired in Pod 1.11.
 - `OP_USE_CAP_NEW` (0xCA000004) — same as above.
 
 ## 7. README full rewrite + token header cleanup (revised Pod 1.4)
@@ -114,7 +114,7 @@ next maintenance pod runs.
 `cbs_vm.asm:408–493` implements six Atreyu editor operations
 (get/set_size, get/set_char, insert, delete) with no dispatch entry
 in `op_use_cap` — unreachable dead code. Left in place through Pod 1
-cap ops retirement (Pod 1.10). Pod 6 (Atreyu Walks) decides whether
+cap ops retirement (Pod 1.11). Pod 6 (Atreyu Walks) decides whether
 to rebuild from this skeleton or start fresh. See RECONSTITUTION v4
 "Exiled in place" section and `recon/POD1.1_VM_AUDIT.md` T7.
 
@@ -127,11 +127,30 @@ operands unchanged at 4-byte per D1.
 
 ## 13. Stack-error mechanism design (revised Pod 1.4)
 
-Pod 1.8 (Outcome<T>) must define the specific representation for
+Pod 1.9 (Outcome<T>) must define the specific representation for
 stack-violation errors: error codes, stack-frame tagging, how a
 typed `Err(StackOverflow)` or `Err(StackUnderflow)` sits on the VM
 stack alongside normal values. The principle is decided (Q8: stack
 violations are typed Outcome results, not fatal traps), but the
-encoding is deferred to Pod 1.8's recon phase. Pod 1.3's interim
+encoding is deferred to Pod 1.9's recon phase. Pod 1.3's interim
 implementation halts with diagnostic messages (`str_ret_underflow`,
-`str_call_overflow`); Pod 1.8 replaces these with typed results.
+`str_call_overflow`); Pod 1.9 replaces these with typed results.
+
+## 14. precompile_all.sh CRLF line endings (added Pod 1.7)
+
+`tools/precompile_all.sh` has Windows CRLF line endings, causing
+`\r': command not found` errors when run under WSL/Linux. The script
+is non-blocking because fallback to existing `.cbc` files works, but
+it should be converted to Unix line endings (`dos2unix` or `sed -i
+'s/\r$//'`). Low priority — only affects fresh recompilation workflow.
+
+## 15. Energy display bug — r15 uninitialized (added Pod 1.7)
+
+The CBS VM exit path prints r15 as "energy used" (alongside r14 as
+"energy remaining"), but `cbs_run` never initializes r15. The value
+displayed is whatever was in r15 at VM entry — typically a stale
+register from UEFI context. r14 (energy remaining) is correct;
+`[rel energy_used]` in memory is correct. The display line that prints
+r15 is misleading. Fix in Pod 1.8 (Energy typed primitive) when the
+energy display is redesigned. See D1.7.8 in
+`recon/POD1.7_DECISION_RECORD.md`.

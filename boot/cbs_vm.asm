@@ -10,7 +10,8 @@
 ; Functions: cbs_run (single entry; all else .local labels)
 ; Depends:   auryn_putc, auryn_puts, morla_run_file_main,
 ;            energy_budget, energy_used, vm_stack, vm_vars,
-;            vm_ret_stack, vm_ret_ptr (all in vmdata.asm)
+;            vm_ret_stack, vm_ret_ptr, vm_sign_pool,
+;            vm_sign_next (all in vmdata.asm)
 ; Layer:     Layer 1 — Typed CBS VM (V1; reforged in Pod 1)
 ;
 ; --- Register allocation (preserve when extending) ---
@@ -116,6 +117,14 @@ cbs_run:
     je      .op_push_str
     cmp     al, OP_PRINT_STR
     je      .op_print_str
+    cmp     al, OP_SIGN_NEW
+    je      .op_sign_new
+    cmp     al, OP_SIGN_HASH
+    je      .op_sign_hash
+    cmp     al, OP_SIGN_LABEL
+    je      .op_sign_label
+    cmp     al, OP_SIGN_ENERGY
+    je      .op_sign_energy
 
     ; Unknown opcode
     lea     rsi, [rel str_vm_unk]
@@ -710,6 +719,188 @@ cbs_run:
     jnz     .pstr_loop
 .pstr_done:
     jmp     .fetch
+
+; --- Sign typed primitive (Pod 1.7) ---
+; D1.7.6 energy costs are placeholders; Pod 1.8 supersedes.
+; vm_sign_alloc inherits cap_alloc_node shape (Pod 0.9) with 64-bit
+; width discipline (rcx/rax/qword, not ecx/eax/dword).
+
+.op_sign_new:
+    ; Energy: 100 joules (D1.7.6 placeholder)
+    cmp     r14, 100
+    jl      .fatigue
+    sub     r14, 100
+    add     qword [rel energy_used], 100
+    ; Pop 5 args: provenance_handle, embedding_handle, energy_cost,
+    ;             label_addr, hash_addr (top-down per A3)
+    sub     r13, 8
+    mov     r8, [r13]           ; provenance_handle
+    sub     r13, 8
+    mov     r9, [r13]           ; embedding_handle
+    sub     r13, 8
+    mov     r10, [r13]          ; energy_cost
+    sub     r13, 8
+    mov     r11, [r13]          ; label_addr
+    sub     r13, 8
+    mov     rbx, [r13]          ; hash_addr
+    ; Validate label length <= 63 (A4)
+    movzx   eax, byte [r11]
+    cmp     eax, 63
+    ja      .sign_new_fail
+    ; Validate handles: must be 0 in V1.0 (pools land Pod 3+)
+    test    r9, r9
+    jnz     .sign_new_fail
+    test    r8, r8
+    jnz     .sign_new_fail
+    ; Allocate pool slot
+    call    .sign_alloc
+    test    rax, rax
+    jz      .sign_new_fail
+    ; rax = slot pointer, rcx = 1-based sign_id
+    push    rcx                 ; save sign_id across memcpy
+    ; Copy hash (32 bytes) from hash_addr to slot+0x00
+    mov     rdi, rax            ; dest = slot base
+    mov     rsi, rbx            ; src = hash_addr
+    mov     rcx, 32
+    cld
+    rep     movsb
+    ; Copy label (64 bytes) from label_addr to slot+0x20
+    ; rdi already at slot+0x20 after 32-byte copy
+    mov     rsi, r11            ; src = label_addr
+    mov     rcx, 64
+    rep     movsb
+    ; rdi now at slot+0x60; write remaining fields
+    mov     [rdi], r10          ; energy_cost at +0x60
+    mov     qword [rdi + 8], 0  ; embedding_handle at +0x68
+    mov     qword [rdi + 16], 0 ; provenance_handle at +0x70
+    mov     qword [rdi + 24], 0 ; reserved at +0x78 (V1.1 sentinel)
+    pop     rcx                 ; restore sign_id
+    ; Push sign_id on operand stack
+    mov     [r13], rcx
+    add     r13, 8
+    jmp     .fetch
+.sign_new_fail:
+    ; Validation failed or pool full: push null handle (0)
+    mov     qword [r13], 0
+    add     r13, 8
+    jmp     .fetch
+
+.op_sign_hash:
+    ; Energy: 5 joules (D1.7.6 placeholder)
+    cmp     r14, 5
+    jl      .fatigue
+    sub     r14, 5
+    add     qword [rel energy_used], 5
+    ; Pop sign_id
+    sub     r13, 8
+    mov     rax, [r13]
+    ; Validate handle: 1 <= sign_id <= 64
+    test    rax, rax
+    jz      .sign_hash_null
+    cmp     rax, 64
+    ja      .sign_hash_null
+    ; Calculate slot pointer: vm_sign_pool + (sign_id-1) * 128
+    dec     rax
+    shl     rax, 7
+    lea     rbx, [rel vm_sign_pool]
+    add     rbx, rax
+    ; Push 4 slots (32 bytes of hash, low-to-high)
+    mov     rax, [rbx]
+    mov     [r13], rax
+    mov     rax, [rbx + 8]
+    mov     [r13 + 8], rax
+    mov     rax, [rbx + 16]
+    mov     [r13 + 16], rax
+    mov     rax, [rbx + 24]
+    mov     [r13 + 24], rax
+    add     r13, 32
+    jmp     .fetch
+.sign_hash_null:
+    mov     qword [r13], 0
+    mov     qword [r13 + 8], 0
+    mov     qword [r13 + 16], 0
+    mov     qword [r13 + 24], 0
+    add     r13, 32
+    jmp     .fetch
+
+.op_sign_label:
+    ; Energy: 5 joules (D1.7.6 placeholder)
+    cmp     r14, 5
+    jl      .fatigue
+    sub     r14, 5
+    add     qword [rel energy_used], 5
+    ; Pop sign_id
+    sub     r13, 8
+    mov     rax, [r13]
+    test    rax, rax
+    jz      .sign_label_null
+    cmp     rax, 64
+    ja      .sign_label_null
+    ; Slot pointer
+    dec     rax
+    shl     rax, 7
+    lea     rbx, [rel vm_sign_pool]
+    add     rbx, rax
+    ; Label at slot+0x20: byte 0 = length, bytes 1-63 = chars
+    ; Push (addr of chars, length) — matches PUSH_STR/PRINT_STR convention
+    lea     rax, [rbx + 0x21]      ; pointer to char data (skip length byte)
+    mov     [r13], rax
+    movzx   eax, byte [rbx + 0x20] ; length from byte 0
+    mov     [r13 + 8], rax
+    add     r13, 16
+    jmp     .fetch
+.sign_label_null:
+    mov     qword [r13], 0
+    mov     qword [r13 + 8], 0
+    add     r13, 16
+    jmp     .fetch
+
+.op_sign_energy:
+    ; Energy: 5 joules (D1.7.6 placeholder)
+    cmp     r14, 5
+    jl      .fatigue
+    sub     r14, 5
+    add     qword [rel energy_used], 5
+    ; Pop sign_id
+    sub     r13, 8
+    mov     rax, [r13]
+    test    rax, rax
+    jz      .sign_energy_null
+    cmp     rax, 64
+    ja      .sign_energy_null
+    ; Slot pointer
+    dec     rax
+    shl     rax, 7
+    lea     rbx, [rel vm_sign_pool]
+    add     rbx, rax
+    ; energy_cost at slot+0x60
+    mov     rax, [rbx + 0x60]
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+.sign_energy_null:
+    mov     qword [r13], 0
+    add     r13, 8
+    jmp     .fetch
+
+; vm_sign_alloc: bump allocator for Sign pool (widened cap_alloc_node shape)
+; Output: rax = slot pointer (0 if pool full), rcx = 1-based sign_id (0 if full)
+; Clobbers: rdx
+.sign_alloc:
+    mov     rcx, [rel vm_sign_next]
+    cmp     rcx, 64                 ; 64 nodes max (A1)
+    jge     .sign_alloc_full
+    mov     rdx, rcx
+    shl     rdx, 7                  ; index * 128 bytes per slot
+    lea     rax, [rel vm_sign_pool]
+    add     rax, rdx
+    inc     qword [rel vm_sign_next]
+    inc     rcx                     ; 1-based sign_id
+    ret
+.sign_alloc_full:
+    xor     rax, rax
+    xor     rcx, rcx
+    ret
 
 ; --- HALT ---
 .op_halt:
