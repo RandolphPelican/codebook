@@ -11,14 +11,17 @@
 ; Depends:   auryn_putc, auryn_puts, morla_run_file_main,
 ;            energy_budget, energy_used, vm_stack, vm_vars,
 ;            vm_ret_stack, vm_ret_ptr, vm_sign_pool,
-;            vm_sign_next (all in vmdata.asm)
+;            vm_sign_next, vm_energy_pool, vm_energy_next
+;            (all in vmdata.asm)
+;            energy_cost_lookup, energy_cost_table
+;            (in energy_costs.asm)
 ; Layer:     Layer 1 — Typed CBS VM (V1; reforged in Pod 1)
 ;
 ; --- Register allocation (preserve when extending) ---
 ;   r12 = PC (program counter, points into bytecode)
 ;   r13 = SP (CBS stack pointer, points into vm_stack)
-;   r14 = energy budget (joules available for current run)
-;   r15 = energy used (cumulative joules consumed this run)
+;   r14 = energy budget (joules remaining for current run)
+;   r15 = (freed, Pod 1.8 A4; no cross-handler invariant)
 ;
 ; Stack layout:    vm_stack[]  — operand stack, grows up
 ; Variable layout: vm_vars[]   — addressable slots
@@ -47,13 +50,20 @@ cbs_run:
     call    auryn_puts
 
 .fetch:
-    ; Metabolic energy check
-    test    r14, r14
-    jz      .fatigue
-    dec     r14
-    inc     qword [rel energy_used]
+    ; Fetch opcode byte
     movzx   eax, byte [r12]
     inc     r12
+    ; Per-opcode energy cost (Pod 1.8: cost table replaces flat 1j/fetch)
+    push    rax                     ; preserve opcode across call
+    call    energy_cost_lookup      ; al = opcode byte → rax = joules
+    mov     rbx, rax                ; rbx = cost
+    pop     rax                     ; restore opcode byte
+    ; Bankruptcy check: can we afford this opcode?
+    cmp     r14, rbx
+    jl      .fatigue
+    ; Debit energy
+    sub     r14, rbx
+    add     [rel energy_used], rbx
 
     cmp     al, OP_HALT
     je      .op_halt
@@ -125,6 +135,14 @@ cbs_run:
     je      .op_sign_label
     cmp     al, OP_SIGN_ENERGY
     je      .op_sign_energy
+    cmp     al, OP_ENERGY_NEW
+    je      .op_energy_new
+    cmp     al, OP_ENERGY_JOULES
+    je      .op_energy_joules
+    cmp     al, OP_ENERGY_SOURCE_OP
+    je      .op_energy_source_op
+    cmp     al, OP_ENERGY_FREE
+    je      .op_energy_free
 
     ; Unknown opcode
     lea     rsi, [rel str_vm_unk]
@@ -293,7 +311,7 @@ cbs_run:
     cmp     r14, rax
     jl      .reserve_fail
     sub     r14, rax
-    add     r15, rax
+    ; r15 freed (Pod 1.8 A4); energy tracking via [rel energy_used]
     ; Print reservation
     push    rax
     lea     rsi, [rel str_vm_rsv]
@@ -726,11 +744,7 @@ cbs_run:
 ; width discipline (rcx/rax/qword, not ecx/eax/dword).
 
 .op_sign_new:
-    ; Energy: 100 joules (D1.7.6 placeholder)
-    cmp     r14, 100
-    jl      .fatigue
-    sub     r14, 100
-    add     qword [rel energy_used], 100
+    ; Energy: handled by fetch-loop cost table (Pod 1.8)
     ; Pop 5 args: provenance_handle, embedding_handle, energy_cost,
     ;             label_addr, hash_addr (top-down per A3)
     sub     r13, 8
@@ -786,11 +800,7 @@ cbs_run:
     jmp     .fetch
 
 .op_sign_hash:
-    ; Energy: 5 joules (D1.7.6 placeholder)
-    cmp     r14, 5
-    jl      .fatigue
-    sub     r14, 5
-    add     qword [rel energy_used], 5
+    ; Energy: handled by fetch-loop cost table (Pod 1.8)
     ; Pop sign_id
     sub     r13, 8
     mov     rax, [r13]
@@ -824,11 +834,7 @@ cbs_run:
     jmp     .fetch
 
 .op_sign_label:
-    ; Energy: 5 joules (D1.7.6 placeholder)
-    cmp     r14, 5
-    jl      .fatigue
-    sub     r14, 5
-    add     qword [rel energy_used], 5
+    ; Energy: handled by fetch-loop cost table (Pod 1.8)
     ; Pop sign_id
     sub     r13, 8
     mov     rax, [r13]
@@ -856,11 +862,7 @@ cbs_run:
     jmp     .fetch
 
 .op_sign_energy:
-    ; Energy: 5 joules (D1.7.6 placeholder)
-    cmp     r14, 5
-    jl      .fatigue
-    sub     r14, 5
-    add     qword [rel energy_used], 5
+    ; Energy: handled by fetch-loop cost table (Pod 1.8)
     ; Pop sign_id
     sub     r13, 8
     mov     rax, [r13]
@@ -882,6 +884,116 @@ cbs_run:
     mov     qword [r13], 0
     add     r13, 8
     jmp     .fetch
+
+; --- Energy typed primitive (Pod 1.8) ---
+; A1: 128-byte slots, joules at +0x00, source_op at +0x08, rest reserved.
+; Energy: handled by fetch-loop cost table.
+
+.op_energy_new:
+    ; Pop source_op (u64), then joules (u64) — top-down
+    sub     r13, 8
+    mov     rbx, [r13]              ; source_op
+    sub     r13, 8
+    mov     rcx, [r13]              ; joules
+    ; Allocate pool slot
+    call    .energy_alloc
+    test    rax, rax
+    jz      .energy_new_fail
+    ; rax = slot pointer, rdx = 1-based energy_id
+    mov     [rax + ENERGY_OFF_JOULES], rcx      ; joules at +0x00
+    mov     [rax + ENERGY_OFF_SOURCE_OP], rbx   ; source_op at +0x08
+    ; Zero reserved area (112 bytes at +0x10)
+    push    rdi
+    push    rcx
+    lea     rdi, [rax + 0x10]
+    xor     eax, eax
+    mov     rcx, 14                 ; 14 * 8 = 112 bytes
+    rep     stosq
+    pop     rcx
+    pop     rdi
+    ; Push energy_id on operand stack
+    mov     [r13], rdx
+    add     r13, 8
+    jmp     .fetch
+.energy_new_fail:
+    mov     qword [r13], 0
+    add     r13, 8
+    jmp     .fetch
+
+.op_energy_joules:
+    ; Pop energy_id
+    sub     r13, 8
+    mov     rax, [r13]
+    ; Validate: 1 <= energy_id <= 64
+    test    rax, rax
+    jz      .energy_joules_null
+    cmp     rax, ENERGY_POOL_SLOTS
+    ja      .energy_joules_null
+    ; Slot pointer: vm_energy_pool + (energy_id-1) * 128
+    dec     rax
+    shl     rax, 7
+    lea     rbx, [rel vm_energy_pool]
+    add     rbx, rax
+    ; Read joules at +0x00
+    mov     rax, [rbx + ENERGY_OFF_JOULES]
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+.energy_joules_null:
+    mov     qword [r13], 0
+    add     r13, 8
+    jmp     .fetch
+
+.op_energy_source_op:
+    ; Pop energy_id
+    sub     r13, 8
+    mov     rax, [r13]
+    ; Validate: 1 <= energy_id <= 64
+    test    rax, rax
+    jz      .energy_source_op_null
+    cmp     rax, ENERGY_POOL_SLOTS
+    ja      .energy_source_op_null
+    ; Slot pointer
+    dec     rax
+    shl     rax, 7
+    lea     rbx, [rel vm_energy_pool]
+    add     rbx, rax
+    ; Read source_op at +0x08
+    mov     rax, [rbx + ENERGY_OFF_SOURCE_OP]
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+.energy_source_op_null:
+    mov     qword [r13], 0
+    add     r13, 8
+    jmp     .fetch
+
+.op_energy_free:
+    ; V1.0 no-op: consume stack arg but don't modify pool state.
+    ; V1.1+ activates free-list recycling here.
+    sub     r13, 8                  ; pop energy_id (discard)
+    jmp     .fetch
+
+; vm_energy_alloc: bump allocator for Energy pool (mirrors sign_alloc shape)
+; Output: rax = slot pointer (0 if full), rdx = 1-based energy_id (0 if full)
+; Clobbers: none beyond rax, rdx
+.energy_alloc:
+    mov     rdx, [rel vm_energy_next]
+    cmp     rdx, ENERGY_POOL_SLOTS
+    jge     .energy_alloc_full
+    mov     rax, rdx
+    shl     rax, 7                  ; index * 128 bytes per slot
+    push    rdx                     ; save index across lea
+    lea     rdx, [rel vm_energy_pool]
+    add     rax, rdx                ; rax = pool base + byte offset
+    pop     rdx                     ; restore index
+    inc     qword [rel vm_energy_next]
+    inc     rdx                     ; 1-based energy_id
+    ret
+.energy_alloc_full:
+    xor     rax, rax
+    xor     rdx, rdx
+    ret
 
 ; vm_sign_alloc: bump allocator for Sign pool (widened cap_alloc_node shape)
 ; Output: rax = slot pointer (0 if pool full), rcx = 1-based sign_id (0 if full)
@@ -908,10 +1020,10 @@ cbs_run:
     call    auryn_puts
 
 .done:
-    ; Print energy summary
+    ; Print energy summary (Pod 1.8: reads [rel energy_used], not r15)
     lea     rsi, [rel str_vm_eu]
     call    auryn_puts
-    mov     rdi, r15
+    mov     rdi, [rel energy_used]
     call    print_dec
     lea     rsi, [rel str_vm_jr]
     call    auryn_puts

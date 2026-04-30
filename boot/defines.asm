@@ -93,3 +93,15 @@
 %define OP_SIGN_HASH   0xA1
 %define OP_SIGN_LABEL  0xA2
 %define OP_SIGN_ENERGY 0xA3
+
+; --- Energy opcodes (Pod 1.8) ---
+%define OP_ENERGY_NEW       0xD0
+%define OP_ENERGY_JOULES    0xD1
+%define OP_ENERGY_SOURCE_OP 0xD2
+%define OP_ENERGY_FREE      0xD3
+
+; --- Energy struct layout (Pod 1.8) ---
+%define ENERGY_OFF_JOULES    0x00
+%define ENERGY_OFF_SOURCE_OP 0x08
+%define ENERGY_SLOT_SIZE     0x80   ; 128 bytes
+%define ENERGY_POOL_SLOTS    64

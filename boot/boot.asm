@@ -366,6 +366,7 @@ fixup_color:
 %include "boot/auryn.asm"      ; auryn_fill, scroll, paint, putc
 %include "boot/morla.asm"      ; morla FAT32 + auryn_puts (preserves original order)
 %include "boot/gmork.asm"      ; string utils: str_eq, starts_with, parse_hex, print_*
+%include "boot/energy_costs.asm" ; Pod 1.8: per-opcode energy cost table + lookup
 %include "boot/cbs_vm.asm"     ; CBS bytecode VM
 %include "boot/bastian.asm"    ; home surface (bastian precedes gmork_main in original)
 %include "boot/gmork_cmds.asm"  ; gmork_main, get_mmap, show_memmap, paint_bars

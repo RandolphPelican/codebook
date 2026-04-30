@@ -1,6 +1,6 @@
-# CodebookOS — RECONSTITUTION MANIFESTO (v7)
+# CodebookOS — RECONSTITUTION MANIFESTO (v8)
 
-## Post-Pod-1.7 — Sign Source Implementation, Typed Primitive Round-Trip Proven
+## Post-Pod-1.8 — Energy Source-Implemented, Per-Opcode Cost Table Active, Catalytic-Gateway Fetch Loop
 
 **Project:** CodebookOS x86_64 UEFI
 **Repo:** github.com/RandolphPelican/codebook
@@ -13,8 +13,9 @@
 **Updated:** April 27, 2026 (v5 — post-Pod-1.3 VM fixes, width-migration decisions)
 **Updated:** April 28, 2026 (v6 — post-Pod-1.6 Sign as native type, typed-primitive pattern)
 **Updated:** April 28, 2026 (v7 — post-Pod-1.7 Sign source implementation, canon corrections)
-**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md, recon/POD0.9_CAP_GRAPH_DEEP_READ.md, recon/POD1.1_VM_AUDIT.md, recon/POD1.2_DECISION_RECORD.md, recon/POD1.4_DECISION_RECORD.md, recon/POD1.6_DECISION_RECORD.md, recon/POD1.7_DECISION_RECORD.md
-**Supersedes:** RECONSTITUTION.md v6
+**Updated:** April 29, 2026 (v8 — post-Pod-1.8 Energy source implementation, per-opcode cost table, catalytic-gateway fetch loop)
+**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md, recon/POD0.9_CAP_GRAPH_DEEP_READ.md, recon/POD1.1_VM_AUDIT.md, recon/POD1.2_DECISION_RECORD.md, recon/POD1.4_DECISION_RECORD.md, recon/POD1.6_DECISION_RECORD.md, recon/POD1.7_DECISION_RECORD.md, recon/POD1.8_DECISION_RECORD.md
+**Supersedes:** RECONSTITUTION.md v7
 
 ---
 
@@ -57,6 +58,23 @@ OP_SIGN_HASH stack shape is ratified as 4-slot push (low-to-high u64
 quadrants). Pod arc expands to fourteen sub-pods (1.0–1.13).
 
 See `recon/POD1.7_DECISION_RECORD.md` for the D1.7.1–D1.7.8 rationale.
+
+## Why v8 exists
+
+v7 recorded Pod 1.7's Sign source implementation and corrected v6's
+data.asm/vmdata.asm pool-location error. v8 records Pod 1.8's Energy
+source implementation: four opcode handlers (OP_ENERGY_NEW,
+OP_ENERGY_JOULES, OP_ENERGY_SOURCE_OP, OP_ENERGY_FREE) wired in
+`boot/cbs_vm.asm`, pool allocation in `boot/vmdata.asm`, a new
+`boot/energy_costs.asm` module containing the 256-entry per-opcode
+cost table and `energy_cost_lookup` primitive, toolchain emission in
+`tools/atreyu_x86.py`, and a round-trip test program
+(`surfaces/test_energy.cbc`) verified end-to-end under QEMU on bare-metal
+UEFI. v8 also introduces the catalytic-gateway fetch-loop architecture
+(handlers no longer touch energy — the fetch loop is the single
+metabolic boundary) and resolves DEFERRED #15 (r15-uninit display bug).
+
+See `recon/POD1.8_DECISION_RECORD.md` for the D1.8.1–D1.8.12 rationale.
 
 1. **VM semantics fixed (Pod 1.3 — complete).** `OP_RET` is now a
    subroutine return (pops `vm_ret_stack`). `OP_CALL` uses
@@ -366,11 +384,97 @@ violations are typed results, not fatal traps. (Pod 1.3's interim
 implementation uses halt-on-violation with diagnostic messages;
 Pod 1.9 replaces these with typed `Outcome<T>` results.)
 
-**Energy: per-opcode cost table (Q7).** The current VM debits 1 joule
-per fetch cycle regardless of opcode. Pod 1.8 introduces a per-opcode
-cost table — `OP_MUL` costs more than `OP_NOP`, `OP_GRANT_CAP` costs
-more than `OP_ADD`. `OP_RESERVE` remains the per-program budget
-mechanism. The flat per-fetch base cost is replaced, not supplemented.
+#### `Energy` — concretized in v8 (Pod 1.8)
+
+The unit of endurance. Every operation costs joules; the cost table is
+the kernel's honest accounting of what each opcode demands.
+
+```
+Energy := {
+  joules:     u64,              // energy quantity
+  source_op:  u64,              // opcode byte that generated this event (0 = unattributed)
+}
+```
+
+**V1.0 concrete layout (128 bytes per slot, 8-byte aligned):**
+
+```
+offset  size    field
+0x00    8       joules           (u64)
+0x08    8       source_op        (u64; opcode byte, 0 = unattributed)
+0x10    112     reserved         (V1.1+: sink, cost_table_idx, time_granted, etc.)
+total   128
+```
+
+**Pool:** `vm_energy_pool`, 64 nodes x 128 bytes = 8 KB. Static allocation
+in `boot/vmdata.asm` (placed by Pod 1.8). Matches Sign pool sizing per
+the typed-primitive pool convention.
+
+**Handles:** Operand stack carries an 8-byte `energy_id` (pool index).
+`energy_id` 0 = invalid/null; valid range 1–64.
+
+**Opcodes (0xD0–0xDF):**
+
+```
+OP_ENERGY_NEW        0xD0   construct Energy from stack args, return energy_id
+OP_ENERGY_JOULES     0xD1   energy_id -> joules u64
+OP_ENERGY_SOURCE_OP  0xD2   energy_id -> source_op u64
+OP_ENERGY_FREE       0xD3   V1.0 no-op (bump allocator, no free list); V1.1+ activation
+0xD4–0xDF            reserved (Energy V1.1+)
+```
+
+OP_ENERGY_NEW stack inputs (top-down): source_op, joules. Returns
+energy_id on stack.
+
+**Implementation (Pod 1.8):** All four Energy opcodes are wired in
+`boot/cbs_vm.asm` with dispatch entries and handlers. `energy_alloc`
+is a bump allocator returning (slot_ptr, 1-based energy_id), matching
+the `sign_alloc` pattern (separate `lea` + `add` for RIP-relative
+safety). Round-trip verified under QEMU: energy_id=1, joules=500,
+source_op=160 (0xA0 = OP_SIGN_NEW). See
+`recon/POD1.8_DECISION_RECORD.md`.
+
+**Per-opcode cost table (Pod 1.8 — DONE).** New module
+`boot/energy_costs.asm` owns the 256-entry static cost array (one
+qword per opcode byte, 2048 bytes total) and the `energy_cost_lookup`
+primitive (opcode byte in `al`, joules out in `rax`). The cost table
+replaces the pre-Pod-1.8 flat 1j/fetch mechanism.
+
+**Cost-table philosophy.** The cost table makes the energy spec literal.
+Old mechanism (pre-Pod-1.8): observable cost = handler debit + 1j fetch
+surcharge — a hidden tax. New mechanism: the cost IS the cost. D1.7.6's
+stated values (100j SIGN_NEW, 5j accessors) are honored at face value.
+Gating ops (OP_HALT, OP_RESERVE) = 0j: structural, not metabolic.
+Undefined opcodes default to 1j: defensive, ensures forward progress or
+eventual bankruptcy in error territory. Pod 1.8 introduces the mechanism;
+calibration of per-opcode values is empirical work for a future
+Rockbiter-driven tuning pod.
+
+**Catalytic-gateway architecture.** The fetch loop is the catalytic
+boundary. Old mechanism: every Sign handler did its own three-line
+metabolic ritual (cmp+sub+add) — every enzyme accounting for its own
+ATP. Cells don't work that way. Real cells pay ATP at well-defined
+catalytic boundaries, not at every protein. Pod 1.8's fetch loop becomes
+that boundary: fetch byte -> energy_cost_lookup -> bankruptcy check ->
+debit -> dispatch handler. Handler runs pure-semantic, never touches
+energy. The architecture is honest: proteins do the chemistry, the
+gateway does the accounting.
+
+**OP_RESERVE relationship (A5).** OP_RESERVE keeps raw u64 in V1.0.
+Reserved energy values are not typed Energy primitives; the conversion
+from raw u64 to typed Energy is V1.1+ work.
+
+**OP_SIGN_ENERGY return type (A6).** OP_SIGN_ENERGY (0xA3) returns raw
+u64 in V1.0, matching Pod 1.7's behavior. The typed-Energy return is
+V1.1+ work.
+
+**Layered convention (A7).** Energy as a typed primitive does not yet
+appear on the operand stack as a typed handle the way Sign does. Energy
+values flow as raw u64 through OP_RESERVE and the cost-table debit
+machinery. The typed primitive is available via OP_ENERGY_NEW for
+programs that want to construct, store, and read back Energy values
+explicitly (Rockbiter, debug paths, future surfaces). The two flows
+coexist in V1.0 and unify in V1.1+.
 
 **Demod<S>.** Unchanged. Arrives in Pod 4 (Interpreter).
 
@@ -429,11 +533,11 @@ Interpreter.
 
 ---
 
-## The honest hard problems (v7 — pod numbers updated)
+## The honest hard problems (v8 — Energy/cost-table DONE)
 
 | # | Problem | Lands in |
 |---|---------|----------|
-| 1 | Typed CBS VM with Sign/Cap/Outcome/Energy/Demod as native | Pod 1 (14 sub-pods) |
+| 1 | Typed CBS VM with Sign/Cap/Outcome/Energy/Demod as native | Pod 1 (14 sub-pods; Sign DONE 1.7, Energy DONE 1.8) |
 | 2 | Cap ops replacement (retire 0x90/0x91, typed Cap<R> opcodes) | Pod 1.10–1.11 |
 | 3 | Ed25519 in NASM (placeholder field in V1.0; real in V1.1) | Pod 2 |
 | 4 | ~~Paging resurrection~~ → **deferred post-V1** (DEFERRED #9) | Post-V1 |
@@ -453,7 +557,7 @@ recon-protocol discipline, not by calendar.
 
 ---
 
-## The pod arc (v7 — Pod 1 sub-pods expanded to 14)
+## The pod arc (v8 — Pod 1.7 sealed, Pod 1.8 DONE)
 
 ```
 Pod 0 — Foundation Lock                                    [SEALED — pod0-complete]
@@ -480,8 +584,8 @@ Pod 1 — Engywook Re-Forged (typed VM with Sign/Cap/Outcome/Energy/Demod)
 ├── 1.5  64-bit integer width migration                    [DONE — e6a2cc2]
 ├── 1.5.5 Pre-Pod-1.6 architect orientation recon           [DONE — b560a6c]
 ├── 1.6  Sign as native type (0xA0–0xAF)                   [DONE — 6264dbc]
-├── 1.7  Sign source implementation (opcodes + pool + test) [DONE — Pod 1.7]
-├── 1.8  Energy: per-opcode cost table (0xD0–0xDF)         [planned — typed primitives]
+├── 1.7  Sign source implementation (opcodes + pool + test) [DONE — 1d8593f]
+├── 1.8  Energy: per-opcode cost table (0xD0–0xDF)         [DONE — Pod 1.8]
 ├── 1.9  Outcome<T>: typed errors + stack bounds (0xC0–0xCF) [planned — typed primitives]
 ├── 1.10 Cap<R> data structures (0xB0–0xBF)                [planned — cap replacement]
 ├── 1.11 Cap ops retirement (retire 0x90/0x91)             [planned — cap replacement]
@@ -528,4 +632,4 @@ From layer 1 kernel up.
 
 — Chauncey
 CodebookOS Senior Architect
-April 28, 2026 (v7)
+April 29, 2026 (v8)

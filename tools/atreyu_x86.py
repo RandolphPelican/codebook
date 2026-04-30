@@ -43,6 +43,11 @@ OP_SIGN_NEW    = 0xA0
 OP_SIGN_HASH   = 0xA1
 OP_SIGN_LABEL  = 0xA2
 OP_SIGN_ENERGY = 0xA3
+# --- Energy opcodes (Pod 1.8) ---
+OP_ENERGY_NEW       = 0xD0
+OP_ENERGY_JOULES    = 0xD1
+OP_ENERGY_SOURCE_OP = 0xD2
+OP_ENERGY_FREE      = 0xD3
 
 class Emitter:
     def __init__(self):
@@ -192,6 +197,18 @@ class AtreyuX86:
         elif t == 'sign_hash_first':
             self._expr(n['operand']); e.emit(OP_SIGN_HASH)
             e.emit(OP_DROP); e.emit(OP_DROP); e.emit(OP_DROP)  # drop top 3, keep slot0
+        elif t == 'energy_new': self._energy_new(n)
+        elif t == 'energy_joules':
+            self._expr(n['operand']); e.emit(OP_ENERGY_JOULES)
+        elif t == 'energy_source_op':
+            self._expr(n['operand']); e.emit(OP_ENERGY_SOURCE_OP)
+
+    def _energy_new(self, n):
+        """Emit OP_ENERGY_NEW: push joules, push source_op, emit opcode."""
+        e = self.e
+        e.emit(OP_PUSH); e.emit_i64(n.get('joules', 0))
+        e.emit(OP_PUSH); e.emit_i64(n.get('source_op', 0))
+        e.emit(OP_ENERGY_NEW)
 
 # === Demo Programs ===
 def demo_full():
@@ -255,6 +272,28 @@ def demo_sign():
         {'type':'print','value':{'type':'str','value':'=== Sign test complete ==='}},
     ]}
 
+def demo_energy():
+    """Pod 1.8 Energy typed primitive test — hardcoded AST demo"""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Energy Test (Pod 1.8) ==='}},
+        # Create an Energy: joules=500, source_op=0xA0 (OP_SIGN_NEW)
+        {'type':'let','name':'e','value':{
+            'type':'energy_new',
+            'joules': 500,
+            'source_op': 0xA0,
+        }},
+        # Print energy_id (expect: 1)
+        {'type':'print','value':{'type':'str','value':'energy_id:'}},
+        {'type':'print','value':{'type':'var','name':'e'}},
+        # Read back joules (expect: 500)
+        {'type':'print','value':{'type':'str','value':'joules:'}},
+        {'type':'print','value':{'type':'energy_joules','operand':{'type':'var','name':'e'}}},
+        # Read back source_op (expect: 160 = 0xA0)
+        {'type':'print','value':{'type':'str','value':'source_op:'}},
+        {'type':'print','value':{'type':'energy_source_op','operand':{'type':'var','name':'e'}}},
+        {'type':'print','value':{'type':'str','value':'=== Energy test complete ==='}},
+    ]}
+
 if __name__ == '__main__':
     if '--build' in sys.argv:
         c = AtreyuX86(); bc = c.compile(demo_full())
@@ -282,5 +321,18 @@ if __name__ == '__main__':
             h = ' '.join(f'{b:02X}' for b in bc[i:i+16])
             print(f"  {i:04X}: {h}")
         print(f"First: 0x{bc[0]:02X} Last: 0x{bc[-1]:02X}")
+    elif '--energy-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_energy())
+        out = sys.argv[sys.argv.index('--energy-build')+1] if len(sys.argv) > sys.argv.index('--energy-build')+1 else 'test_energy.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Energy test: compiled {len(bc)} bytes -> {out}")
+        print(f"Vars: {c.vars}")
+    elif '--energy-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_energy())
+        print(f"Energy test: {len(bc)} bytes, vars: {c.vars}")
+        for i in range(0, min(len(bc),128), 16):
+            h = ' '.join(f'{b:02X}' for b in bc[i:i+16])
+            print(f"  {i:04X}: {h}")
+        print(f"First: 0x{bc[0]:02X} Last: 0x{bc[-1]:02X}")
     else:
-        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test")
+        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test")

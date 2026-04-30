@@ -144,7 +144,7 @@ is non-blocking because fallback to existing `.cbc` files works, but
 it should be converted to Unix line endings (`dos2unix` or `sed -i
 's/\r$//'`). Low priority — only affects fresh recompilation workflow.
 
-## 15. Energy display bug — r15 uninitialized (added Pod 1.7)
+## ~~15. Energy display bug — r15 uninitialized (added Pod 1.7)~~ (RESOLVED — Pod 1.8)
 
 The CBS VM exit path prints r15 as "energy used" (alongside r14 as
 "energy remaining"), but `cbs_run` never initializes r15. The value
