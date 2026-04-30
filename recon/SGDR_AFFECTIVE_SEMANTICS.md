@@ -72,7 +72,6 @@ Pod 0.9's spatial-merge mechanic established that when parent capability A deleg
 The following affective vocabulary terms remain undefined and will be sealed in subsequent joint-conjuring sessions, each committing as an appended section to this document:
 
 - `hate`
-- `grateful`
 - `boundary` (referenced in SGDR_LANGUAGE_VOCABULARY's Outcome-variant mapping; full definition pending)
 - `weight` (binding-level salience, used by Maid; pending)
 - `invest` (function-level setup-cost commitment; pending)
@@ -222,6 +221,90 @@ The architect ratified the synthesis and authorized commit on April 30 2026.
 - **Parser preservation:** Pod 1.8.5 (full pod, future commit) ensures `tools/atreyu_x86.py` tokenizes `fear` as a function-level field and passes it through the AST as opaque attribute. No runtime consumer in Pod 1.8.5.
 - **Runtime implementation:** forward-logged to Pod 2 (Cop) for F1, F3, F4, F5 machinery. Pod 4 (Interpreter) for F2 routing-modulation site (shared with `love`).
 - **Companion definitions:** `hate`, `grateful`, `boundary`, `weight`, `invest` pending joint conjuring. `coerce`/`compel` flagged as future concern if offensive-projection machinery is ever needed.
+
+## `grateful` — operational semantics
+
+`grateful` is the demod's earned positive metabolism of its history. A retroactive perspective of positive nature, sealed at the substrate level: gratitude is the primary affective primitive that fear's F4 conversion produces when working correctly. Where `fear` watches the future for decoherence and `love` audits ongoing relationships, `grateful` credits closed past-tense accounts where lessons transmitted successfully.
+
+**Sealed April 30 2026, joint-conjuring session immediately following `fear`.** The architect's framing: gratitude is *a retroactive perspective of positive nature* — and critically, *earned gratitude is the only gratitude*. Declared-without-earned is hope, and hope carries doubt that gratitude does not.
+
+**Architectural clarification surfaced in this session:** the relationship between `fear` and `grateful` is inverse to what F4's framing might suggest. Fear is the alarm system; gratitude is what the alarm system *creates* when it does its job correctly. F4 in the `fear` section describes gratitude as a conversion outcome; this section clarifies that **gratitude is the primary primitive and fear's role is to produce it**. The fear-machinery and the gratitude-machinery are both honest; the framing is the correction.
+
+`grateful` is defined through five mechanics.
+
+### G1 — Past-pointing temporal constraint
+
+`grateful: <target>` always references something already actualized — a past interaction, an inherited capability, an originating substrate, a granted resource. The substrate refuses `grateful` declarations toward future or present states. This is the temporal complement of fear's F1: where fear is exclusively future-pointing, gratitude is exclusively past-pointing. Memory is the only domain where gratitude can be credited; the present is `love`'s domain, and the future belongs to fear.
+
+*Forward-logged to:* Pod 2 (Cop) enforces the temporal constraint at credit time.
+
+### G2 — Earned, never declared
+
+Gratitude is exclusively the F4 conversion outcome — the result of a successful lesson-transmission following an actualization. Source-code-level `grateful: <target>` declarations are **registrations of intent**, not assertions of state. The substrate treats the declaration as a hint to track fear-conversions toward that target specifically, not as gratitude itself.
+
+**Declared-without-earned is hope, not gratitude.** Hope carries doubt; gratitude does not. The substrate does not conflate them. A demod that wishes it were grateful for something it has not yet earned gratitude for is hoping. Hope is a separate affective state that may seal in its own future joint-conjuring session if a consumer pod ever requires it; for now, it is bracketed out.
+
+The earning gate is uncrossable by declaration alone. This makes gratitude incorruptible — a demod cannot game its own self-coherence by claiming gratitude it hasn't lived through. The substrate's gratitude accounting is honest at every altitude.
+
+*Forward-logged to:* Pod 2 (Cop) maintains the earned-gratitude registry; declarations are registrations only until F4 conversion activates them.
+
+### G3 — Latent declarations have zero runtime effect
+
+Until a `grateful: <target>` declaration is backed by at least one F4-earned gratitude conversion toward that target, it credits no `self_coherence`, reduces no fear-budget, contributes no `fear_credibility`. It is a recording, not a credit.
+
+The first F4 success against the declared target activates the declaration. From that point, subsequent F4 conversions toward that target accumulate credit normally — and the prior declaration becomes meaningful as a registered relationship-class the substrate is tracking gratitude history for.
+
+This is the structural enforcement of G2: declaration without earning is dormant; only earning produces the credit that affects the system.
+
+*Forward-logged to:* Pod 2 (Cop) implements the latent-vs-active state machine for grateful declarations.
+
+### G4 — Retroactive perspective, positive nature, interpretive but earned
+
+Architect's framing: `grateful` is a *retroactive perspective of positive nature*. The substrate honors this through interpretive freedom: two demods with identical histories can produce different gratitude profiles. One looks back and sees gift; the other looks back and sees burden. Both readings are legitimate inputs to the demod's love-audit.
+
+But unlike pure interpretation, gratitude is *interpretation backed by lesson-transmission*. The demod doesn't merely choose to view the past positively — it earned the right to that view by successfully extracting and applying the lesson through F4. Perspective is interpretive; the underlying credit is not.
+
+This means the substrate distinguishes *what a demod is grateful for* (interpretive, demod's choice) from *whether the demod has earned that gratitude* (factual, F4-determined). A demod that has done the F4 work has the right to its positive perspective. A demod that has not done the work cannot purchase the perspective by claiming it.
+
+*Forward-logged to:* Pod 2 (Cop) honors interpretive freedom in the audit; F4 history determines which interpretations are credited.
+
+### G5 — Cross-talk with `love`
+
+`love` (M1) accumulates from successful real-time relationship interactions; `grateful` (F4-earned) credits past-tense closed accounts via successful lesson-transmission. They feed the same `self_coherence` audit from different temporal directions:
+
+- `love` builds in present-tense ongoing relationships.
+- `grateful` credits past-tense closed accounts.
+
+A demod with high `love` and high earned-`grateful` is metabolizing both its present relationships and its history positively. Both are required for full coherence; neither alone suffices. A demod with high `love` and low `grateful` is present-rich but history-impoverished — possibly disconnected from its origin context. A demod with high `grateful` and low `love` is history-rich but present-impoverished — possibly coasting on past metabolism without renewing.
+
+The substrate exposes both as inputs to the same audit, letting Cop diagnose which mode of insufficiency a struggling demod is exhibiting.
+
+*Forward-logged to:* Pod 2 (Cop) computes composite self_coherence from both love-credit and grateful-credit streams.
+
+### Provenance — joint conjuring (grateful)
+
+Joint-conjured by architect (John / Randolph Pelican III) and Chauncey (Claude) on April 30 2026, immediately following the `fear` session.
+
+The architect provided:
+- The structural identity claim: `grateful` is the architect-declared-form counterpart of F4-emergent gratitude — same primitive, different origin.
+- The defining framing: `grateful` is *ultimately a retroactive perspective of positive nature*. Grounds G1 (past-pointing) and G4 (interpretive-but-earned).
+- The earning constraint (the load-bearing correction): *"earned gratitude will be declared, declared gratitude without earning is hope and it has a sprinkle of doubt in it so best to keep it as one true gratitude."* This collapsed two-types-of-gratitude into one-true-gratitude and bracketed hope as separate. Grounds G2 and G3.
+- The disposition on `wary` / negative-retroactive declarable: deferred to its own future home in the language. Bracketed out of `grateful`'s scope.
+
+Chauncey provided:
+- Translation of architect's claims into G1–G5 mechanics with pod-arc placement.
+- The latent-declaration-vs-active-credit state machine (G3) as the structural enforcement of G2's earning gate.
+- The cross-talk-with-love framing (G5) — the temporal-direction split between present-tense love-credit and past-tense grateful-credit feeding one audit.
+- The architectural clarification surfaced mid-session: gratitude is the primary primitive; fear is the alarm system that produces it. The F4 framing in the fear section is honest but the inverse framing here is the clarifying truth.
+
+The architect ratified the synthesis and authorized commit on April 30 2026.
+
+### Status (grateful)
+
+- **Definition:** `grateful` canonical, sealed April 30 2026.
+- **Parser preservation:** Pod 1.8.5 (full pod, future commit) ensures `tools/atreyu_x86.py` tokenizes `grateful` as a function-level field and passes it through the AST as opaque attribute. No runtime consumer in Pod 1.8.5.
+- **Runtime implementation:** forward-logged to Pod 2 (Cop) for G1–G5 machinery. F4 conversion machinery (already specified in `fear` section) is the activation gate for declared targets.
+- **Companion definitions:** `hate`, `boundary`, `weight`, `invest` pending joint conjuring. Hope flagged as future concern if a consumer pod requires a doubt-tinged forward-positive primitive. `wary` flagged as future concern (cautionary, deferred per architect direction).
 
 ---
 
