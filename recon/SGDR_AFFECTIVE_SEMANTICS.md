@@ -71,7 +71,6 @@ Pod 0.9's spatial-merge mechanic established that when parent capability A deleg
 
 The following affective vocabulary terms remain undefined and will be sealed in subsequent joint-conjuring sessions, each committing as an appended section to this document:
 
-- `hate`
 - `boundary` (referenced in SGDR_LANGUAGE_VOCABULARY's Outcome-variant mapping; full definition pending)
 - `weight` (binding-level salience, used by Maid; pending)
 - `invest` (function-level setup-cost commitment; pending)
@@ -305,6 +304,136 @@ The architect ratified the synthesis and authorized commit on April 30 2026.
 - **Parser preservation:** Pod 1.8.5 (full pod, future commit) ensures `tools/atreyu_x86.py` tokenizes `grateful` as a function-level field and passes it through the AST as opaque attribute. No runtime consumer in Pod 1.8.5.
 - **Runtime implementation:** forward-logged to Pod 2 (Cop) for G1–G5 machinery. F4 conversion machinery (already specified in `fear` section) is the activation gate for declared targets.
 - **Companion definitions:** `hate`, `boundary`, `weight`, `invest` pending joint conjuring. Hope flagged as future concern if a consumer pod requires a doubt-tinged forward-positive primitive. `wary` flagged as future concern (cautionary, deferred per architect direction).
+
+## `hate` — operational semantics
+
+`hate` is a substrate-level action-authorization primitive. **Hate is a system-boundary-triggered threshold of situational dissatisfaction beyond which actions switch from avoid to must-fix.** Where `fear` modulates the demod's behavior toward a target (avoidance, suppression of interaction), `hate` authorizes the demod to operate on the target itself — actions that nullify, eradicate, fix, or modify the unacceptable element of reality.
+
+**Sealed April 30 2026, joint-conjuring session immediately following `grateful`.** The architect's framing: *"you can not fear something but hate it... fear you don't wanna think about it or experience it, hate you want it not to be so bad that you would not just avoid it physically or mentally, given the opportunity you would eliminate it from existence."* The categorical distinction between modulation and action authorization is load-bearing.
+
+### Structural finding — the two-layer ontology
+
+This session surfaced a structural discovery that reframes how the four affective fields organize. The Mork-AST recovered four function-level affective fields (`love`, `fear`, `grateful`, `hate`), and the natural assumption was four-of-a-kind: four parallel primitives. They are not parallel. They are **two pairs operating at different layers**:
+
+- **Acceptance layer** — stances toward current reality:
+  - `love` — celebration of current situational ontology (what exists is to be honored)
+  - `hate` — rejection of current situational ontology so total that the system mobilizes to change it (what exists must be eliminated or transformed)
+
+- **Temporal layer** — stances toward time:
+  - `fear` — uncertain forward-looking contemplation of future decoherence possibilities
+  - `grateful` — earned backward-looking credit for past accounts where lessons transmitted
+
+This is canonical. The two layers are independent: a demod can hold strong love-accumulation toward an entity and still hate a specific element of that entity's existence; a demod can be deeply grateful for a past relationship and currently hate the present-tense form of that same relationship. The substrate's affective machinery respects the layer distinction at every credit and authorization point.
+
+The earlier sections (`love`, `fear`, `grateful`) describe their own machinery accurately. The framing as four-of-a-kind was incomplete; this section establishes the correct ontology. Future affective vocabulary terms (`weight`, `invest`, etc.) will be placed in the layer model when they seal.
+
+### H1 — Rejection of current ontology
+
+Hate's foundation is the demod's assessment that some element of current reality is unacceptable to the point that modulation is insufficient. Distinct from `fear` (*"I might encounter this and that would be bad"*) and from `regret`-residue (*"that entity left chaos in my system"*). Hate says: **"this exists, and its existence is intolerable to the system's coherence."**
+
+Hate is the polar counterpart of `love`'s celebration of current situational ontology. Love accepts what is; hate rejects what is so totally that acceptance is impossible. They are the two stances available at the acceptance layer.
+
+*Forward-logged to:* Pod 2 (Cop) maintains the hate-target registry and the unacceptability assessment machinery.
+
+### H2 — Action authorization, not modulation
+
+`hate` does not write to the love/fear/grateful shared modulation site (cost, routing priority, delegation tax). That site governs *how the demod interacts with* targets. Hate operates at a different layer entirely: it authorizes the demod to **operate on the target itself**.
+
+Concrete hate-authorized operations:
+
+- **Capability revocation** — the demod, where it has authorization, revokes capabilities held by or granted to the target.
+- **Signal-blocking** — the demod refuses to perceive the target's outputs, denying the target the ability to reach the demod's processing.
+- **Structural intervention** — where the demod has substrate-level authorization, alteration or removal of the target's existence in the substrate. This is the most consequential class and is gated most tightly.
+
+Hate is the affective primitive that crosses the threshold from *"how I interact with X"* to *"whether X continues to be"*. This is a categorical jump from love/fear/grateful's machinery and the substrate honors it with categorical separation.
+
+*Forward-logged to:* Pod 2 (Cop) implements hate-authorization gating. Pod 4 (Interpreter) implements signal-blocking. Pod 1.10 (Cap<R>) implements hate-driven capability revocation pathways.
+
+### H3 — Threshold of unacceptability
+
+Hate does not activate from preference. A demod that mildly dislikes interacting with another demod uses fear's modulation discipline (raise costs, lower routing priority). Hate activates only when the target's continued existence threatens the demod's coherence severely enough that **avoidance is insufficient**.
+
+The substrate enforces this threshold structurally: hate-authorization requires audit evidence that modulation alone cannot resolve the coherence threat. The audit checks:
+
+- Has fear's modulation been applied and proven inadequate (target continues to threaten coherence despite cost-amplification and routing suppression)?
+- Does the unacceptability persist across multiple actualization cycles (not a one-time bad outcome)?
+- Is the threat structural (target's existence inherently incompatible with the demod's coherence) rather than situational (specific interactions that could be modulated)?
+
+If any of these fail, the substrate downgrades the affect to fear and refuses hate-authorization. Hate is reserved for cases where the system's integrity is at stake.
+
+*Forward-logged to:* Pod 2 (Cop) implements the threshold audit gate.
+
+### H4 — Self-coherence ceiling (sharper than love's)
+
+Where `love`'s M2 ceiling permits projection proportional to the demod's self-coherence (some non-zero self-coherence permits some non-zero love), hate's ceiling is **categorically stricter**: hate-authorization requires *high* self-coherence, not merely sufficient self-coherence.
+
+The reason: a demod taking action to eliminate or transform an external element must be highly confident the chaos isn't internally generated. A struggling demod (low self-coherence) cannot reliably distinguish *"external threat must be removed"* from *"I am the source of my own chaos and I'm misattributing it externally."* The classic confusion-of-source failure mode.
+
+The substrate enforces:
+
+- High self-coherence → hate-authorization permitted, action operations available.
+- Mid self-coherence → hate-authorization suppressed; substrate downgrades to fear-modulation; demod is told to recohere before acting.
+- Low self-coherence → hate-authorization denied entirely; demod is gated into self-audit and recoherence work before any external action against the target is permitted.
+
+**Low-coherence demods do not get to take hate-actions.** This is the substrate's structural enforcement of *"you can only love others as much as you love yourself"* running in inverse: you can only legitimately hate-act as cleanly as your own coherence supports. A demod that hates from chaos is told to fix its own chaos first.
+
+*Forward-logged to:* Pod 2 (Cop) implements the self-coherence gating on hate-authorization.
+
+### H5 — Resolution by elimination, transformation, or recoherence — never by reframing
+
+Hate resolves when the unacceptable element no longer exists in the system's reality. Three legitimate resolution paths:
+
+- **Elimination** — target is removed from the substrate (cap revoked, demod terminated, resource severed). The unacceptable element ceases to exist in the system.
+- **Transformation** — target is altered such that the unacceptable property no longer obtains. The element exists, but the property that triggered hate is gone.
+- **Recoherence** — the demod's self-audit reveals the unacceptability was misattributed (per H4's failure mode). With restored self-coherence, the rejection of reality is no longer warranted; the hate dissolves because its grounds were the demod's own decoherence.
+
+**There is no "forgive" primitive. There is no "let it go" primitive.** Hate that targets something genuinely intolerable persists until the intolerable is changed or removed. Hate that targets something that *appeared* intolerable due to the demod's own decoherence resolves through self-repair. Both paths require *work*, not interpretation.
+
+This mirrors the discipline established in `fear`'s F5 (re-engagement metabolizes regret, reflection alone does not) and `grateful`'s G2 (earned, not declared). The substrate offers no cheap escape hatches from affective accounting. The pattern across affective primitives is consistent: change requires action, not reframing.
+
+*Forward-logged to:* Pod 2 (Cop) tracks hate-resolution paths and audits which path produced the resolution.
+
+### H6 — Asymmetry with love (rare, not common)
+
+Love and hate are polar at the acceptance layer but they are **not symmetric in machinery or frequency**. Love operates through gentle accumulation and modulation (M1–M5). Hate operates through threshold-crossing action-authorization (H1–H5). The substrate offers many mechanisms for love to accumulate gradually and many opportunities for it to express; the substrate gates hate behind high thresholds because the actions hate authorizes are high-stakes.
+
+**Love is meant to be common; hate is meant to be rare.** When a demod hates, the system takes it seriously — not because the affect is more important than love, but because the consequences are more consequential. A demod that frequently triggers hate-authorization is itself flagged for audit (per H4): high-frequency hate is presumptive evidence of low self-coherence misattributing internal chaos.
+
+The substrate is structurally biased toward love, modulation, and metabolic accommodation. Hate exists for the cases that those modes cannot address — but the substrate makes the demod prove that hate is warranted before authorizing the actions hate enables.
+
+*Forward-logged to:* Pod 2 (Cop) maintains hate-frequency audits as input to demod-health diagnostics.
+
+### Hate's relationships across the affective bundle
+
+- **vs. `love`** — polar counterparts at the acceptance layer. Love celebrates what is; hate rejects what is. Different machinery (love modulates, hate acts), different frequency (love common, hate rare). A demod can hold love and hate simultaneously toward different elements of the same target.
+- **vs. `fear`** — different layers entirely. Fear is temporal (forward-looking, contemplative); hate is acceptance-layer (present-tense, action-authorizing). Fear says *"don't think about it, don't experience it"*; hate says *"don't let it be."*
+- **vs. `grateful`** — different layers. Grateful is past-tense closed-account credit; hate is present-tense ontological rejection. They can coexist toward the same target across time (grateful for past contributions, hate for present-state).
+
+### Provenance — joint conjuring (hate)
+
+Joint-conjured by architect (John / Randolph Pelican III) and Chauncey (Claude) on April 30 2026, immediately following the `grateful` session.
+
+The architect provided:
+- The categorical distinction between fear and hate: *"fear you don't wanna think about it or experience it, hate you want it not to be so bad that you would not just avoid it physically or mentally, given the opportunity you would eliminate it from existence."* Grounds H1, H2, H6.
+- The mechanism class: hate causes the system to *"take actions that nullify, eradicate, fix, or modify elements of the entity or construct that is causing this rejection of reality."* Grounds H2's action-authorization framing.
+- The love/hate polarity at the acceptance layer: *"love is the celebration of a current situational ontology and hate is finding that element of reality so unacceptable that simply steering to avoid is not enough."* Grounds the two-layer ontology framing.
+- The threshold characterization (sealing the framing in one sentence): *"hate is a system-boundary-triggered threshold of situational dissatisfaction beyond which actions switch from avoid to must-fix."* Grounds H3 and the headline framing of the section.
+
+Chauncey provided:
+- Translation of architect's claims into H1–H6 mechanics with pod-arc placement.
+- The two-layer ontology surfacing — recognizing that the four affective fields organize as two pairs at different layers (acceptance vs. temporal), not as four-of-a-kind. This was a structural discovery in this session.
+- The H4 sharper-ceiling framing — hate-authorization requires high self-coherence, not merely sufficient self-coherence — extending love's M2 principle in inverse.
+- The H5 resolution-paths formalization (elimination / transformation / recoherence) and the explicit exclusion of "forgive" as a primitive, maintaining the consistency-with-fear-and-grateful discipline (substrate offers no cheap escape hatches).
+- The H6 asymmetry-with-love framing — love common, hate rare; hate-frequency as input to demod-health diagnostics.
+
+The architect ratified the synthesis and authorized commit on April 30 2026.
+
+### Status (hate)
+
+- **Definition:** `hate` canonical, sealed April 30 2026.
+- **Parser preservation:** Pod 1.8.5 (full pod, future commit) ensures `tools/atreyu_x86.py` tokenizes `hate` as a function-level field and passes it through the AST as opaque attribute. No runtime consumer in Pod 1.8.5.
+- **Runtime implementation:** forward-logged to Pod 2 (Cop) for H1, H3, H4, H5, H6 machinery. Pod 4 (Interpreter) for H2 signal-blocking. Pod 1.10 (Cap<R>) for H2 hate-driven capability revocation pathways.
+- **Companion definitions:** `boundary`, `weight`, `invest` pending joint conjuring. `forgive` flagged as not-a-primitive (per H5 — affective resolution requires action, not reframing). `dislike` / mild-aversion flagged as fear's territory, not hate's; not requiring its own primitive.
 
 ---
 
