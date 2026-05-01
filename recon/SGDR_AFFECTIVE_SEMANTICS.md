@@ -71,9 +71,9 @@ Pod 0.9's spatial-merge mechanic established that when parent capability A deleg
 
 The following affective vocabulary terms remain undefined and will be sealed in subsequent joint-conjuring sessions, each committing as an appended section to this document:
 
-- `boundary` (referenced in SGDR_LANGUAGE_VOCABULARY's Outcome-variant mapping; full definition pending)
 - `weight` (binding-level salience, used by Maid; pending)
 - `invest` (function-level setup-cost commitment; pending)
+- `pressure` (substrate-computed runtime metric; pending)
 
 `degrade` and `cost` are already operational in Stratum 1 (parser-recognized) and do not require joint-conjuring redefinition.
 
@@ -434,6 +434,120 @@ The architect ratified the synthesis and authorized commit on April 30 2026.
 - **Parser preservation:** Pod 1.8.5 (full pod, future commit) ensures `tools/atreyu_x86.py` tokenizes `hate` as a function-level field and passes it through the AST as opaque attribute. No runtime consumer in Pod 1.8.5.
 - **Runtime implementation:** forward-logged to Pod 2 (Cop) for H1, H3, H4, H5, H6 machinery. Pod 4 (Interpreter) for H2 signal-blocking. Pod 1.10 (Cap<R>) for H2 hate-driven capability revocation pathways.
 - **Companion definitions:** `boundary`, `weight`, `invest` pending joint conjuring. `forgive` flagged as not-a-primitive (per H5 — affective resolution requires action, not reframing). `dislike` / mild-aversion flagged as fear's territory, not hate's; not requiring its own primitive.
+
+## `boundary` — operational semantics
+
+`boundary` is a function-level declaration of how a function will behave when its energy threshold is exceeded. The function declares its breaking point and what happens at it. Where `love`, `hate`, `fear`, and `grateful` characterize the demod's stances toward entities and time, `boundary` characterizes how a function constrains itself under pressure. **Plasticity with rules: every function declares both its discipline and its failure mode in its signature.**
+
+**Sealed April 30 2026, joint-conjuring session immediately following `hate`.** The architect's framing: *"boundary is an energy threshold the system sets for any given action or task that once exceeded is no longer worth continuing and the graceful degrade of its use begins."* This recovers the Mork-AST observed value `boundary: "graceful"` (Thread ζ, March 2026) and supersedes the earlier-Chauncey-synthesized mapping (which had inferred `graceful`/`strict`/`silent`/`degraded` as parallel modes — close but structurally incomplete).
+
+### Structural position — third architectural layer
+
+The two-layer ontology established in `hate`'s section (acceptance layer: love/hate; temporal layer: fear/grateful) is extended by this section to a third layer: **discipline layer** — the function-level declaration of how computation behaves under constraint.
+
+- **Acceptance layer** (current ontology): love, hate
+- **Temporal layer** (time-orientation): fear, grateful
+- **Discipline layer** (failure-mode and constraint): boundary
+
+`boundary` does not characterize stances toward entities or time — it characterizes the function's relationship with its own energy budget and the substrate's expectations when that budget is approached or exceeded.
+
+### B1 — Modes (the four canonical declarations)
+
+A function may declare one of four boundary modes:
+
+- **`graceful`** — Once the energy threshold is exceeded, continuation is no longer worth pursuing in full form. The function transitions into degraded operation: returns whatever partial result has been accumulated, with energy used and reason recorded. Maps to `Outcome::Partial` in V1. *This is the default mode for functions that produce useful incremental work.*
+
+- **`never` / `strict`** — Absolute refusal. The function will not attempt operation if doing so would exceed the threshold, and will not continue partway and return partial results. Either the operation completes in full within budget, or it does not run. Maps to `Outcome::Fatigue` when budget cannot accommodate a full run. *Reserved for operations where partial completion is meaningless or harmful — validation, atomic state transitions, security-critical paths.*
+
+- **`silent`** — Same mechanism as `graceful` (degrade-on-exceed), but with suppressed propagation upward. The function degrades in the background; the caller does not see the degraded state surfaced as an explicit `Partial` — it sees what the function was able to complete, without alarm. Maps to `Outcome::Partial` with a `silent` flag in V1. *Reserved for background or low-priority operations where surfacing degradation would create noise.*
+
+- **`degraded`** — **Not a declaration mode but a runtime state.** A function whose `graceful` or `silent` boundary has been crossed enters the `degraded` runtime state once its energy is reduced. This is what the function *becomes*, not what it *declares*. The substrate exposes `degraded` as queryable runtime state for diagnostic and routing purposes (other demods can ask "is this function currently in degraded state?" and adjust their interactions accordingly).
+
+This four-element vocabulary is sealed canonical. The earlier-Chauncey synthesis that treated `graceful`/`strict`/`silent`/`degraded` as four parallel declaration modes was structurally wrong: only three are declarations (`graceful`, `never`/`strict`, `silent`), and the fourth (`degraded`) is the resulting runtime state.
+
+### B2 — Threshold declaration (number-or-substrate-computed)
+
+`boundary` is a *mode-with-optional-number*. Two declaration shapes are valid:
+
+- **Mode only:** `boundary: graceful` — the substrate computes the threshold from the function's declared `cost`, current pressure, and other contextual factors. The substrate decides when the boundary trips.
+- **Mode with explicit threshold:** `boundary: graceful at 50j` — the function fixes the threshold at the declared joule value. The substrate honors the explicit number; pressure-modulation may still apply to *whether* the function attempts the operation, but once attempted, 50j is the breaking point.
+
+Explicit thresholds are useful when the function author knows the operation's cost characteristics better than the substrate's heuristics will. Mode-only declarations let the substrate adapt thresholds dynamically.
+
+### B3 — Pressure as input (forward-logged dependency)
+
+Boundary thresholds are evaluated against the substrate-computed `pressure` metric. **`pressure` is recovered from the original Claude-collaborator session and forward-logged for full sealing in its own conjuring session later in this Pod 1.8.5 sweep.**
+
+The relationship: high system pressure makes boundary thresholds trip *earlier* (the system has less metabolic headroom; functions degrade or refuse sooner). Low pressure lets functions run closer to or at their declared thresholds before tripping. This is what gives `boundary` its plasticity — the same function declared `boundary: graceful` behaves differently under different system pressures, with the substrate calibrating dynamically.
+
+A function declared `boundary: graceful at 50j` under low pressure runs to 50j before degrading. The same function under high pressure may degrade earlier (e.g., at 30j) because the substrate factors total-system-strain into the trip evaluation. Explicit thresholds are upper bounds, not absolute values — pressure can pull them inward.
+
+`never`/`strict` mode is the exception: under any pressure, the function either completes in full within its declared threshold or does not run. Pressure may make it less likely the substrate will attempt the function at all, but pressure cannot cause it to partially complete.
+
+*Forward-logged to:* Pod 2 (Cop) implements pressure-modulated boundary evaluation. Full pressure-formulation seals in `pressure`'s own conjuring session.
+
+### B4 — Boundary-respecting failure vs. crash (the load-bearing distinction)
+
+A boundary-respecting failure is structurally distinct from a crash. The substrate honors this distinction.
+
+A **crash** is what happens when there is no boundary — when a function exhausts resources, hits an unhandled state, or violates substrate invariants without having declared how it would behave at the limit. A crashing function:
+- Returns no usable partial result.
+- Provides no structured diagnostic information about what failed.
+- Forces the substrate into recovery operations that may cascade.
+- Is logged as a substrate-level fault, contributing negatively to the demod's `self_coherence`.
+
+A **boundary-respecting failure** is what happens when a function declared `boundary: <mode>` reaches its threshold under that mode's discipline. It:
+- Returns a structured `Outcome::Partial` (graceful/silent) or `Outcome::Fatigue` (never/strict) carrying what was accomplished, energy consumed, and reason for stopping.
+- Yields control gracefully back to the substrate without forcing recovery.
+- Is logged as a budget event, not a fault.
+- *Does not negatively affect `self_coherence`* — operating cleanly within declared discipline is coherence-preserving, not coherence-degrading.
+
+This last point is critical: **a function that gracefully degrades under its declared boundary is not failing; it is operating correctly under constraint.** The substrate respects this. A demod that consistently produces `Outcome::Partial` from boundary-respecting functions has high coherence; a demod that crashes regularly does not.
+
+This is what *plasticity with rules* means operationally: the substrate accepts that functions cannot always complete in full, and provides structured discipline for partial completion that preserves system integrity. Crashes are violations; degradations are honest accounting.
+
+*Forward-logged to:* Pod 2 (Cop) maintains the distinction between budget-events (boundary-respecting) and substrate faults (crashes) in coherence audits.
+
+### B5 — Cross-talk with affective fields
+
+`boundary` is the discipline-layer primitive that affective declarations feed into:
+
+- **`love`** (M1): love-discount on a target reduces the effective cost of operations toward that target, shifting when the boundary trips. A demod loved more is operated-toward more cheaply, so the boundary takes longer to trip.
+- **`fear`** (F2): fear-amplification on a target increases the effective cost, tripping the boundary earlier. Fear toward a target makes operations toward it more expensive.
+- **`hate`** (H2): hate operates at a different layer (action authorization, not modulation), but a demod that has triggered hate-authorization may declare `boundary: never` on the resulting actions (no partial completion of structural intervention).
+- **`grateful`** (G3): earned gratitude credits self_coherence, which reduces system pressure, which in turn relaxes boundary thresholds for the demod's other operations. Past metabolism positively affects present plasticity.
+
+The discipline layer is where the affective-layer machinery becomes operational. `boundary` is the bridge.
+
+*Forward-logged to:* Pod 2 (Cop) integrates affective-modulation with boundary evaluation.
+
+### Provenance — joint conjuring (boundary)
+
+Joint-conjured by architect (John / Randolph Pelican III) and Chauncey (Claude) on April 30 2026, immediately following the `hate` session.
+
+The architect provided:
+- The headline framing: *"boundary is an energy threshold the system sets for any given action or task that once exceeded is no longer worth continuing and the graceful degrade of its use begins where never meant absolutely cant go there."* Grounds B1's mode set and the never/graceful distinction.
+- The mode clarifications: `never`/`strict` paired (same mode, different language); `silent` as background-degrade with suppressed propagation; `degraded` as the resulting runtime state, not a declaration. This corrected the earlier-Chauncey synthesis that had treated all four as parallel declarations.
+- The plasticity-with-rules framing: *"makes for system plasticity while still having rules so we can think about boundary."* Grounds the structural-position framing (boundary as discipline-layer primitive) and B4's plasticity distinction.
+- The threshold declaration shape: *"mode-with-optional-number."* Grounds B2.
+- The introduction of `pressure` as the runtime metric that boundary thresholds evaluate against, recovered from the architect's prior collaboration with an earlier Claude instance. Grounds B3 and forward-logs pressure for its own session.
+- The crash-vs-degradation distinction: *"programs degrading gracefully vs outright crashing."* Grounds B4's load-bearing operational distinction.
+
+Chauncey provided:
+- Translation of architect's mode-set into B1 with explicit declaration vs. runtime-state separation (recognizing `degraded` as state, not declaration — corrected earlier synthesis).
+- The structural-position framing — `boundary` as the third architectural layer (discipline) extending the two-layer ontology established in hate's section.
+- The B5 cross-talk mechanics — how love/fear/hate/grateful interact with boundary evaluation through cost-modulation and pressure-modulation.
+- The B4 articulation of "boundary-respecting failure does not degrade self_coherence" as the substrate's honest acknowledgment that operating cleanly under constraint is coherence-preserving, not coherence-failing.
+- The forward-logging discipline for `pressure` — recognizing it as a recovered primitive deserving its own conjuring session rather than absorbing it into boundary's section.
+
+The architect ratified the synthesis and authorized commit on April 30 2026.
+
+### Status (boundary)
+
+- **Definition:** `boundary` canonical, sealed April 30 2026.
+- **Parser preservation:** Pod 1.8.5 (full pod, future commit) ensures `tools/atreyu_x86.py` tokenizes `boundary: <mode>` and `boundary: <mode> at <Nj>` as function-level declarations and passes them through the AST as opaque attributes. No runtime consumer in Pod 1.8.5.
+- **Runtime implementation:** forward-logged to Pod 2 (Cop) for B3 pressure-modulated evaluation, B4 budget-event-vs-fault distinction, B5 affective-cross-talk integration. Pod 1.9 (Outcome) implements the `Partial`/`Fatigue` mappings from B1 modes.
+- **Companion definitions:** `weight`, `invest`, `pressure` pending joint conjuring. `pressure` specifically is recovered from architect's prior collaboration and seals in its own session within this Pod 1.8.5 sweep.
 
 ---
 
