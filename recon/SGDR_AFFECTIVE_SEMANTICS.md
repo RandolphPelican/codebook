@@ -723,3 +723,70 @@ The architect ratified the synthesis and authorized commit on May 03 2026.
 
 - **Runtime implementation:** forward-logged to Pod 2 (Cop) for W1–W4 mechanics; Pod 4 (Interpreter) for `weight: N` and `self: weight` syntax; Pod 1.9 (Outcome) and Pod 1.10 (Cap) for cross-layer integration.
 - **Companion definitions:** `invest` and `pressure` pending joint conjuring within this Pod 1.8.5 sweep. Together with `weight`, they complete the salience layer.
+
+
+## `invest` — operational semantics
+
+`invest` is a function-level economic primitive paired with `cost`. Where `cost` declares the energy a function spends to execute, `invest` declares **energy committed upfront in expectation of amortizable future return**. The substrate tracks investments, holds them in a pending ledger until they resolve, and updates substrate-level economic state based on whether returns materialize.
+
+**Sealed May 03 2026, joint-conjuring session continuing the Pod 1.8.5 SGDR salience-layer sweep.** This term is recovered, not derived from this session. The architect introduced `invest` in earlier collaboration during formative CodebookOS vocabulary design as the function-level companion to `cost`. It is sealed here in its mature operational form per the architect''s refined definition.
+
+**Categorical placement note:** Salience layer alongside `weight` and `pressure`. Within the layer: `weight` is declared at binding-definition (static importance), `invest` is declared at function-call (dynamic commitment), `pressure` is computed from declared inputs and runtime state. `invest` is the only salience-layer primitive that is **transactional** — it opens a commitment, holds it pending, and closes it when return is realized or canceled.
+
+This is the substrate-formalization of distinctions that economic systems, caching layers, and JIT compilers all use daily — pay now to save later, with bookkeeping. The architectural difference: investments are first-class declarations in the source with full resolution provenance, not implicit hot-path optimizations.
+
+### I1 — Upfront commitment with declared return shape
+
+`invest` declares: *"this call commits N units of energy now, in expectation of returning M units of efficiency or capability over a future horizon H."*
+
+Three values per declaration:
+
+- **`amount`**: energy committed now, in joules (matching `cost` units)
+- **`return_shape`**: expected return curve, one of `linear`, `decay`, `step`, `lump_sum`
+- **`horizon`**: a substrate-internal window measured in **opcode counts**, not wall-clock time. The horizon advances only as the binding executes; a binding that opens an investment but rarely runs ages its horizon slowly. This is intentional — the substrate only ages investments when work is happening.
+
+The substrate **does not validate** the return prediction at declaration time. Validation happens at resolution. Honest declarations earn substrate trust over time (see I4); systematically-overpromising functions accumulate a `phantom_invest` flag.
+
+*Forward-logged to:* Pod 2 (Cop) implements the pending-investment ledger and the resolution-time validator. Pod 4 (Interpreter) implements the `invest: {amount, return_shape, horizon}` declaration syntax in CBS source.
+
+### I2 — Pending ledger and resolution
+
+The substrate maintains a per-binding **pending investment ledger** — a list of open invest-commitments with their amounts, declared return shapes, horizons, and elapsed opcode counts.
+
+Three resolution paths:
+
+- **Realized**: actual measured return matches declared shape within tolerance. Investment closes clean. Substrate-level `economic_coherence` increments.
+- **Underwater**: horizon expires (opcode count exhausted) with realized return below declared. Difference is debited from substrate energy budget as `unrealized_invest`. Repeated underwater closures from the same binding accumulate toward `phantom_invest`.
+- **Canceled**: function or caller explicitly cancels the investment before horizon. Refund curve is fraction-based on horizon-elapsed: first 25% of horizon elapsed, full refund; first 50% elapsed, half refund; beyond 50% elapsed, no refund. Cancellation is provenance-logged.
+
+*Forward-logged to:* Pod 2 (Cop) for ledger machinery and resolution paths. Pod 1.9 (Outcome) for `unrealized_invest` reporting in outcomes.
+
+### I3 — Horizon expiration and tax
+
+If horizon elapses (opcode count exhausted) without resolution, the substrate auto-closes the investment as **underwater**. The full committed amount is debited as `unrealized_invest`. This is the substrate''s default disposition toward un-tended investments: pay them off, write them down, move on.
+
+Functions that routinely let horizons expire signal architectural drift — somewhere upstream, the binding is committing to amortizable returns it cannot deliver.
+
+*Forward-logged to:* Pod 2 (Cop) for horizon-expiration sweep mechanics.
+
+### I4 — Investor reputation and provenance
+
+Every binding accumulates a per-binding `invest_reputation` metric — the ratio of realized to underwater closures, weighted by amount.
+
+Bindings with reputation above the substrate threshold (`reputation_floor`, implementation-defined) earn **investment-tax discount** on future commits — their declarations have proven trustworthy, so the substrate front-loads less skepticism. Bindings with reputation below the floor earn **investment-tax surcharge** and a `phantom_invest` flag in audit, signaling that the architect should review the binding''s invest declarations.
+
+Reputation is introspectable via `self: invest_reputation` and **decays over substrate-clock time toward the substrate-default mean** when the binding is dormant — so a long-dormant binding does not carry stale reputation forward indefinitely.
+
+*Forward-logged to:* Pod 2 (Cop) for reputation tracking, tax modulation, and dormancy decay. Pod 4 (Interpreter) for `self: invest_reputation` query syntax.
+
+### I5 — Cross-talk
+
+- **with `cost`:** `cost` is unconditional execution energy; `invest` is conditional future-return energy. A function may declare both. Total energy footprint at call time is `cost + invest_amount`. The substrate tracks them separately because their resolution mechanics differ — `cost` is consumed at execution, `invest` is held pending.
+- **with `weight`:** A function on a high-weight binding that opens an investment receives weighted ledger priority — its returns are tracked more closely and its `unrealized_invest` debits are louder in audit. Investing under high weight raises the stakes of being right.
+- **with `boundary`:** A function may declare a boundary on its invest behavior (`boundary: never invest > X`, `boundary: graceful invest_overrun`, etc). Boundary-respecting investment failure (refusing to commit beyond declared limit) is structurally distinct from underwater closure (committed but did not return).
+- **with `pressure`** (forward-pointing): pending invest commitments contribute to substrate pressure — open transactions are a kind of cognitive load. Full mechanics seal in pressure''s session, where `pending_invest_load` becomes an input to the pressure formula.
+
+The architect ratified the synthesis and authorized commit on May 03 2026.
+
+- **Runtime implementation:** forward-logged to Pod 2 (Cop) for I1–I4 mechanics; Pod 4 (Interpreter) for `invest:` and `self: invest_reputation` syntax; Pod 1.9 (Outcome) for `unrealized_invest` reporting.
+- **Companion definitions:** `pressure` pending joint conjuring within this Pod 1.8.5 sweep. Together with `weight` and `invest`, it completes the salience layer.
