@@ -790,3 +790,81 @@ The architect ratified the synthesis and authorized commit on May 03 2026.
 
 - **Runtime implementation:** forward-logged to Pod 2 (Cop) for I1–I4 mechanics; Pod 4 (Interpreter) for `invest:` and `self: invest_reputation` syntax; Pod 1.9 (Outcome) for `unrealized_invest` reporting.
 - **Companion definitions:** `pressure` pending joint conjuring within this Pod 1.8.5 sweep. Together with `weight` and `invest`, it completes the salience layer.
+
+---
+
+## pressure (P1-P5) — substrate-computed salience integration
+
+Salience layer, third primitive. Pressure is a substrate-computed runtime metric that aggregates declared and observed inputs into a single scalar representing a binding's current load relative to its budget. Pressure is never declared at definition time — it is always computed from other primitives' state. It is the substrate's primary self-audit signal, the answer to "how stressed is this binding right now?"
+
+Categorical placement: salience layer alongside weight and invest. Within the layer, weight is declared static importance, invest is declared dynamic commitment, pressure is read-only computed state. Pressure is the only salience-layer primitive a binding cannot directly set. The architect declares the inputs; the substrate computes the output. This makes pressure the salience layer's integration surface — every other primitive in the substrate eventually shows up as a pressure input.
+
+### P1 — Read-only introspection via `self: pressure`
+
+Pressure is queried, never written. Syntax: `self: pressure` returns the current scalar, a unitless ratio in `[0.0, infinity)`.
+
+Threshold conventions:
+
+- `pressure < 1.0` — comfortable; binding operating below budget
+- `pressure ~ 1.0` — saturated; binding at budget
+- `pressure > 1.0` — overloaded; binding committing beyond budget
+- `pressure > 2.0` — critical; substrate flags the binding for boundary evaluation regardless of declared mode
+
+Pressure is sampled, not continuous — substrate computes on query and on substrate-clock ticks (sampling cadence is Pod 2 implementation detail). Stale-pressure-on-query is a non-concern because the inputs are all already substrate-resident.
+
+Forward-logged to: Pod 2 (Cop) for the pressure formula and sampling cadence; Pod 4 (Interpreter) for the `self: pressure` query syntax.
+
+### P2 — The pressure formula
+
+Pressure aggregates four inputs:
+
+    pressure = (complexity * weight) / (energy_budget - pending_invest_load)
+
+Where:
+
+- **complexity** — substrate-measured branching factor and depth of the current call structure under this binding. Implementation detail in Pod 2; conceptually, how much computation is in flight under this binding right now.
+- **weight** — the binding's declared salience (W1, sealed). Higher weight raises pressure at fixed complexity. The substrate cares more about load on bindings that matter more.
+- **energy_budget** — the binding's available energy after cost for in-flight work has been debited.
+- **pending_invest_load** — the sum of currently-open invest amounts on this binding (I2 ledger). Pending investments are pre-committed energy; they reduce effective budget without yet showing up as cost.
+
+The denominator can approach zero if a binding has overcommitted via invest relative to remaining budget. The substrate clamps the denominator to a small positive epsilon and flags `budget_overcommit` in audit when this happens. Defense against divide-by-zero plus surfacing of the architectural problem: investment exceeded budget, the binding is operating on borrowed-against-future energy.
+
+Forward-logged to: Pod 2 (Cop) for the formula, the denominator clamp, and the `budget_overcommit` audit flag.
+
+### P3 — Pressure-modulated boundary evaluation
+
+Pressure is the input that boundary's B3 ("pressure-modulated evaluation") was forward-logging. Now sealed concretely:
+
+A boundary declaration evaluates not against absolute thresholds but against pressure-scaled thresholds. A binding declared `boundary: graceful` with implicit threshold T triggers degradation when `(work * pressure) > T`. Under low pressure, the boundary is generous; under high pressure, the boundary tightens. This makes boundary discipline state-dependent rather than absolute — a binding that gracefully handles 100 requests under low pressure may correctly degrade at 30 under high pressure, because the substrate is reporting the load as more expensive than nominal.
+
+Pressure-modulated boundary evaluation closes the loop on B3 and gives boundary its full machinery.
+
+Forward-logged to: Pod 2 (Cop) for pressure-modulated boundary mechanics.
+
+### P4 — Pressure as routing input (closes W2 forward-log)
+
+Pressure feeds back into weight's W2 routing modulation. When the substrate selects between candidate bindings for dispatch, candidates currently under high pressure are deprioritized:
+
+    selection_score = weight / (1 + pressure)
+
+At low pressure, weight dominates; at high pressure, weight is dampened. Substrate-level load balancing: the most-important-and-least-stressed candidate wins, not just the most-important.
+
+This is a closed-loop dynamic in the salience layer: weight raises pressure, pressure dampens weight in routing, the substrate self-regulates without an external scheduler. It is also why W2 was forward-logged through pressure — the routing modulation could not fully resolve until pressure existed to feed back.
+
+Forward-logged to: Pod 2 (Cop) for pressure-feedback in dispatch.
+
+### P5 — Cross-talk with affective layer
+
+Pressure participates in cross-talk with two affective primitives. Other cross-talks (hate triage, grateful amplification, syke reversal, Yet stuck-state) are not sealed at this synthesis — Cop will name them at implementation time if the mechanics prove out against measured behavior.
+
+**with fear (F-series).** High pressure is a substrate signal for fear to weight upcoming actions more heavily — substrate calibration discipline. Low pressure relaxes fear-weighting. Fear's F4 calibration loop reads pressure as substrate-stress evidence; calibration tightens when the substrate is reporting stress.
+
+**with love (M-series).** Successful within-budget interaction under high pressure increments love at a higher rate than under low pressure. Earned coherence is more valuable when the substrate is stressed. The substrate remembers what works under load.
+
+Pressure is intentionally a sparse cross-talk hub at vocabulary-seal time. The integration surface is the formula (P2) and the closed loop (P4); affective coupling beyond fear and love is Pod 2's call to make against measured behavior, not Pod 1.8.5's call to make against synthesis.
+
+### Provenance
+
+Architect-recovered framing ("a ratio of complexity and energy budget against necessity and importance of task"). Chauncey synthesis of inputs and formula. Six-call ratification by architect on the morning following the v4 addendum (`e5595d58`). Cross-talk pruned at ratification: hate, grateful, syke, Yet cross-talks not sealed; `pressure_blind_action` audit signal not sealed (Cop names audit signals when detection lands). All forward-logs collected to Pod 2 (Cop) and Pod 4 (Interpreter).
+
+Pod 1.8.5 vocabulary closes end-to-end at this seal. Salience layer complete: weight (declared static), invest (declared dynamic), pressure (computed integration). Affective + discipline + salience + computation layers all sealed. Substrate has its language.
