@@ -666,3 +666,60 @@ CodebookOS Senior Architect
 Architect of record
 
 April 30, 2026 — Pod 1.8.5 SGDR pre-commit
+
+
+## `weight` — operational semantics
+
+`weight` is a binding-level declaration of substrate-attributed importance: a scalar in `[0.0, MAX_WEIGHT]` that the substrate uses as a multiplier when computing routing priority, audit contribution, and pressure inputs. `weight` does not change what is true or what is computed; it changes how much the substrate''s selection mechanisms care about a given binding when allocating finite attention.
+
+**Sealed May 03 2026, joint-conjuring session opening the Pod 1.8.5 SGDR salience-layer sweep.** This term is recovered, not derived from this session. The architect introduced `weight` in earlier collaboration during formative CodebookOS vocabulary design; Mork-AST recovery had `weight: 1.0` as default on bindings. It is sealed here in its mature operational form per the architect''s refined definition.
+
+**Categorical placement note:** `weight` opens a fifth layer in the substrate''s primitive vocabulary: **salience**. The salience layer contains substrate-economic primitives the substrate uses to compute behavior, distinct from primitives that declare stance (acceptance: `love`, `hate`), time-orientation (temporal: `fear`, `grateful`), commitment (discipline: `boundary`, `syke`), or logical relationship (computation: `Perhaps`, `Yet`, `Should`, `Apropos`, `Both-And`). Within the salience layer: `weight` is declared at binding-definition; `invest` is declared at function-call; `pressure` is computed from declared inputs and runtime state. `weight` and the remaining salience-layer primitives seal in this affective-semantics document for continuity with the Pod 1.8.5 sweep; future cleanup may rename the document to reflect its full vocabulary scope.
+
+This is the substrate-formalization of a mechanism that neural-network attention weights, mixture-of-experts routers, and priority schedulers all use daily. The architectural difference: in this substrate, weights are **declared and introspectable**, not learned and opaque.
+
+### W1 — Declarative salience attribution
+
+`weight` declares: *"this binding''s contribution to substrate attention scales by W."*
+
+The declaration lives at the binding (function, value, capability, agent), not at the call site — a binding is its own self-attributed importance. Scalar in `[0.0, MAX_WEIGHT]`. Default `1.0`. `MAX_WEIGHT = 8.0` (matches the 3-bit log scale other budget primitives use). `weight: 0.0` means the binding contributes to logic but is invisible to salience-weighted selection. `weight: MAX_WEIGHT` means it dominates selection contests where it appears as a candidate.
+
+*Forward-logged to:* Pod 2 (Cop) reads `weight` from the AST during routing. Pod 4 (Interpreter) implements the `weight: N` declaration syntax in CBS source.
+
+### W2 — Routing modulation
+
+When the substrate selects between candidate bindings — overload resolution, capability matching, agent dispatch — `weight` is a multiplier on each candidate''s selection score. Stochastic dispatch: probability scaler. Deterministic dispatch: tiebreaker. Introspectable via `self: weight` query at runtime.
+
+*Forward-logged to:* Pod 2 (Cop) for weight-modulated dispatch. Pod 4 (Interpreter) for `self: weight` query syntax.
+
+### W3 — Audit weighting in `self_coherence`
+
+When the substrate computes `self_coherence` (used by `love`''s M2 ceiling, `hate`''s H3 ceiling, and elsewhere), constituent bindings contribute weighted by their declared `weight`. A `weight: 2.0` binding contributes 2× the audit footprint of a `weight: 1.0` binding to the coherence computation.
+
+**Pragmatic consequence:** under-declaring `weight` on load-bearing bindings causes the audit to under-react to drift in load-bearing places. The architect''s most-critical bindings need honest weight declarations. Over-declaring `weight` on peripheral bindings causes audit noise but no structural hazard.
+
+*Forward-logged to:* Pod 2 (Cop) for weight-modulated coherence audit. Pod 4 (Interpreter) for `self: coherence` query mechanics.
+
+### W4 — Runtime adjustment with provenance
+
+`weight` is settable at binding-definition AND adjustable at runtime via `self: weight = N`. Runtime adjustments log provenance — caller, timestamp, prior value, new value, optional reason. The substrate refuses adjustments outside `[0.0, MAX_WEIGHT]` with a boundary-respecting `weight_clamp` failure.
+
+Adjustment is not metabolically taxed (unlike `fear` burns or `invest` commits — see those primitives'' sessions), but excessive churn flags as `volatile_weight` in audit. `volatile_weight` is signal that the binding''s true importance isn''t yet known to the architect — the substrate-honest response is design work to determine the right declaration, not continued tuning. Threshold for "excessive" is implementation-defined and seals in Pod 2 (Cop) when the audit machinery lands.
+
+*Forward-logged to:* Pod 2 (Cop) for weight-adjustment provenance machinery and `volatile_weight` flag mechanics. Pod 1.10 (Cap) for capability-token integration with the `volatile_weight` signal.
+
+### W5 — Cross-talk with affective layer
+
+`weight` interacts with previously-sealed primitives:
+
+- **with `love` (M-series):** Successful within-budget interactions on a high-weight binding increment substrate-level `love` proportional to the binding''s weight. Weighted love-accumulation means the substrate''s most-loved bindings correlate with high weight — declared importance becomes structurally reinforced through positive interaction history.
+- **with `hate` (H-series):** System-boundary-triggered `hate` on high-weight bindings produces sharper resolution thresholds (H4). A high-weight binding that crosses into hate-territory is a structurally-significant fault and `must-fix` takes precedence proportional to weight.
+- **with `boundary` (B-series):** B3''s pressure-modulated boundary evaluation reads `weight` as input. Boundaries on high-weight bindings evaluate against sharper thresholds — they get more stringent failure-mode discipline. A high-weight binding declared `graceful` still degrades gracefully, but the threshold for triggering degradation is tighter.
+- **with `pressure`** (forward-pointing, full mechanics seal in `pressure`''s session): pressure is partially computed as `weight × complexity / energy_budget`. Higher weight raises pressure at fixed complexity and budget. This is the principal cross-layer coupling between salience and substrate-state.
+
+*Forward-logged to:* Pod 2 (Cop) for all cross-talk pathways. Pod 1.9 (Outcome) for weight-modulated outcome reporting.
+
+The architect ratified the synthesis and authorized commit on May 03 2026.
+
+- **Runtime implementation:** forward-logged to Pod 2 (Cop) for W1–W4 mechanics; Pod 4 (Interpreter) for `weight: N` and `self: weight` syntax; Pod 1.9 (Outcome) and Pod 1.10 (Cap) for cross-layer integration.
+- **Companion definitions:** `invest` and `pressure` pending joint conjuring within this Pod 1.8.5 sweep. Together with `weight`, they complete the salience layer.
