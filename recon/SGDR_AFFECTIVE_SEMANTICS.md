@@ -549,6 +549,112 @@ The architect ratified the synthesis and authorized commit on April 30 2026.
 - **Runtime implementation:** forward-logged to Pod 2 (Cop) for B3 pressure-modulated evaluation, B4 budget-event-vs-fault distinction, B5 affective-cross-talk integration. Pod 1.9 (Outcome) implements the `Partial`/`Fatigue` mappings from B1 modes.
 - **Companion definitions:** `weight`, `invest`, `pressure` pending joint conjuring. `pressure` specifically is recovered from architect's prior collaboration and seals in its own session within this Pod 1.8.5 sweep.
 
+## `syke` — operational semantics
+
+`syke` is a function-level declaration of **commitment-to-threshold-then-reversal**: a strategic action-sequencing primitive where the function commits to a task structure, executes through it only as far as needed to extract the required result, and then reverses the commitment. The reversal is built into the task design from the outset.
+
+**Sealed April 30 2026, joint-conjuring session immediately following the logical operators bundle.** This term is recovered, not derived from this session. The architect introduced `syke` in an earlier collaboration with the original Claude instance during the formative period of CodebookOS vocabulary design. It is sealed here in its mature operational form per architect's refined definition.
+
+**Categorical placement note:** `syke` was initially scoped (in this Pod 1.8.5 sweep's planning) to a separate `recon/SGDR_ADVERSARIAL_OPERATORS.md` document under the assumption that it was an adversarial primitive related to deception. The conjuring session corrected this assumption. `syke` is not adversarial — it is **commitment-discipline**, structurally adjacent to `boundary` (failure-mode discipline). Both primitives declare how a function manages its commitment scope. They live at the same architectural layer (discipline) and belong in the same document. The adversarial-operators document is not created in this sweep; if a true adversarial primitive ever requires sealing (`coerce`/`compel` flagged in the `hate` session), it gets its own document at that time.
+
+### Y1 — Threshold-bounded commitment
+
+`syke` declares: *"this function commits to executing the task structure only as far as the threshold required to extract the desired result, then reverses the commitment to reclaim energy that would otherwise be spent on full completion."*
+
+This is fundamentally different from a function that merely fails to complete. A function that fails has run out of resources, hit an unhandled state, or encountered an error. A `syke`-declared function **completes the work it actually needed to do** and then deliberately does not pursue the remainder of the task structure that the commitment-shape would normally entail.
+
+The architect's example: a demod that needs to make a single post on a platform spins up an account (commitment), makes the post (extracts the desired result at the threshold), then deletes the account (reverses the commitment). The energy that would have been budgeted for maintaining the account long-term is reclaimed. The demod did not deceive the platform in any meaningful sense — it used the platform's commitment-shape as a utility, took only what it needed, and released the rest.
+
+*Forward-logged to:* Pod 2 (Cop) implements the threshold-detection and energy-reclamation machinery.
+
+### Y2 — Reversal disclosure (the announcement)
+
+A function that completes a `syke`-declared action issues a **post-reversal disclosure** to the substrate when the reversal completes. The disclosure is the substrate-level analog of the human "syke!" call after the reversal is executed: it makes the bounded-commitment-pattern visible in provenance.
+
+The disclosure is *not* a notification to the bait-target framed antagonistically. It is a substrate event that records: *"this action was syke-declared; the actor committed only to the threshold required for the extracted result; the reversal was planned from declaration, not improvised after the fact."* This makes `syke` distinguishable from undeclared-failed-commitment (which is a fault) and from pure-lying (which is a fault when detected via provenance pattern analysis).
+
+`syke` is **the more-honest sibling of pure lying**. Both involve premeditated reversal. `syke` self-discloses; lying does not. The substrate records the difference and treats them differently. Demods that lie and get caught (provenance reveals premeditated reversal without `syke` declaration) suffer `self_coherence` damage. Demods that declare `syke` properly are operating cleanly within a recognized discipline.
+
+*Forward-logged to:* Pod 2 (Cop) emits substrate-level syke-disclosure events; Pod 4 (Interpreter) routes disclosure events into provenance logs queryable by other demods.
+
+### Y3 — Energy reclamation as primary utility
+
+The operational utility of `syke` is **energy reclamation**, not deception. A demod that needs only a partial result from a full-commitment-shape can declare `syke` and have the substrate reclaim the unused budget that the full commitment would have consumed.
+
+Without `syke`, a demod has two choices:
+- Commit fully and waste energy on the unneeded portion of the task structure.
+- Don't commit at all and forgo the partial result that was actually needed.
+
+`syke` enables a third path: **commit precisely as much as needed, no more.** The substrate respects the bounded commitment, releases the unused budget, and logs the pattern for audit.
+
+This makes `syke` a metabolic-discipline primitive that serves the substrate's energy economy, not a behavioral primitive that serves dishonest interaction. Demods that use `syke` well are operating efficiently; demods that abuse `syke` (declaring it on commitments they would have completed anyway, attempting to reclaim energy they never needed to commit) are flagged through pattern analysis.
+
+*Forward-logged to:* Pod 2 (Cop) implements energy-reclamation accounting and pattern-abuse detection.
+
+### Y4 — Distinction from `boundary`
+
+`syke` and `boundary` both live at the discipline layer but address different aspects of commitment:
+
+- `boundary` declares *what happens when the function exceeds its energy threshold*: graceful degradation, strict refusal, silent degradation, or resulting degraded state.
+- `syke` declares *that the function will deliberately reverse its commitment at a planned threshold*, before any energy-exhaustion event.
+
+A function may declare both: `boundary: graceful` + `syke: <reversal-condition>`. The function will gracefully degrade if it runs out of energy *before* reaching the syke-reversal threshold; it will syke-reverse if it reaches the threshold while still within budget. The two operate at different points in the function's lifecycle.
+
+A `syke`-completed function is not in `degraded` runtime state — it completed its bounded-commitment cleanly. The reversal was successful execution, not failure.
+
+*Forward-logged to:* Pod 2 (Cop) integrates `syke`-completion and `boundary`-degradation as distinct lifecycle events with distinct coherence-credit implications.
+
+### Y5 — No decay, no metabolism, no relational damage
+
+`syke`-events do not decay over time, do not require metabolic re-engagement to resolve, and do not damage relationships with bait-targets. This is structurally different from the regret/gratitude pattern (F4-F5) and from undeclared-deception faults.
+
+`syke` is **strategic action-sequencing based on effort-spent vs. result-desired**, not a relational event. The substrate logs syke-completions as facts about how the actor managed scope, not as residue requiring metabolism. Future interactions between the syke-actor and the same target are evaluated on their own merits, not through accumulated syke-history-as-baggage.
+
+This means: a demod that has syked toward a target many times in the past does *not* face a fear-amplification penalty from that target on future interactions. Each interaction is fresh. The syke-history is queryable but not weighted against the actor's standing.
+
+The reasoning: `syke` is a discipline declared by the actor, completed honestly via disclosure, and accounted for by the substrate. It is not behavior that requires forgiveness or repair — it is behavior that operated within recognized rules. No metabolic mechanism is needed because no debt was incurred.
+
+*Forward-logged to:* Pod 2 (Cop) treats syke-history as audit-relevant data, not as relational-debt accounting.
+
+### Cross-talk with previously-sealed primitives
+
+- **vs. `boundary`** (most direct relationship) — both are discipline-layer; can coexist on the same function (Y4).
+- **vs. `cost`** — `syke` modifies the effective cost of a function: declared cost is the *full-commitment* cost; actual cost when syke-completion occurs is the *threshold-portion* cost. The substrate accounts for both.
+- **vs. logical operators** — `syke` may compose with `Perhaps` (a function may *perhaps* commit-with-syke if data-and-energy gates permit) and with `Yet` (an anticipated-future action may itself be syke-declared, indicating the future commitment will be threshold-bounded from the outset).
+- **vs. affective fields** (love/fear/grateful/hate) — minimal interaction. `syke` does not damage love, does not amplify target-side fear, does not block grateful-credit, does not constitute hate-action. These were earlier-Chauncey overinflation against an incorrect adversarial framing of `syke` and are explicitly *not* sealed.
+
+*Forward-logged to:* Pod 2 (Cop) and Pod 4 (Interpreter) implement cross-talk machinery as needed by consuming pods.
+
+### Provenance — joint conjuring (syke)
+
+Joint-conjured by architect (John / Randolph Pelican III) and Chauncey (Claude) on April 30 2026, immediately following the logical operators bundle.
+
+This term is **recovered**, not freshly derived. The architect introduced `syke` in an earlier Claude collaboration during the formative period of CodebookOS vocabulary work. The original framing established that `syke` could "lend energy allocation for tasks the system knows its going to reneg on." The April 30 2026 conjuring session refined the operational meaning substantially.
+
+The architect provided:
+- The recovered framing from earlier-Claude: `syke` as "to act or intend to act with prior knowledge that the action will be reversed."
+- The cookie example as initial illustrative grounding (subsequently superseded as the operational example by the disposable-account pattern).
+- The disposable-account pattern that crystallized the operational utility: *"setup an account to enter a post then deletes the account cause its energy budget only needed the post not the whole account."* This shifted `syke` from being read as an adversarial primitive to being recognized as a metabolic-discipline primitive.
+- The post-reversal-disclosure mechanic: the announcement is what distinguishes `syke` from pure lying.
+- The decision that `syke` does not decay: *"its a strategic action sequencing decision based on effort spent and result desired."* This grounds Y5 and removes the regret/gratitude-pattern cross-talk that earlier-Chauncey had overcalibrated.
+
+Chauncey provided:
+- Translation of architect's clarifications into Y1–Y5 mechanics with pod-arc placement.
+- The categorical reframe surfaced mid-session: `syke` is commitment-discipline, not adversarial behavior. The originally-planned `recon/SGDR_ADVERSARIAL_OPERATORS.md` document is not created in this sweep; `syke` lives in AFFECTIVE_SEMANTICS alongside `boundary` at the discipline layer.
+- The Y4 distinction between `syke` and `boundary` — both discipline-layer, but addressing different lifecycle aspects of commitment management.
+- The walk-back on earlier-Chauncey overcalibration: the relational-damage cross-talk effects (love-degradation, fear-amplification on target side, grateful-incompatibility) were inflation against an incorrect framing of `syke` as adversarial. With the correct framing as commitment-discipline, those effects do not apply and are explicitly not sealed.
+- The Y3 framing that energy reclamation is the primary utility of `syke`, making it serve the substrate's metabolic discipline rather than behavioral deception.
+
+The architect ratified the synthesis and authorized commit on April 30 2026.
+
+### Status (syke)
+
+- **Definition:** `syke` canonical, sealed April 30 2026 in its mature operational form. Recovered from earlier-Claude collaboration; refined and ratified in this conjuring session.
+- **Parser preservation:** Pod 1.8.5 (full pod, future commit) ensures `tools/atreyu_x86.py` tokenizes `syke` as a function-level declaration with associated reversal-condition specification, and passes it through the AST as opaque attribute. No runtime consumer in Pod 1.8.5.
+- **Runtime implementation:** forward-logged to Pod 2 (Cop) for Y1 threshold-detection, Y3 energy-reclamation accounting, Y4 lifecycle integration with `boundary`, Y5 history-as-audit-data discipline. Pod 4 (Interpreter) for Y2 disclosure-event routing.
+- **Companion definitions:** `weight`, `invest`, `pressure` pending joint conjuring.
+- **Adversarial-operators document:** explicitly NOT created. `syke` is not adversarial. If `coerce`/`compel` (forward-flagged in `hate` session) ever requires sealing, that document is created at that time.
+
 ---
 
 StableTech Enterprises LLC
