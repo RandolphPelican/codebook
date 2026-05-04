@@ -587,6 +587,76 @@ pressure becomes a real concern per #49).
 
 ## ~~52. tools/pod193_qemu_test.sh joins housekeeping bundle (added Pod 1.9.3)~~ (RESOLVED — Pod 1.9.4)
 
+## 53. Pod 1.10.2a substrate plumbing inherits D1.10.1.1-14 (added Pod 1.10.1, forward-looking)
+
+Pod 1.10.2a lays the Cap substrate per D1.10.1.13: vm_cap_pool, cap_registry,
+cap_stack + cap_stack_ptr, current_cap_id, current_cap_arena_id_cache,
+current_cap_owner_demod_id_cache, siphash_key, siphash_key_source flag.
+Plus new `boot/cap.asm` file (~250 lines: registry register/lookup +
+SipHash-2-4 + ROOT_CAP construction helper). Plus boot.asm efi_entry
+additions: siphash_key derivation (RDSEED → RDRAND → hard-fail per
+D1.10.1.6), ROOT_CAP construction, current_cap_id init.
+
+Cross-asset constants verification per D1.9.2b.10: Pod 1.10.2a lands
+the 5 OP_CAP_* opcode constants (D1.10.1.2, D1.10.1.3) and
+ERR_CAP_AUTHORITY_EXCEEDED (D1.10.1.9, value 7) and CAP_ID_NULL
+(D1.10.1.10, value 0) in defines.asm at substrate-plumbing time, not
+handler-pod time.
+
+No opcode handlers, no dispatch entries, no allocator retrofit, no
+tools changes. Pod 1.10.2b lands those.
+
+## 54. Pod 1.10.2b opcode handlers + retrofit + tests inherits 1.10.2a substrate (added Pod 1.10.1, forward-looking)
+
+Pod 1.10.2b lands:
+- 5 opcode handlers (OP_CAP_NEW/ENTER/EXIT/CURRENT/CHECK) in cbs_vm.asm
+  + dispatch entries
+- Cost table extension in energy_costs.asm (5 new entries at 0xB0-0xB4
+  per D1.10.1.3) + cleanup of stale comments at lines 113 (Outcome
+  was at 0xB0-0xBF; relocated 0xE0-0xE4) and 115 (Cap moved from
+  0xC0-0xCF hint to 0xB0-0xBF canon)
+- Allocator retrofit (3 sites: .sign_alloc, .energy_alloc,
+  .outcome_alloc) replacing zero-writes at +0x70/+0x78 (Sign, Outcome)
+  or +0x10/+0x18 (Energy) with reads from current_cap cache fields
+  per D1.10.1.8
+- Tools support in tools/atreyu_x86.py (5 opcodes + AST handlers +
+  demos + CLI flags)
+- Test surfaces: test_cap_new.cbc, test_cap_enter_exit.cbc,
+  test_cap_check.cbc, test_cap_delegation.cbc, test_cap_invalid_check.cbc,
+  test_arena_owner_inheritance.cbc (verifies D1.10.1.8 retrofit)
+- Sign/Energy regeneration regression to confirm 174j/53j canaries
+  still hold under retrofitted allocators
+- Closes DEFERRED #37 partial — energy_costs.asm comment cleanup at
+  lines 113 and 115
+
+## 55. Pod 1.12 (Demod) inherits Cap delegation pattern (added Pod 1.10.1, forward-looking)
+
+D1.10.1.12 strict-delegation pattern likely applies to Demod
+registration: a demod registers under current_cap's authority. Pod 1.12
+recon ratifies whether Demod's slot is consumer-shape (inherits +0x70
+/+0x78 mirrors) or source-shape (drops them like Cap per D1.10.1.1).
+demod_id is itself the identifier in arena/owner pairs; Demod may also
+be source-of-authority shape. Pod 1.12 recon decides.
+
+D1.10.1.12 also flags potential Pod 1.12 inheritance: any operation
+that registers a demod likely uses the strict-delegation pattern.
+
+## 56. Pod 2 (Cop) inherits substrate-secret hardening from D1.10.1.6 (added Pod 1.10.1, forward-looking)
+
+Pod 1.10.1 D1.10.1.6 ratified RDSEED → RDRAND → hard-fail policy. Pod 2
+(Cop) hardens further:
+- siphash_key rotation policy (per-arena? per-cap-grant burst?)
+- generation_counter advancement protocol for cap revocation
+- Cryptographic cost class for OP_CAP_CHECK (currently 1j flat;
+  Pod 2 may refine)
+- Spatial-merge delegation tax (forward-logged from pre-v10 Cap design;
+  energy delegation tax is a Pod 2 discipline concern, not a Pod 1.10
+  substrate concern)
+
+Pod 2 Cop is the energy-market and cryptographic-discipline pod;
+inherits substrate primitives (Cap, Outcome, Sign, Energy) and adds
+policy/tuning/auditing.
+
 Fifth throwaway QEMU monitor-pipe test script (after
 pod185b_qemu_test.sh, pod185c_qemu_test.sh, pod185c_b6_liveness.sh,
 pod192b_qemu_test.sh per #33-#34, #48). Same disposition; the

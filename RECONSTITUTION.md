@@ -1,6 +1,6 @@
-# CodebookOS — RECONSTITUTION MANIFESTO (v9)
+# CodebookOS — RECONSTITUTION MANIFESTO (v10)
 
-## Post-Pod-1.9.1 — Outcome<T> Canon Sealed (Pod 1.8.5b/c Conduits in Place)
+## Post-Pod-1.10.1 — Cap Canon Sealed (Outcome + Conduits + Cap Design)
 
 **Project:** CodebookOS x86_64 UEFI
 **Repo:** github.com/RandolphPelican/codebook
@@ -15,8 +15,43 @@
 **Updated:** April 28, 2026 (v7 — post-Pod-1.7 Sign source implementation, canon corrections)
 **Updated:** April 29, 2026 (v8 — post-Pod-1.8 Energy source implementation, per-opcode cost table, catalytic-gateway fetch loop)
 **Updated:** May 03, 2026 (v9 — post-Pod-1.9.1 Outcome<T> design canon, opcode allocation Outcome→0xE0-0xE4 / Demod→0xE5-0xEF, Pod 1.9 split into 1.9.1/1.9.2/1.9.3)
-**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md, recon/POD0.9_CAP_GRAPH_DEEP_READ.md, recon/POD1.1_VM_AUDIT.md, recon/POD1.2_DECISION_RECORD.md, recon/POD1.4_DECISION_RECORD.md, recon/POD1.6_DECISION_RECORD.md, recon/POD1.7_DECISION_RECORD.md, recon/POD1.8_DECISION_RECORD.md, recon/POD1.9.1_DESIGN_DECISIONS.md
-**Supersedes:** RECONSTITUTION.md v8
+**Updated:** May 03, 2026 (v10 — post-Pod-1.10.1 Cap canon, ROOT_CAP bootstrap, RDSEED-with-RDRAND-fallback substrate-secret, SipHash-2-4 MAC, Pod 1.10 split into 1.10.1/1.10.2a/1.10.2b)
+**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md, recon/POD0.9_CAP_GRAPH_DEEP_READ.md, recon/POD1.1_VM_AUDIT.md, recon/POD1.2_DECISION_RECORD.md, recon/POD1.4_DECISION_RECORD.md, recon/POD1.6_DECISION_RECORD.md, recon/POD1.7_DECISION_RECORD.md, recon/POD1.8_DECISION_RECORD.md, recon/POD1.9.1_DESIGN_DECISIONS.md, recon/POD1.10.1_DECISION_RECORD.md
+**Supersedes:** RECONSTITUTION.md v9
+
+## Why v10 exists
+
+v9 sealed Outcome<T> design canon and the opcode-allocation correction
+(Outcome relocated to 0xE0-0xE4; Demod tightened to 0xE5-0xEF). v10
+records what happened next: Pod 1.9.2a/b/3 implemented Outcome and
+refit existing accessors; Pod 1.9.4 cleared the throwaway test script
+housekeeping bundle; Pod 1.10.1 (this commit) seals the Cap design
+canon before 1.10.2 implementation can drift on it.
+
+The Cap subsection is replaced with the canonical D1.10.1 definition
+per `recon/POD1.10.1_DECISION_RECORD.md`. Key architectural decisions:
+- 128-byte symmetric slot per Pod 1.8.5c A1(d); Cap drops the
+  +0x70/+0x78 arena/owner mirror fields because Cap is the source of
+  authority, not a consumer (D1.10.1.1)
+- Five core opcodes at 0xB0-0xB4 per RECONSTITUTION v9 placement
+  (D1.10.1.2)
+- ROOT_CAP at cap_id=1 with arena_id=0, owner_demod_id=0, MAC computed
+  at boot from RDSEED/RDRAND-derived siphash_key (D1.10.1.5,
+  D1.10.1.6)
+- SipHash-2-4 MAC over 6 u64 fields; per-boot key regeneration; caps
+  don't survive reboot (D1.10.1.7)
+- Cap activates dormant arena/owner in existing primitives — Sign,
+  Energy, Outcome allocators retrofit at Pod 1.10.2b to read
+  current_cap cache fields (D1.10.1.8 — substrate-wide elegance
+  unlock)
+- OP_CAP_CHECK = authenticity + authorization (D1.10.1.11)
+- Strict delegation in V1.0; OP_CAP_NEW always derives from current_cap
+  with arena/owner inheritance (D1.10.1.12)
+
+The Pod 1.10 row in the pod-arc table splits into 1.10.1 / 1.10.2a /
+1.10.2b following the canon → substrate → handlers+retrofit+tests
+pattern established by Pod 1.9. Other pod-arc reconciliation drift
+(DEFERRED #37) stays deferred per Pod 1.9.4 D1.9.4.2 scope discipline.
 
 ## Why v9 exists
 
@@ -249,62 +284,119 @@ typed Energy deferred to Pod 1.8; see D1.7.6). Toolchain emission in
 OP_DROP. Round-trip verified under QEMU: sign_id=1, energy=42, label=hello,
 hash[0:8]=171 (0xAB little-endian). See `recon/POD1.7_DECISION_RECORD.md`.
 
-#### `Cap<R>` — revised post-Pod-0.9, cap ops replaced post-Pod-1.1
+#### `Cap<R>` — canonical definition (v10, Pod 1.10.1)
 
-Linear capability over resource R, organized as a graph with delegation
-chains. Pod 1's design incorporates the salvageable *design ideas* of
-`kernel/_future/cap_graph.asm` (the static-pool allocator, the
-parent/child graph structure, the bitmap-as-capability pattern, and
-**the spatial merge mechanic**) while widening data fields to 64-bit
-and fixing the documented bugs.
+Capability over a resource descriptor, organized as a delegation graph
+with cryptographic authenticity (SipHash-2-4 MAC) and substrate-
+enforced authority (arena_id + owner_demod_id pair). The full design
+is sealed in `recon/POD1.10.1_DECISION_RECORD.md` (D1.10.1.1 through
+D1.10.1.14); v10 records the canonical shape here for cross-reference.
 
-**v4 — current cap ops retired (Q1).** The existing `OP_GRANT_CAP`
-(0x90) and `OP_USE_CAP` (0x91) in `boot/cbs_vm.asm` are
-magic-number token dispatchers — they create and consume untyped
-`0xCA000000 + resource_id` tokens via hardcoded comparisons. These
-do not implement Cap<R> as described here. Pod 1.11 retires them
-entirely and replaces them with typed capability opcodes in the
-`0xA0–0xEF` range (see opcode allocation below). No current cap
-code survives into the typed system.
+**Slot layout (128 bytes, CAP_SLOT_SIZE per Pod 1.8.5c A1(d) precedent;
+D1.10.1.1).** Cap drops the +0x70/+0x78 arena/owner mirror fields that
+other primitives carry, because Cap is the source of authority not a
+consumer. The mirror convention applies to consumer primitives (Sign,
+Energy, Outcome) that inherit arena/owner from current_cap at
+allocation time.
 
 ```
-Cap<R> := {
-  resource:      R,                // resource type the cap authorizes
-  parent:        cap_id,           // parent in graph (0 = root)
-  child:         cap_id,           // first child (linked list head)
-  sibling:       cap_id,           // next sibling (for traversal)
-  cap_bitmap:    u64,              // 64 capability bits
-  energy_budget: u64,              // joules granted to this cap
-  energy_used:   u64,              // joules consumed by this cap + descendants
-  nonce:         u64,              // anti-replay
-  expiry:        Time | Never,     // time-bound caps
-  signature:     bytes(64),        // Ed25519 over the rest (V1.1+)
-}
++0x00  cap_id_self           u64   redundant copy of own ID for slot self-id
++0x08  arena_id              u64   the arena this cap grants authority within
++0x10  owner_demod_id        u64   the demod that owns this cap
++0x18  resource_descriptor   u64   opaque u64 the cap grants access to
++0x20  parent_cap_id         u64   delegation chain; 0 for ROOT_CAP only
++0x28  generation_counter    u64   Pod 2+ revocation; V1.0 always 0
++0x30  mac                   u64   SipHash-2-4 over fields above
++0x38  reserved              80 bytes for Pod 2+ extensions
 ```
 
-**Spatial merge — the delegation tax.** When a child capability
-exercises a power, the parent capability's `energy_used` increments by
-half the child's cost. This encodes the principle that
-*delegation chains pay a tax*: capabilities are not free once granted.
-The act of granting binds the parent's metabolism to the child's
-activity. This mechanism survives directly from
-`kernel/_future/cap_graph.asm` (the spatial_merge code in cap_use,
-lines 130-145).
+**Five core opcodes at 0xB0-0xB4 (D1.10.1.2, D1.10.1.3):**
 
-The signature field is present in V1.0's data layout but only enforced
-in V1.1+ when Ed25519 lands. V1.0 leaves the field as zeros and
-validates only structure (parent valid, bitmap match, energy
-sufficient). On-disk layout doesn't change between V1.0 and V1.1.
+| Opcode | Hex | Cost | Behavior |
+|--------|-----|------|----------|
+| OP_CAP_NEW | 0xB0 | 1j metabolic | Pop resource_descriptor + arena_id + owner_demod_id; derive from current_cap (strict delegation per D1.10.1.12); construct Outcome<cap_id> |
+| OP_CAP_ENTER | 0xB1 | 0j structural | Pop cap_id; push current_cap_id to cap_stack; set current_cap to popped |
+| OP_CAP_EXIT | 0xB2 | 0j structural | Pop nothing; restore current_cap from cap_stack |
+| OP_CAP_CURRENT | 0xB3 | 0j structural | Push current_cap_id |
+| OP_CAP_CHECK | 0xB4 | 1j metabolic | Pop cap_id + expected_arena_id + expected_owner_demod_id; push 1 if MAC valid AND arena matches AND owner matches; 0 otherwise (D1.10.1.11) |
 
-The capability bitmap is 64 bits — wide enough for per-surface caps
-(8+), per-driver caps (3+), per-resource caps (4: read/write/exec/grant),
-per-network/peer caps (V1.1+), and headroom for V2+ extensions.
-v2's earlier 5-bit bitmap was inherited from the Phase 5.1 design and
-is too narrow.
+Reserved 0xB5-0xBF for future Cap operations.
 
-The static cap pool is sized at 64 nodes for V1.0 (per the original
-Phase 5.1 design). 64 × 128 bytes = 8 KB total — modest for the
-header layer. Bumps to 256 in V1.1 if surface count expands.
+**ROOT_CAP bootstrap (D1.10.1.5).** Substrate init creates Cap at
+cap_id=1 with arena_id=0, owner_demod_id=0, parent_cap_id=0,
+generation_counter=0, mac=SipHash(siphash_key, fields). current_cap_id
+initialized to 1; cap_stack empty. All allocations before any
+OP_CAP_NEW fires inherit ROOT context.
+
+**Substrate secret (D1.10.1.6).** Boot derives 128-bit siphash_key via
+RDSEED (preferred) or RDRAND (fallback). Hard-fail if both unavailable
+— substrate emits fail message via auryn_puts and HALTs before MIND
+phase. No fixed-key fallback tier; a cryptographic capability system
+with a known-fixed key isn't cryptographic. Per-boot key regeneration;
+caps don't survive reboot. Substrate refuses to boot on pre-2012
+hardware (pre-RDRAND).
+
+**SipHash-2-4 over 6 u64 fields (D1.10.1.7).** 64-bit MAC, 128-bit
+key, c=2 compression rounds, d=4 finalization rounds. Cap MAC input is
+6 u64 fields (cap_id_self through generation_counter) = 48 bytes; 16
+SIPROUND total per computation. NASM implementation ~150 lines.
+V1.0-specific signature `siphash_compute_cap_mac(rdi=slot_ptr) -> rax=mac`;
+generalize when a second MAC consumer appears.
+
+**Strict delegation in V1.0 (D1.10.1.12).** OP_CAP_NEW always derives
+from current_cap. Child cap inherits arena_id and owner_demod_id
+exactly from parent (V1.0 doesn't support sub-arena delegation).
+Holding a cap genuinely transfers authority along the delegation chain.
+Pod 2 (Cop) extends with sub-arena delegation, owner-pair relaxation,
+or revocation via generation_counter advancement.
+
+**Cap activates dormant arena/owner in existing primitives
+(D1.10.1.8 — substrate-wide elegance unlock).** Sign, Energy, Outcome
+have been carrying placeholder zero arena_id/owner_demod_id at
++0x70/+0x78 since Pod 1.8.5c Move 3. Pod 1.10.2b retrofits the three
+allocators (.sign_alloc, .energy_alloc, .outcome_alloc) to read from
+current_cap_arena_id_cache and current_cap_owner_demod_id_cache.
+Every subsequent typed-primitive allocation inherits arena/owner from
+the current cap context, making sandboxed execution patterns
+expressible at substrate level.
+
+**Outcome<Cap> shape per Path A (D1.10.1.9).** OP_CAP_NEW returns
+Outcome<cap_id> via `.construct_ok_outcome` helper (Pod 1.9.3) on
+success; Err on failure. value_type_id = TYPE_CODE_CAP=3 (reserved at
+Pod 1.9.2a per D1.9.1.1).
+
+**cap_id space and pool (D1.10.1.10).** 0=null, 1=ROOT_CAP, 2+=user.
+CAP_POOL_SLOTS=64 per existing pool capacity convention. Bump-allocator,
+no free-list. CAP_ID_NULL=0 added to defines.asm null-sentinel block
+at Pod 1.10.2a.
+
+**cap_stack (D1.10.1.4).** 256-entry parallel to vm_ret_stack.
+OP_CAP_ENTER overflow at 256 entries reuses ERR_STACK_OVERFLOW with
+source_op=OP_CAP_ENTER disambiguating from OP_CALL. OP_CAP_EXIT
+underflow at empty stack reuses ERR_STACK_UNDERFLOW with
+source_op=OP_CAP_EXIT.
+
+**Substrate state (D1.10.1.13).** vm_cap_pool (8KB), cap_registry
+(1KB), cap_stack (2KB) + cap_stack_ptr, current_cap_id,
+current_cap_arena_id_cache, current_cap_owner_demod_id_cache,
+siphash_key (128-bit), siphash_key_source flag. Total ~11.1 KB.
+
+**Existing cap ops retired.** OP_GRANT_CAP (0x90) and OP_USE_CAP
+(0x91) are pre-Pod-1 magic-number token dispatchers; not part of the
+typed Cap system. Pod 1.11 retires them entirely; OP_CAP_* takes their
+place. The 0xCA000xxx capability tokens in cbs_vm.asm (DEFERRED #6)
+remain dead code until that retirement.
+
+#### `Cap<R>` — pre-v10 placeholder design (historical, retired in v10)
+
+The pre-v10 Cap design (parent/child/sibling graph, cap_bitmap,
+energy_budget per-cap, signature field, spatial-merge mechanic from
+Pod 0.9 cap_graph.asm) is retired. Pod 1.10.1's design replaces it
+with the typed Cap above. The salvageable design ideas
+(parent_cap_id chain, bump-allocator with 64-slot pool, MAC over
+cap fields) survive in revised form. The spatial-merge tax mechanism
+is forward-logged to Pod 2 (Cop) — energy delegation tax is a Pod 2
+discipline concern, not a Pod 1.10 substrate concern.
 
 #### VM substrate fixes — v5 (Pod 1.3 complete, Pod 1.5 width migration)
 
@@ -689,7 +781,10 @@ Pod 1 — Engywook Re-Forged (typed VM with Sign/Cap/Outcome/Energy/Demod)
 │   ├── 1.9.1 Outcome canon + RECONSTITUTION v9 patch     [DONE — this commit]
 │   ├── 1.9.2 Outcome source: pool, registry, 5 opcode handlers, vm_fetch_count [planned — closes DEFERRED #13]
 │   └── 1.9.3 Sign/Energy accessor refit to return Outcome [planned — closes DEFERRED #16]
-├── 1.10 Cap<R> data structures (0xB0–0xBF)                [planned — cap replacement]
+├── 1.10 Cap<R> data structures (0xB0–0xB4 per v10 D1.10.1.2)
+│   ├── 1.10.1 Cap canon + RECONSTITUTION v10 patch        [DONE — this commit]
+│   ├── 1.10.2a Cap substrate plumbing (slot pool, registry, cap_stack, ROOT_CAP, SipHash, RDSEED/RDRAND) [planned]
+│   └── 1.10.2b Cap opcode handlers + cost table + tools + tests + Sign/Energy/Outcome retrofit per D1.10.1.8 [planned]
 ├── 1.11 Cap ops retirement (retire 0x90/0x91)             [planned — cap replacement]
 ├── 1.12 Demod<S> registration (0xE0–0xEF)                 [planned — demod]
 └── 1.13 Pod 1 cleanup + sign-off                          [planned — cleanup]
