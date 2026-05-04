@@ -12,6 +12,11 @@
     align 16
 energy_budget: dq 100000
 energy_used:   dq 0
+; Pod 1.9.2a — Substrate fetch counter (D1.9.1.7; closes ProvEvent gap
+; declared in Pod 1.8.5c). Increments once per opcode fetch at .fetch
+; loop head in cbs_vm.asm. Read by OP_OUTCOME_NEW_ERR (1.9.2b) for
+; prov_append fetch_counter parameter; also useful for substrate audit.
+vm_fetch_count: dq 0
 vm_ret_ptr:     dq 0
 vm_ret_stack:   times 256 dq 0
 vm_stack:   times 512 dq 0     ; 4KB VM stack
@@ -28,6 +33,12 @@ vm_sign_next:   dq 0            ; bump allocator index (next free slot)
 vm_energy_pool:  times ENERGY_POOL_SLOTS * ENERGY_SLOT_SIZE db 0
 vm_energy_next:  dq 0            ; bump allocator index (next free slot)
 
+; Outcome pool (Pod 1.9.2a — D1.9.1.5 inline error context;
+;               64 slots × 128 bytes = 8KB; bump-allocator)
+    align 16
+vm_outcome_pool: times OUTCOME_POOL_SLOTS * OUTCOME_SLOT_SIZE db 0
+vm_outcome_next: dq 0            ; bump allocator index (next free slot)
+
 ; Sign registry (Pod 1.8.5b — Move 4)
 ;   Maps sign_id (opaque counter, 1-based) -> slot pointer (u64).
 ;   Each entry = {id: u64, slot_ptr: u64} = 16 bytes.
@@ -43,6 +54,15 @@ sign_registry:         times SIGN_POOL_SLOTS * 16 db 0
 energy_registry_count:   dq 0
 energy_registry_next_id: dq 1
 energy_registry:         times ENERGY_POOL_SLOTS * 16 db 0
+
+; Outcome registry (Pod 1.9.2a; D1.9.1.1 + Pod 1.8.5b registry pattern)
+;   Maps outcome_id (opaque counter, 1-based) -> slot pointer (u64).
+;   Each entry = {id: u64, slot_ptr: u64} = 16 bytes.
+;   Capacity matches vm_outcome_pool. ID 0 = OUTCOME_ID_NULL reserved.
+    align 16
+outcome_registry_count:   dq 0
+outcome_registry_next_id: dq 1
+outcome_registry:         times OUTCOME_POOL_SLOTS * 16 db 0
 
 ; Pod 1.8.5c Move 7 — current VM phase (SEED at boot, advances through MIND)
     align 16

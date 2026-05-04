@@ -390,3 +390,67 @@ Bundle into a future RECONSTITUTION reconciliation pod (canon-only,
 no source change). Could land alongside Pod 1.8.5b.6 (v4 main body
 commit per #24) since both are RECONSTITUTION-class housekeeping.
 Priority: medium (drift accumulates but does not block source pods).
+
+## 38. Pod 1.9.2b: Outcome opcode handlers + dispatch entries (added Pod 1.9.2a, forward-looking)
+
+Pod 1.9.2a landed substrate plumbing (slot pool, registry,
+vm_fetch_count, constants); Pod 1.9.2b lands the five accessor
+opcode handlers in cbs_vm.asm (OP_OUTCOME_NEW_OK, OP_OUTCOME_NEW_ERR,
+OP_OUTCOME_IS_OK, OP_OUTCOME_UNWRAP_OK, OP_OUTCOME_UNWRAP_ERR at
+0xE0-0xE4) plus dispatch entries in the .fetch chain. Per
+D1.9.1.4 stack-effect specs and D1.9.1.8 sentinel-and-log
+convention. Outcome behavior is not testable until 1.9.2b commits.
+
+## 39. Pod 1.9.2b: cost table entries for 0xE0-0xE4 (added Pod 1.9.2a, forward-looking)
+
+`boot/energy_costs.asm` cost table currently treats 0xE0-0xE4 as
+default (1j) under the "Demod 0xE0-0xEF Pod 1.12" comment. Pod
+1.9.2b updates: OP_OUTCOME_IS_OK (0xE2) costs 0j per D1.8.5c.8
+structural classification (state query, not metabolic work);
+OP_OUTCOME_NEW_OK / NEW_ERR / UNWRAP_OK / UNWRAP_ERR cost 1j
+default (Pod 2 Cop tunes if measurement warrants). The cost-table
+comment for row 0xE0-0xEF needs reclassification text (Outcome
+0xE0-0xE4 + Demod 0xE5-0xEF).
+
+## 40. Pod 1.9.2b: sentinel log strings (added Pod 1.9.2a, forward-looking)
+
+D1.9.1.8 push-sentinel-and-log convention requires two new strings
+in `boot/data.asm`:
+- `str_unwrap_ok_on_err: db '  UNWRAP_OK on Err — sentinel returned',10,0`
+- `str_unwrap_err_on_ok: db '  UNWRAP_ERR on Ok — zero sentinels returned',10,0`
+OP_OUTCOME_UNWRAP_OK and OP_OUTCOME_UNWRAP_ERR handlers emit the
+respective string via `auryn_puts` when discriminant mismatches.
+
+## 41. Pod 1.9.2b: prov_append hook in OP_OUTCOME_NEW_ERR (added Pod 1.9.2a, forward-looking)
+
+D1.9.1.6 wire-up: after writing the err context to the slot at
++0x20-+0x3F, OP_OUTCOME_NEW_ERR loads `[rbx+0x28]` (err_source_op)
+into rdi, `[rbx+0x30]` (err_demod_id) into rsi, `[rel vm_fetch_count]`
+into rdx, then calls prov_append. The cap-gate is internal to
+prov_append (default-OFF per Move 2 doctrine). Caller-preserve
+semantics from boot/provenance.asm preserve r12-r15 / rbx / rbp
+across the call.
+
+## 42. Pod 1.9.2b: tools/atreyu_x86.py support for Outcome opcodes (added Pod 1.9.2a, forward-looking)
+
+Add 5 opcode constants (OP_OUTCOME_NEW_OK = 0xE0 through
+OP_OUTCOME_UNWRAP_ERR = 0xE4); 5 AST handlers in `_expr` and
+`_stmt`; 6 demo functions (`demo_outcome_ok`, `demo_outcome_err`,
+`demo_outcome_is_ok`, `demo_outcome_unwrap_ok`,
+`demo_outcome_unwrap_err`, `demo_outcome_dup_is_ok`); 6 build flags
+(`--outcome-ok-build`, etc.). Output filenames per architect's list:
+`test_outcome_ok.cbc`, `test_outcome_err.cbc`,
+`test_outcome_is_ok.cbc`, `test_outcome_unwrap_ok.cbc`,
+`test_outcome_unwrap_err.cbc`, `test_outcome_dup_is_ok.cbc`.
+
+## 43. Pod 1.9.2b: vm_fetch_count smoke test exercised through prov_append (added Pod 1.9.2a, forward-looking)
+
+B5 was skipped in Pod 1.9.2a because no clean instrumentation
+mechanism exists for reading vm_fetch_count without the opcode
+handlers. Pod 1.9.2b's OP_OUTCOME_NEW_ERR exercises the counter
+through the prov_append fetch_counter argument; with auto-provenance
+manually enabled (toggle current_demod_prov_enabled before the
+test), the prov_ring_buf receives a ProvEvent whose +0x10 field
+(PROV_OFF_FETCH_CTR) carries the counter value. A test program
+that constructs an err Outcome and then memdumps prov_ring_buf
+validates the counter is incrementing.

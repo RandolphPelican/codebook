@@ -141,6 +141,10 @@
 %define ENERGY_SLOT_SIZE     0x80   ; 128 bytes
 %define ENERGY_POOL_SLOTS    64
 
+; --- Outcome struct layout (Pod 1.9.2a; D1.9.1.5 inline error context) ---
+%define OUTCOME_SLOT_SIZE    0x80   ; 128 bytes
+%define OUTCOME_POOL_SLOTS   64
+
 ; --- Canonical ID types (Pod 1.8.5b — Move 4) ---
 ; All canonical IDs are u64. ID 0 is reserved as null/invalid.
 ; sign_id and energy_id are retrofitted in this pod and now flow
@@ -154,3 +158,17 @@
 %define CAP_ID_NULL     0
 %define DEMOD_ID_NULL   0
 %define SIGNAL_ID_NULL  0
+%define OUTCOME_ID_NULL 0   ; Pod 1.9.2a — Outcome canonical-ID null sentinel
+
+; --- Pod 1.9.2a — Outcome value_type_id codes (D1.9.1.1) ---
+; Discriminant naming which canonical-ID type the success branch of
+; an Outcome wraps. Code 0 (TYPE_CODE_NONE) is sentinel — an Outcome
+; with this code is uninitialized and may be flagged by audit.
+; Codes 1-6 are stable; 7+ reserved for future canonical-ID types.
+%define TYPE_CODE_NONE     0
+%define TYPE_CODE_SIGN     1
+%define TYPE_CODE_ENERGY   2
+%define TYPE_CODE_CAP      3   ; reserved for Pod 1.10
+%define TYPE_CODE_DEMOD    4   ; reserved for Pod 1.12
+%define TYPE_CODE_SIGNAL   5   ; reserved for Pod 4
+%define TYPE_CODE_OUTCOME  6   ; reserved for Outcome wrapping Outcome

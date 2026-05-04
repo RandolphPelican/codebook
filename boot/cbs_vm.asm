@@ -53,6 +53,8 @@ cbs_run:
     ; Fetch opcode byte
     movzx   eax, byte [r12]
     inc     r12
+    ; Pod 1.9.2a D1.9.1.7 — substrate fetch counter for ProvEvent.
+    inc     qword [rel vm_fetch_count]
     ; Per-opcode energy cost (Pod 1.8: cost table replaces flat 1j/fetch)
     push    rax                     ; preserve opcode across call
     call    energy_cost_lookup      ; al = opcode byte → rax = joules
