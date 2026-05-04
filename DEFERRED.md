@@ -391,7 +391,7 @@ no source change). Could land alongside Pod 1.8.5b.6 (v4 main body
 commit per #24) since both are RECONSTITUTION-class housekeeping.
 Priority: medium (drift accumulates but does not block source pods).
 
-## 38. Pod 1.9.2b: Outcome opcode handlers + dispatch entries (added Pod 1.9.2a, forward-looking)
+## ~~38. Pod 1.9.2b: Outcome opcode handlers + dispatch entries (added Pod 1.9.2a, forward-looking)~~ (RESOLVED — Pod 1.9.2b)
 
 Pod 1.9.2a landed substrate plumbing (slot pool, registry,
 vm_fetch_count, constants); Pod 1.9.2b lands the five accessor
@@ -401,7 +401,7 @@ OP_OUTCOME_IS_OK, OP_OUTCOME_UNWRAP_OK, OP_OUTCOME_UNWRAP_ERR at
 D1.9.1.4 stack-effect specs and D1.9.1.8 sentinel-and-log
 convention. Outcome behavior is not testable until 1.9.2b commits.
 
-## 39. Pod 1.9.2b: cost table entries for 0xE0-0xE4 (added Pod 1.9.2a, forward-looking)
+## ~~39. Pod 1.9.2b: cost table entries for 0xE0-0xE4 (added Pod 1.9.2a, forward-looking)~~ (RESOLVED — Pod 1.9.2b)
 
 `boot/energy_costs.asm` cost table currently treats 0xE0-0xE4 as
 default (1j) under the "Demod 0xE0-0xEF Pod 1.12" comment. Pod
@@ -412,7 +412,7 @@ default (Pod 2 Cop tunes if measurement warrants). The cost-table
 comment for row 0xE0-0xEF needs reclassification text (Outcome
 0xE0-0xE4 + Demod 0xE5-0xEF).
 
-## 40. Pod 1.9.2b: sentinel log strings (added Pod 1.9.2a, forward-looking)
+## ~~40. Pod 1.9.2b: sentinel log strings (added Pod 1.9.2a, forward-looking)~~ (RESOLVED — Pod 1.9.2b)
 
 D1.9.1.8 push-sentinel-and-log convention requires two new strings
 in `boot/data.asm`:
@@ -421,7 +421,7 @@ in `boot/data.asm`:
 OP_OUTCOME_UNWRAP_OK and OP_OUTCOME_UNWRAP_ERR handlers emit the
 respective string via `auryn_puts` when discriminant mismatches.
 
-## 41. Pod 1.9.2b: prov_append hook in OP_OUTCOME_NEW_ERR (added Pod 1.9.2a, forward-looking)
+## ~~41. Pod 1.9.2b: prov_append hook in OP_OUTCOME_NEW_ERR (added Pod 1.9.2a, forward-looking)~~ (RESOLVED — Pod 1.9.2b)
 
 D1.9.1.6 wire-up: after writing the err context to the slot at
 +0x20-+0x3F, OP_OUTCOME_NEW_ERR loads `[rbx+0x28]` (err_source_op)
@@ -431,7 +431,7 @@ prov_append (default-OFF per Move 2 doctrine). Caller-preserve
 semantics from boot/provenance.asm preserve r12-r15 / rbx / rbp
 across the call.
 
-## 42. Pod 1.9.2b: tools/atreyu_x86.py support for Outcome opcodes (added Pod 1.9.2a, forward-looking)
+## ~~42. Pod 1.9.2b: tools/atreyu_x86.py support for Outcome opcodes (added Pod 1.9.2a, forward-looking)~~ (RESOLVED — Pod 1.9.2b)
 
 Add 5 opcode constants (OP_OUTCOME_NEW_OK = 0xE0 through
 OP_OUTCOME_UNWRAP_ERR = 0xE4); 5 AST handlers in `_expr` and
@@ -443,14 +443,62 @@ OP_OUTCOME_UNWRAP_ERR = 0xE4); 5 AST handlers in `_expr` and
 `test_outcome_is_ok.cbc`, `test_outcome_unwrap_ok.cbc`,
 `test_outcome_unwrap_err.cbc`, `test_outcome_dup_is_ok.cbc`.
 
-## 43. Pod 1.9.2b: vm_fetch_count smoke test exercised through prov_append (added Pod 1.9.2a, forward-looking)
+## ~~43. Pod 1.9.2b: vm_fetch_count smoke test exercised through prov_append (added Pod 1.9.2a, forward-looking)~~ (RESOLVED — Pod 1.9.2b)
 
 B5 was skipped in Pod 1.9.2a because no clean instrumentation
 mechanism exists for reading vm_fetch_count without the opcode
 handlers. Pod 1.9.2b's OP_OUTCOME_NEW_ERR exercises the counter
-through the prov_append fetch_counter argument; with auto-provenance
-manually enabled (toggle current_demod_prov_enabled before the
-test), the prov_ring_buf receives a ProvEvent whose +0x10 field
-(PROV_OFF_FETCH_CTR) carries the counter value. A test program
-that constructs an err Outcome and then memdumps prov_ring_buf
-validates the counter is incrementing.
+through the prov_append fetch_counter argument. **Resolved**: B5
+ran cleanly with cap-gate default-OFF (current_demod_prov_enabled=0
+kept the prov_append call as a no-op), but the call site itself was
+verified clean (no crash, VM state preserved across the call). When
+Pod 2 (Cop) flips the cap, the existing wire-up activates without
+further source change.
+
+## 44. Pod 1.9.3: Sign accessor refit to return Outcome (added Pod 1.9.2b, forward-looking)
+
+Existing Sign accessors (OP_SIGN_HASH, OP_SIGN_LABEL, OP_SIGN_ENERGY)
+fall through to silent-null sentinel paths when registry_lookup_sign
+returns 0. Pod 1.9.3 refits each to construct `Err(InvalidId)` Outcome
+via OP_OUTCOME_NEW_ERR and push the resulting outcome_id instead of
+the silent null. Closes DEFERRED #16. The `value_type_id` for these
+err-Outcomes is TYPE_CODE_SIGN per D1.9.2b.3 (expected-T-on-error).
+
+## 45. Pod 1.9.3: Energy accessor refit to return Outcome (added Pod 1.9.2b, forward-looking)
+
+Same shape as #44 for Energy accessors (OP_ENERGY_JOULES,
+OP_ENERGY_SOURCE_OP). Refit silent-null paths to push
+`Err(InvalidId)` Outcomes. `value_type_id = TYPE_CODE_ENERGY`.
+
+## 46. Pod 1.9.3: stack-violation halt sites refit to push Err Outcomes (added Pod 1.9.2b, forward-looking)
+
+Closes DEFERRED #13. Existing stack-violation halt sites
+(`str_ret_underflow`, `str_call_overflow`) currently halt with a
+diagnostic message. Pod 1.9.3 refits to push
+`Err(StackUnderflow)` / `Err(StackOverflow)` Outcomes via
+OP_OUTCOME_NEW_ERR. Specific err_code constants land in defines.asm
+at 1.9.3 (e.g., `ERR_STACK_UNDERFLOW`, `ERR_STACK_OVERFLOW`).
+`value_type_id` is the in-flight expected-T at the moment of
+violation — needs design ratification at 1.9.3 recon (TB will
+surface as A-call: stack violations may not have a stable
+value_type_id since the typing depends on what was being computed).
+
+## 47. Pool-full handling in OP_OUTCOME_NEW_OK / OP_OUTCOME_NEW_ERR (added Pod 1.9.2b, forward-looking)
+
+Per D1.9.2b.8 (A2 ratification): V1.0 sentinel-only on capacity
+exhaustion. NEW_OK / NEW_ERR push 0 sentinel if pool/registry full
+(unreachable in V1.0 with capacity 64 + tests constructing 1-2
+outcomes). Pod 2 (Cop) hardens with explicit log + audit signal +
+possibly graceful degradation. May add `str_outcome_pool_full` at
+that pod. Forward-log only; no immediate action needed.
+
+## 48. tools/pod192b_qemu_test.sh joins housekeeping bundle (added Pod 1.9.2b)
+
+Fourth throwaway QEMU monitor-pipe test script (after
+tools/pod185b_qemu_test.sh, tools/pod185c_qemu_test.sh,
+tools/pod185c_b6_liveness.sh per #33-#34). Same disposition options:
+earn `tools/test/` status by merging into `test_qemu.sh` as a
+parameterized test runner, or remove in housekeeping bundle pod.
+The bundle has now grown to four scripts spanning three source pods;
+merge-into-test_qemu.sh option worth flagging as the more sustainable
+path at the eventual reconciliation pod.

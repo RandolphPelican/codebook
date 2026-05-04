@@ -106,6 +106,13 @@
 ; --- Pod 1.8.5c Move 7: OP_PHASE_QUERY (reads vm_phase to operand stack) ---
 %define OP_PHASE_QUERY      0xD5
 
+; --- Pod 1.9.2b Outcome opcodes (D1.9.1.4) ---
+%define OP_OUTCOME_NEW_OK     0xE0
+%define OP_OUTCOME_NEW_ERR    0xE1
+%define OP_OUTCOME_IS_OK      0xE2
+%define OP_OUTCOME_UNWRAP_OK  0xE3
+%define OP_OUTCOME_UNWRAP_ERR 0xE4
+
 ; --- Pod 1.8.5c Move 7: vm_phase enum ---
 ; Boot sequence steps SEED → FORM → CHANNELS → MIND in V1.0.
 ; MODES is enum-reserved for Pod 5 (Surfaces); not written by V1.0 boot

@@ -149,6 +149,16 @@ cbs_run:
     je      .op_energy_recover
     cmp     al, OP_PHASE_QUERY
     je      .op_phase_query
+    cmp     al, OP_OUTCOME_NEW_OK
+    je      .op_outcome_new_ok
+    cmp     al, OP_OUTCOME_NEW_ERR
+    je      .op_outcome_new_err
+    cmp     al, OP_OUTCOME_IS_OK
+    je      .op_outcome_is_ok
+    cmp     al, OP_OUTCOME_UNWRAP_OK
+    je      .op_outcome_unwrap_ok
+    cmp     al, OP_OUTCOME_UNWRAP_ERR
+    je      .op_outcome_unwrap_err
 
     ; Unknown opcode
     lea     rsi, [rel str_vm_unk]
@@ -1007,6 +1017,217 @@ cbs_run:
     mov     [r13], rax
     add     r13, 8
     jmp     .fetch
+
+; ============================================================
+; Outcome typed primitive (Pod 1.9.2b — D1.9.1.1-8 + D1.9.2b.1-6)
+; ============================================================
+; Outcome slot layout (128 bytes, OUTCOME_SLOT_SIZE):
+;   +0x00 discriminant (u64)        — 0=ok, 1=err
+;   +0x08 value_type_id (u64)       — TYPE_CODE_* per D1.9.1.1
+;   +0x10 value (u64)               — canonical ID of success value (ok); 0 if err
+;   +0x18 reserved (u64)            — Pod 3+ handle pool extension
+;   +0x20 err_code (u64)            — D1.9.1.2 err context; unused if ok
+;   +0x28 err_source_op (u64)
+;   +0x30 err_demod_id (u64)
+;   +0x38 err_fetch_counter (u64)   — program-domain (A1 bifurcation)
+;   +0x40-+0x6F reserved (48 bytes) — Pod 3+ message handle, etc.
+;   +0x70 arena_id (u64)            — Move 3 inheritance; V1.0 = 0
+;   +0x78 owner_demod_id (u64)      — Move 3 inheritance; V1.0 = 0
+
+; --- OP_OUTCOME_NEW_OK (0xE0) ---
+; Pop value, pop value_type_id; push outcome_id.
+.op_outcome_new_ok:
+    sub     r13, 8
+    mov     r10, [r13]              ; value (TOS)
+    sub     r13, 8
+    mov     r11, [r13]              ; value_type_id
+    call    .outcome_alloc
+    test    rax, rax
+    jz      .outcome_new_ok_fail
+    mov     rbx, rax                ; slot_ptr (rbx preserved across registry call)
+    ; Write named fields
+    mov     qword [rbx + 0x00], 0   ; discriminant = ok
+    mov     [rbx + 0x08], r11       ; value_type_id
+    mov     [rbx + 0x10], r10       ; value
+    mov     qword [rbx + 0x18], 0   ; reserved
+    ; Zero +0x20 through +0x7F (12 qwords = 96 bytes; covers err fields,
+    ; Pod 3+ reserved, arena_id, owner_demod_id)
+    lea     rdi, [rbx + 0x20]
+    xor     eax, eax
+    mov     rcx, 12
+    rep     stosq
+    ; Register
+    mov     rdi, rbx
+    call    registry_register_outcome
+    test    rax, rax
+    jz      .outcome_new_ok_fail
+    mov     [r13], rax              ; push outcome_id
+    add     r13, 8
+    jmp     .fetch
+.outcome_new_ok_fail:
+    mov     qword [r13], 0          ; sentinel (A2: pool-full or registry-full)
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_OUTCOME_NEW_ERR (0xE1) ---
+; Pop 5 args (top-down): err_fetch_counter, err_demod_id, err_source_op,
+; err_code, value_type_id. Push outcome_id. Fires prov_append hook
+; per D1.9.1.6 with A1 fetch_counter bifurcation (substrate counter
+; from [rel vm_fetch_count] for prov event; user-supplied
+; err_fetch_counter into Outcome inline context at +0x38).
+.op_outcome_new_err:
+    sub     r13, 8
+    mov     r8, [r13]               ; err_fetch_counter (program-domain, into slot)
+    sub     r13, 8
+    mov     r9, [r13]               ; err_demod_id
+    sub     r13, 8
+    mov     r10, [r13]              ; err_source_op
+    sub     r13, 8
+    mov     r11, [r13]              ; err_code
+    sub     r13, 8
+    mov     rcx, [r13]              ; value_type_id
+    call    .outcome_alloc
+    test    rax, rax
+    jz      .outcome_new_err_fail
+    mov     rbx, rax                ; slot_ptr
+    ; Write named fields
+    mov     qword [rbx + 0x00], 1   ; discriminant = err
+    mov     [rbx + 0x08], rcx       ; value_type_id (expected-T-on-error per A2)
+    mov     qword [rbx + 0x10], 0   ; value (unused for err)
+    mov     qword [rbx + 0x18], 0   ; reserved
+    mov     [rbx + 0x20], r11       ; err_code
+    mov     [rbx + 0x28], r10       ; err_source_op
+    mov     [rbx + 0x30], r9        ; err_demod_id
+    mov     [rbx + 0x38], r8        ; err_fetch_counter (A1 program-domain)
+    ; Save err_source_op + err_demod_id on cpu stack across stosq +
+    ; registry call + prov_append (R3.3 register state preservation).
+    push    r10                     ; -> [rsp+8] after one more push
+    push    r9                      ; -> [rsp+0]
+    ; Zero Pod 3+ reserved + Move 3 fields (8 qwords at +0x40)
+    lea     rdi, [rbx + 0x40]
+    xor     eax, eax
+    mov     rcx, 8
+    rep     stosq
+    ; Register
+    mov     rdi, rbx
+    call    registry_register_outcome
+    test    rax, rax
+    jz      .outcome_new_err_pop2_fail
+    push    rax                     ; save outcome_id (-> [rsp+0]; saved args at [rsp+8],[rsp+16])
+    ; D1.9.1.6 + A1 — auto-provenance hook. Cap-gate is internal to
+    ; prov_append; default-OFF in V1.0.
+    mov     rdi, [rsp + 16]         ; opcode = err_source_op (A4.b)
+    mov     rsi, [rsp + 8]          ; demod_id = err_demod_id (A4.c)
+    mov     rdx, [rel vm_fetch_count] ; fetch_counter = substrate value (A1)
+    call    prov_append
+    pop     rax                     ; outcome_id
+    add     rsp, 16                 ; discard saved args
+    mov     [r13], rax              ; push outcome_id
+    add     r13, 8
+    jmp     .fetch
+.outcome_new_err_pop2_fail:
+    add     rsp, 16                 ; discard saved args
+.outcome_new_err_fail:
+    mov     qword [r13], 0          ; sentinel
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_OUTCOME_IS_OK (0xE2) ---
+; Consume outcome_id; push 1 if ok, 0 if err. A3: invalid id pushes 0.
+.op_outcome_is_ok:
+    sub     r13, 8
+    mov     rdi, [r13]              ; outcome_id
+    call    registry_lookup_outcome
+    test    rax, rax
+    jz      .outcome_is_ok_zero     ; A3: invalid id → 0
+    mov     rax, [rax + 0x00]       ; discriminant
+    test    rax, rax
+    jnz     .outcome_is_ok_zero     ; err → 0
+    mov     qword [r13], 1          ; ok → 1
+    add     r13, 8
+    jmp     .fetch
+.outcome_is_ok_zero:
+    mov     qword [r13], 0
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_OUTCOME_UNWRAP_OK (0xE3) ---
+; Consume outcome_id; on ok push value; on err (or invalid id) push 0
+; sentinel + emit str_unwrap_ok_on_err (D1.9.1.8).
+.op_outcome_unwrap_ok:
+    sub     r13, 8
+    mov     rdi, [r13]              ; outcome_id
+    call    registry_lookup_outcome
+    test    rax, rax
+    jz      .outcome_unwrap_ok_log  ; invalid id → sentinel + log
+    mov     rbx, rax                ; slot_ptr
+    mov     rax, [rbx + 0x00]       ; discriminant
+    test    rax, rax
+    jnz     .outcome_unwrap_ok_log  ; err → sentinel + log
+    ; ok: push value
+    mov     rax, [rbx + 0x10]
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+.outcome_unwrap_ok_log:
+    mov     qword [r13], 0
+    add     r13, 8
+    lea     rsi, [rel str_unwrap_ok_on_err]
+    call    auryn_puts
+    jmp     .fetch
+
+; --- OP_OUTCOME_UNWRAP_ERR (0xE4) ---
+; Consume outcome_id; on err push 4 fields (A1 verbatim spec — err_code
+; first/bottom, err_fetch_counter last/TOS); on ok (or invalid id) push
+; 4 zero sentinels + emit str_unwrap_err_on_ok (D1.9.1.8).
+.op_outcome_unwrap_err:
+    sub     r13, 8
+    mov     rdi, [r13]              ; outcome_id
+    call    registry_lookup_outcome
+    test    rax, rax
+    jz      .outcome_unwrap_err_log ; invalid id → 4 sentinels + log
+    mov     rbx, rax                ; slot_ptr
+    mov     rax, [rbx + 0x00]       ; discriminant
+    test    rax, rax
+    jz      .outcome_unwrap_err_log ; ok-discriminant on UNWRAP_ERR → log
+    ; err: push 4 fields per A1 verbatim — err_code at bottom, ..., err_fetch_counter at TOS
+    mov     rax, [rbx + 0x20]       ; err_code
+    mov     [r13], rax
+    mov     rax, [rbx + 0x28]       ; err_source_op
+    mov     [r13 + 8], rax
+    mov     rax, [rbx + 0x30]       ; err_demod_id
+    mov     [r13 + 16], rax
+    mov     rax, [rbx + 0x38]       ; err_fetch_counter (TOS after add)
+    mov     [r13 + 24], rax
+    add     r13, 32
+    jmp     .fetch
+.outcome_unwrap_err_log:
+    mov     qword [r13], 0
+    mov     qword [r13 + 8], 0
+    mov     qword [r13 + 16], 0
+    mov     qword [r13 + 24], 0
+    add     r13, 32
+    lea     rsi, [rel str_unwrap_err_on_ok]
+    call    auryn_puts
+    jmp     .fetch
+
+; vm_outcome_alloc: bump allocator for Outcome pool (matches sign_alloc/
+; energy_alloc shape; no rcx/rdx 1-based id since registry assigns id).
+; Output: rax = slot pointer (0 if pool full)
+; Clobbers: rcx, rdx
+.outcome_alloc:
+    mov     rcx, [rel vm_outcome_next]
+    cmp     rcx, OUTCOME_POOL_SLOTS
+    jge     .outcome_alloc_full
+    mov     rdx, rcx
+    shl     rdx, 7                  ; index * 128 bytes per slot
+    lea     rax, [rel vm_outcome_pool]
+    add     rax, rdx
+    inc     qword [rel vm_outcome_next]
+    ret
+.outcome_alloc_full:
+    xor     rax, rax
+    ret
 
 ; vm_energy_alloc: bump allocator for Energy pool (mirrors sign_alloc shape)
 ; Output: rax = slot pointer (0 if full), rdx = 1-based energy_id (0 if full)

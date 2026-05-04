@@ -51,6 +51,21 @@ OP_ENERGY_FREE      = 0xD3
 # --- Pod 1.8.5c Move 6 / Move 7 ---
 OP_ENERGY_RECOVER   = 0xD4
 OP_PHASE_QUERY      = 0xD5
+# --- Pod 1.9.2b Outcome opcodes (D1.9.1.4) ---
+OP_OUTCOME_NEW_OK     = 0xE0
+OP_OUTCOME_NEW_ERR    = 0xE1
+OP_OUTCOME_IS_OK      = 0xE2
+OP_OUTCOME_UNWRAP_OK  = 0xE3
+OP_OUTCOME_UNWRAP_ERR = 0xE4
+
+# --- Pod 1.9.2a/1.9.2b TYPE_CODE_* enum (D1.9.1.1) ---
+TYPE_CODE_NONE     = 0
+TYPE_CODE_SIGN     = 1
+TYPE_CODE_ENERGY   = 2
+TYPE_CODE_CAP      = 3
+TYPE_CODE_DEMOD    = 4
+TYPE_CODE_SIGNAL   = 5
+TYPE_CODE_OUTCOME  = 6
 
 class Emitter:
     def __init__(self):
@@ -127,6 +142,11 @@ class AtreyuX86:
             # Pod 1.8.5c Move 6 — push u64 arg, fire OP_ENERGY_RECOVER (V1.0 no-op-with-log)
             e.emit(OP_PUSH); e.emit_i64(n.get('arg', 0))
             e.emit(OP_ENERGY_RECOVER)
+        elif t == 'outcome_unwrap_err_stmt':
+            # Pod 1.9.2b — push operand, emit OP_OUTCOME_UNWRAP_ERR.
+            # Leaves 4 values on stack (err_code at bottom, err_fetch_counter at TOS per A1).
+            # Test programs follow with print {'type':'tos'} statements to consume in TOS-pop order.
+            self._expr(n['value']); e.emit(OP_OUTCOME_UNWRAP_ERR)
 
     def _sign_new(self, n):
         """Emit OP_SIGN_NEW with inline hash and label data."""
@@ -212,6 +232,32 @@ class AtreyuX86:
         elif t == 'phase_query':
             # Pod 1.8.5c Move 7 — read vm_phase u64 onto operand stack
             e.emit(OP_PHASE_QUERY)
+        # --- Pod 1.9.2b Outcome expressions ---
+        elif t == 'tos':
+            # No-op: value is already on operand stack (used with 'print' to
+            # pop-and-print an existing TOS without re-pushing)
+            pass
+        elif t == 'outcome_new_ok':
+            # Stack effect: push value_type_id, push value, emit OP_OUTCOME_NEW_OK
+            # Handler pops value (TOS), then value_type_id, then pushes outcome_id.
+            e.emit(OP_PUSH); e.emit_i64(n.get('value_type_id', 0))
+            e.emit(OP_PUSH); e.emit_i64(n.get('value', 0))
+            e.emit(OP_OUTCOME_NEW_OK)
+        elif t == 'outcome_new_err':
+            # Stack effect: push value_type_id, err_code, err_source_op, err_demod_id, err_fetch_counter, emit
+            # Handler pops top-down: err_fetch_counter, err_demod_id, err_source_op, err_code, value_type_id.
+            e.emit(OP_PUSH); e.emit_i64(n.get('value_type_id', 0))
+            e.emit(OP_PUSH); e.emit_i64(n.get('err_code', 0))
+            e.emit(OP_PUSH); e.emit_i64(n.get('err_source_op', 0))
+            e.emit(OP_PUSH); e.emit_i64(n.get('err_demod_id', 0))
+            e.emit(OP_PUSH); e.emit_i64(n.get('err_fetch_counter', 0))
+            e.emit(OP_OUTCOME_NEW_ERR)
+        elif t == 'outcome_is_ok':
+            self._expr(n['operand']); e.emit(OP_OUTCOME_IS_OK)
+        elif t == 'outcome_unwrap_ok':
+            self._expr(n['operand']); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'outcome_unwrap_err':
+            self._expr(n['operand']); e.emit(OP_OUTCOME_UNWRAP_ERR)
 
     def _energy_new(self, n):
         """Emit OP_ENERGY_NEW: push joules, push source_op, emit opcode."""
@@ -301,6 +347,150 @@ def demo_energy_recover():
         {'type':'print','value':{'type':'str','value':'=== Energy recover test complete ==='}},
     ]}
 
+def demo_outcome_ok():
+    """Pod 1.9.2b T1 — construct OK Outcome, verify discriminant + value"""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Outcome OK Test (Pod 1.9.2b) ==='}},
+        {'type':'let','name':'o','value':{
+            'type':'outcome_new_ok',
+            'value_type_id': TYPE_CODE_SIGN,
+            'value': 42,
+        }},
+        {'type':'print','value':{'type':'str','value':'outcome_id:'}},
+        {'type':'print','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'is_ok:'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'print','value':{'type':'str','value':'value:'}},
+        {'type':'print','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'print','value':{'type':'str','value':'=== Outcome OK test complete ==='}},
+    ]}
+
+def demo_outcome_err():
+    """Pod 1.9.2b T2 — construct ERR Outcome, verify all 4 inline err fields via UNWRAP_ERR"""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Outcome ERR Test (Pod 1.9.2b) ==='}},
+        {'type':'let','name':'o','value':{
+            'type':'outcome_new_err',
+            'value_type_id': TYPE_CODE_SIGN,
+            'err_code': 99,
+            'err_source_op': 0xA0,
+            'err_demod_id': 1,
+            'err_fetch_counter': 12345,
+        }},
+        {'type':'print','value':{'type':'str','value':'outcome_id:'}},
+        {'type':'print','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'is_ok:'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        # UNWRAP_ERR per A1 (verbatim D1.9.1.4): pushes err_code (bottom),
+        # err_source_op, err_demod_id, err_fetch_counter (TOS). Print pop-by-pop.
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter (TOS):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (bottom):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== Outcome ERR test complete ==='}},
+    ]}
+
+def demo_outcome_is_ok():
+    """Pod 1.9.2b T3 — IS_OK on OK returns 1, IS_OK on ERR returns 0"""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== IS_OK Test (Pod 1.9.2b) ==='}},
+        {'type':'let','name':'a','value':{
+            'type':'outcome_new_ok',
+            'value_type_id': TYPE_CODE_SIGN, 'value': 1,
+        }},
+        {'type':'print','value':{'type':'str','value':'is_ok(OK):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'a'}}},
+        {'type':'let','name':'b','value':{
+            'type':'outcome_new_err',
+            'value_type_id': TYPE_CODE_SIGN,
+            'err_code': 1, 'err_source_op': 0, 'err_demod_id': 0, 'err_fetch_counter': 0,
+        }},
+        {'type':'print','value':{'type':'str','value':'is_ok(ERR):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'b'}}},
+        {'type':'print','value':{'type':'str','value':'=== IS_OK test complete ==='}},
+    ]}
+
+def demo_outcome_unwrap_ok():
+    """Pod 1.9.2b T4 — UNWRAP_OK on OK returns value; UNWRAP_OK on ERR returns sentinel + log"""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== UNWRAP_OK Test (Pod 1.9.2b) ==='}},
+        {'type':'let','name':'a','value':{
+            'type':'outcome_new_ok',
+            'value_type_id': TYPE_CODE_SIGN, 'value': 77,
+        }},
+        {'type':'print','value':{'type':'str','value':'unwrap_ok(OK):'}},
+        {'type':'print','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'a'}}},
+        {'type':'let','name':'b','value':{
+            'type':'outcome_new_err',
+            'value_type_id': TYPE_CODE_SIGN,
+            'err_code': 1, 'err_source_op': 0, 'err_demod_id': 0, 'err_fetch_counter': 0,
+        }},
+        {'type':'print','value':{'type':'str','value':'unwrap_ok(ERR) -- log line + sentinel below:'}},
+        {'type':'print','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'b'}}},
+        {'type':'print','value':{'type':'str','value':'=== UNWRAP_OK test complete ==='}},
+    ]}
+
+def demo_outcome_unwrap_err():
+    """Pod 1.9.2b T5 — UNWRAP_ERR on ERR returns 4 fields; UNWRAP_ERR on OK returns 4 sentinels + log"""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== UNWRAP_ERR Test (Pod 1.9.2b) ==='}},
+        # Part (a): UNWRAP_ERR on err
+        {'type':'let','name':'a','value':{
+            'type':'outcome_new_err',
+            'value_type_id': TYPE_CODE_SIGN,
+            'err_code': 42, 'err_source_op': 0xA0, 'err_demod_id': 1, 'err_fetch_counter': 99,
+        }},
+        {'type':'print','value':{'type':'str','value':'unwrap_err(ERR) -- 4 values TOS-first:'}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'a'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code:'}},
+        {'type':'print','value':{'type':'tos'}},
+        # Part (b): UNWRAP_ERR on ok
+        {'type':'let','name':'b','value':{
+            'type':'outcome_new_ok',
+            'value_type_id': TYPE_CODE_SIGN, 'value': 0,
+        }},
+        {'type':'print','value':{'type':'str','value':'unwrap_err(OK) -- log line + 4 sentinels below:'}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'b'}},
+        {'type':'print','value':{'type':'str','value':'sentinel_TOS:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'sentinel_3:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'sentinel_2:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'sentinel_bot:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== UNWRAP_ERR test complete ==='}},
+    ]}
+
+def demo_outcome_dup_is_ok():
+    """Pod 1.9.2b T6 — DUP-IS_OK pattern: keep outcome_id available for subsequent UNWRAP"""
+    # Custom approach: use var(o) for the IS_OK pop (consumes copy from var-table re-push),
+    # then var(o) again for UNWRAP_OK. This validates the consume-not-peek convention works
+    # with the var-table idiom (functionally equivalent to DUP for stack-based callers).
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== DUP-IS_OK Test (Pod 1.9.2b T6) ==='}},
+        {'type':'let','name':'o','value':{
+            'type':'outcome_new_ok',
+            'value_type_id': TYPE_CODE_SIGN, 'value': 33,
+        }},
+        {'type':'print','value':{'type':'str','value':'is_ok (consumes one copy):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'print','value':{'type':'str','value':'value (var-retained outcome_id still unwraps):'}},
+        {'type':'print','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'print','value':{'type':'str','value':'=== DUP-IS_OK test complete ==='}},
+    ]}
+
 def demo_energy():
     """Pod 1.8 Energy typed primitive test — hardcoded AST demo"""
     return {'type':'program','body':[
@@ -379,5 +569,54 @@ if __name__ == '__main__':
     elif '--energy-recover-test' in sys.argv:
         c = AtreyuX86(); bc = c.compile(demo_energy_recover())
         print(f"Energy recover test: {len(bc)} bytes")
+    # --- Pod 1.9.2b Outcome demos (6 build/test pairs) ---
+    elif '--outcome-ok-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_outcome_ok())
+        out = sys.argv[sys.argv.index('--outcome-ok-build')+1] if len(sys.argv) > sys.argv.index('--outcome-ok-build')+1 else 'test_outcome_ok.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Outcome OK test: compiled {len(bc)} bytes -> {out}")
+    elif '--outcome-ok-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_outcome_ok())
+        print(f"Outcome OK test: {len(bc)} bytes")
+    elif '--outcome-err-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_outcome_err())
+        out = sys.argv[sys.argv.index('--outcome-err-build')+1] if len(sys.argv) > sys.argv.index('--outcome-err-build')+1 else 'test_outcome_err.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Outcome ERR test: compiled {len(bc)} bytes -> {out}")
+    elif '--outcome-err-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_outcome_err())
+        print(f"Outcome ERR test: {len(bc)} bytes")
+    elif '--outcome-is-ok-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_outcome_is_ok())
+        out = sys.argv[sys.argv.index('--outcome-is-ok-build')+1] if len(sys.argv) > sys.argv.index('--outcome-is-ok-build')+1 else 'test_outcome_is_ok.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"IS_OK test: compiled {len(bc)} bytes -> {out}")
+    elif '--outcome-is-ok-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_outcome_is_ok())
+        print(f"IS_OK test: {len(bc)} bytes")
+    elif '--outcome-unwrap-ok-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_outcome_unwrap_ok())
+        out = sys.argv[sys.argv.index('--outcome-unwrap-ok-build')+1] if len(sys.argv) > sys.argv.index('--outcome-unwrap-ok-build')+1 else 'test_outcome_unwrap_ok.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"UNWRAP_OK test: compiled {len(bc)} bytes -> {out}")
+    elif '--outcome-unwrap-ok-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_outcome_unwrap_ok())
+        print(f"UNWRAP_OK test: {len(bc)} bytes")
+    elif '--outcome-unwrap-err-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_outcome_unwrap_err())
+        out = sys.argv[sys.argv.index('--outcome-unwrap-err-build')+1] if len(sys.argv) > sys.argv.index('--outcome-unwrap-err-build')+1 else 'test_outcome_unwrap_err.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"UNWRAP_ERR test: compiled {len(bc)} bytes -> {out}")
+    elif '--outcome-unwrap-err-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_outcome_unwrap_err())
+        print(f"UNWRAP_ERR test: {len(bc)} bytes")
+    elif '--outcome-dup-is-ok-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_outcome_dup_is_ok())
+        out = sys.argv[sys.argv.index('--outcome-dup-is-ok-build')+1] if len(sys.argv) > sys.argv.index('--outcome-dup-is-ok-build')+1 else 'test_outcome_dup_is_ok.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"DUP-IS_OK test: compiled {len(bc)} bytes -> {out}")
+    elif '--outcome-dup-is-ok-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_outcome_dup_is_ok())
+        print(f"DUP-IS_OK test: {len(bc)} bytes")
     else:
-        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc]")
+        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test}")

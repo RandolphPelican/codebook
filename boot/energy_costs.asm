@@ -123,8 +123,15 @@ energy_cost_table:
     dq 1, 1, 1             ; 0xD6–0xD8 — reserved (Energy V1.1+)
     dq 1, 1, 1, 1, 1       ; 0xD9–0xDD — reserved
     dq 1, 1                 ; 0xDE–0xDF — reserved
-; Row 0xE0–0xEF
-    times 16 dq 1           ; 0xE0–0xEF — unallocated (Demod 0xE0–0xEF Pod 1.12)
+; Row 0xE0–0xEF — Outcome opcodes (Pod 1.9.2b at 0xE0-0xE4) + Demod reserved (Pod 1.12 at 0xE5-0xEF)
+    dq 1                    ; 0xE0 — OP_OUTCOME_NEW_OK (metabolic construction; A3 ratification)
+    dq 1                    ; 0xE1 — OP_OUTCOME_NEW_ERR (metabolic construction; A3 ratification)
+    dq 0                    ; 0xE2 — OP_OUTCOME_IS_OK (structural read; A3 ratification)
+    dq 0                    ; 0xE3 — OP_OUTCOME_UNWRAP_OK (structural; diagnostic emit on err is structural side effect)
+    dq 0                    ; 0xE4 — OP_OUTCOME_UNWRAP_ERR (structural; diagnostic emit on ok is structural side effect)
+    dq 1, 1, 1, 1, 1       ; 0xE5–0xE9 — reserved (Demod Pod 1.12)
+    dq 1, 1, 1, 1, 1       ; 0xEA–0xEE — reserved (Demod Pod 1.12)
+    dq 1                    ; 0xEF — reserved (Demod Pod 1.12)
 ; Row 0xF0–0xFF
     dq 1, 1, 1, 1, 1       ; 0xF0–0xF4 — unallocated
     dq 1, 1, 1, 1, 1       ; 0xF5–0xF9 — unallocated

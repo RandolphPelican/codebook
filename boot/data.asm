@@ -287,6 +287,8 @@ str_ret_underflow: db '  VIOLATION: return stack underflow',10,0
 str_call_overflow: db '  VIOLATION: return stack overflow',10,0
 str_run_bad:  db '  Usage: run <0-8>',10,0
 str_op_energy_recover_noop: db '  OP_ENERGY_RECOVER no-op V1.0',10,0
+str_unwrap_ok_on_err: db '  UNWRAP_OK on Err — sentinel returned',10,0
+str_unwrap_err_on_ok: db '  UNWRAP_ERR on Ok — sentinels returned',10,0
 
 str_prog_list:
     db '  CBS Demo Programs:',10
