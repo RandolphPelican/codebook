@@ -48,6 +48,9 @@ OP_ENERGY_NEW       = 0xD0
 OP_ENERGY_JOULES    = 0xD1
 OP_ENERGY_SOURCE_OP = 0xD2
 OP_ENERGY_FREE      = 0xD3
+# --- Pod 1.8.5c Move 6 / Move 7 ---
+OP_ENERGY_RECOVER   = 0xD4
+OP_PHASE_QUERY      = 0xD5
 
 class Emitter:
     def __init__(self):
@@ -120,6 +123,10 @@ class AtreyuX86:
             self._expr(n['value']); e.emit(OP_DROP)
         elif t == 'sign_label_print':
             self._expr(n['value']); e.emit(OP_SIGN_LABEL); e.emit(OP_PRINT_STR); e.emit(OP_NEWLINE)
+        elif t == 'energy_recover':
+            # Pod 1.8.5c Move 6 — push u64 arg, fire OP_ENERGY_RECOVER (V1.0 no-op-with-log)
+            e.emit(OP_PUSH); e.emit_i64(n.get('arg', 0))
+            e.emit(OP_ENERGY_RECOVER)
 
     def _sign_new(self, n):
         """Emit OP_SIGN_NEW with inline hash and label data."""
@@ -202,6 +209,9 @@ class AtreyuX86:
             self._expr(n['operand']); e.emit(OP_ENERGY_JOULES)
         elif t == 'energy_source_op':
             self._expr(n['operand']); e.emit(OP_ENERGY_SOURCE_OP)
+        elif t == 'phase_query':
+            # Pod 1.8.5c Move 7 — read vm_phase u64 onto operand stack
+            e.emit(OP_PHASE_QUERY)
 
     def _energy_new(self, n):
         """Emit OP_ENERGY_NEW: push joules, push source_op, emit opcode."""
@@ -272,6 +282,25 @@ def demo_sign():
         {'type':'print','value':{'type':'str','value':'=== Sign test complete ==='}},
     ]}
 
+def demo_phase():
+    """Pod 1.8.5c Move 7 OP_PHASE_QUERY smoke test"""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Phase Query Test (Pod 1.8.5c) ==='}},
+        {'type':'print','value':{'type':'str','value':'vm_phase:'}},
+        {'type':'print','value':{'type':'phase_query'}},
+        {'type':'print','value':{'type':'str','value':'=== Phase test complete ==='}},
+    ]}
+
+def demo_energy_recover():
+    """Pod 1.8.5c Move 6 OP_ENERGY_RECOVER smoke test (V1.0 no-op)"""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Energy Recover Test (Pod 1.8.5c) ==='}},
+        {'type':'print','value':{'type':'str','value':'before recover'}},
+        {'type':'energy_recover','arg':1234},
+        {'type':'print','value':{'type':'str','value':'after recover (no crash)'}},
+        {'type':'print','value':{'type':'str','value':'=== Energy recover test complete ==='}},
+    ]}
+
 def demo_energy():
     """Pod 1.8 Energy typed primitive test — hardcoded AST demo"""
     return {'type':'program','body':[
@@ -334,5 +363,21 @@ if __name__ == '__main__':
             h = ' '.join(f'{b:02X}' for b in bc[i:i+16])
             print(f"  {i:04X}: {h}")
         print(f"First: 0x{bc[0]:02X} Last: 0x{bc[-1]:02X}")
+    elif '--phase-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_phase())
+        out = sys.argv[sys.argv.index('--phase-build')+1] if len(sys.argv) > sys.argv.index('--phase-build')+1 else 'test_phase.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Phase test: compiled {len(bc)} bytes -> {out}")
+    elif '--phase-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_phase())
+        print(f"Phase test: {len(bc)} bytes")
+    elif '--energy-recover-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_energy_recover())
+        out = sys.argv[sys.argv.index('--energy-recover-build')+1] if len(sys.argv) > sys.argv.index('--energy-recover-build')+1 else 'test_energy_recover.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Energy recover test: compiled {len(bc)} bytes -> {out}")
+    elif '--energy-recover-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_energy_recover())
+        print(f"Energy recover test: {len(bc)} bytes")
     else:
-        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test")
+        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc]")

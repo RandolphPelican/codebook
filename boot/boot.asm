@@ -86,6 +86,13 @@ efi_entry:
     mov     rax, [rdx + ST_RUNTIME]
     mov     [rbx + 40], rax
 
+    ; Pod 1.8.5c Move 1: initialize current_demod_cost_table_ptr at
+    ; runtime. NASM -f bin cannot statically resolve `dq <symbol>` to
+    ; a runtime VA (would store a file offset). RIP-relative `lea`
+    ; computes the actual VA regardless of load address.
+    lea     rax, [rel energy_cost_table]
+    mov     [rel current_demod_cost_table_ptr], rax
+
     ; Disable watchdog
     mov     rax, [rbx + 32]
     mov     rax, [rax + BS_SETWATCHDOG]
@@ -117,6 +124,9 @@ efi_entry:
     mov     rax, [rcx + CONOUT_OUTPUTSTR]
     call    rax
 
+    ; Pod 1.8.5c Move 7: SEED → FORM (FAT32 + framebuffer located)
+    mov     qword [rel vm_phase], VM_PHASE_FORM
+
     ; === BOOT SPLASH ===
     mov     edi, COLOR_BLACK
     call    auryn_fill
@@ -143,9 +153,15 @@ efi_entry:
 %ifdef NATIVE_KBD
     call    exit_boot_services
 %endif
+    ; Pod 1.8.5c Move 7: FORM → CHANNELS (unconditional per A3 — phase
+    ; reflects "EBS-eligible boot done," not literal EBS state)
+    mov     qword [rel vm_phase], VM_PHASE_CHANNELS
     mov     edi, COLOR_BLACK
     call    auryn_fill
     call    cursor_home
+    ; Pod 1.8.5c Move 7: CHANNELS → MIND (collapse per A2; MODES enum-
+    ; reserved for Pod 5 Surfaces but not written by V1.0 boot)
+    mov     qword [rel vm_phase], VM_PHASE_MIND
     jmp     bastian_home
 
 .no_gop:
@@ -369,6 +385,7 @@ fixup_color:
 %include "boot/energy_costs.asm" ; Pod 1.8: per-opcode energy cost table + lookup
 %include "boot/cbs_vm.asm"     ; CBS bytecode VM
 %include "boot/registry.asm"   ; Pod 1.8.5b: canonical-ID registry for Sign and Energy
+%include "boot/provenance.asm" ; Pod 1.8.5c Move 2: ProvEvent struct + prov_append
 %include "boot/bastian.asm"    ; home surface (bastian precedes gmork_main in original)
 %include "boot/gmork_cmds.asm"  ; gmork_main, get_mmap, show_memmap, paint_bars
 %include "drivers/kbd_ps2.asm"  ; PS/2 keyboard driver — native_keyboard_read

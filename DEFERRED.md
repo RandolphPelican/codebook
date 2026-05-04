@@ -249,3 +249,100 @@ Chauncey instance. Pod 1.8.5b.5 deferred this commit to avoid
 Chauncey-mediated verbatim transcription with PowerShell escape
 fragility. Priority: high (closes the bootstrap-paradox gap for v4
 handoff main body).
+
+## 25. ProvEvent struct fields finalized when first consumer lands (added Pod 1.8.5c)
+
+`boot/provenance.asm` defines a 32-byte ProvEvent layout: opcode at
++0x00, demod_id at +0x08, fetch_counter at +0x10, reserved at +0x18.
+The reserved 8-byte field is a deliberate growth surface — Pod 2 (Cop)
+will be the first consumer that actually invokes `prov_append`
+automatically, and may want to populate the reserved slot with a
+timestamp, source_id, outcome bits, or per-Sign-keyed provenance handle
+(see DEFERRED #30). Field semantics seal at first-consumer time.
+
+## 26. Provenance ring buffer sizing tunable (added Pod 1.8.5c)
+
+`prov_ring_buf` is sized 4KB / 32B = 128 entries (PROV_RING_ENTRIES).
+Sized by symmetry, not measurement. Pod 2 (Cop) implements detection
+and runs DeepSeek overhead measurement (TERRAFORM-2); ring buffer size
+becomes empirical at that point. Power-of-2 ring math (mask 0x7F) means
+resizing is a one-define change at the seal — re-tune `PROV_RING_ENTRIES`
+to whatever the measurement says, update PROV_RING_MASK accordingly.
+
+## 27. Per-demod cost table real differentiation (added Pod 1.8.5c)
+
+V1.0 every demod's `current_demod_cost_table_ptr` defaults to the
+single global `energy_cost_table`. The indirection exists; the
+differentiation does not. Pod 2 (Cop) hands out tuned tables per demod
+based on declared discipline (e.g., a graceful-degradation demod gets
+gentler costs on its own surface but standard costs on cross-surface
+calls). The hook is in place at `boot/energy_costs.asm:energy_cost_lookup`
+which dereferences the per-demod pointer.
+
+## 28. vm_phase boundary refinement (added Pod 1.8.5c)
+
+V1.0 boot sequence advances SEED → FORM → CHANNELS → MIND with MODES
+enum-reserved-but-unwritten (A2 collapse). If Pod 5 (Surfaces) discovers
+natural phase splits the current 5-state model misses — particularly a
+real MODES transition when surface-mode-switching machinery exists, or
+intermediate states between CHANNELS and MIND when surface registration
+becomes a multi-step process — the enum and the boot.asm phase-write
+sites get refined at that pod. The current shape is honest for V1.0;
+revisit at the pod that gives MODES real semantics.
+
+## 29. arena_id / owner_demod_id real values (added Pod 1.8.5c)
+
+V1.0 writes 0 to both fields at OP_SIGN_NEW and OP_ENERGY_NEW
+construction. There is no real arena (single global) and no demod
+ownership tracking. Pod 1.10 (Cap) introduces real arenas; Pod 1.12
+(Demod) introduces real ownership tracking. At those pods, the field
+writes shift from hardcoded `mov qword [...], 0` to reads from the
+current cap-arena and current-demod runtime state.
+
+## 30. provenance_handle field reclaimed in Pod 1.8.5c (added Pod 1.8.5c)
+
+The Sign slot offset 0x70, formerly `provenance_handle` (V1.0 zeroed
+and rejected if non-zero), is reclaimed for `arena_id` under Move 3
+A1(d). Move 2's auto-provenance ring buffer absorbs the per-Sign
+provenance role — chains route through ProvEvent rather than a per-Sign
+handle. Pod 3+ handle pools that want per-Sign-keyed provenance must
+route through ProvEvent's reserved 8 bytes (DEFERRED #25) or a separate
+handle table. Do not re-add a `provenance_handle` field to the Sign
+slot; the offset is structurally claimed.
+
+## 31. V1.1 sentinel field reclaimed in Pod 1.8.5c (added Pod 1.8.5c)
+
+The Sign slot offset 0x78, formerly the V1.1 sentinel placeholder, is
+reclaimed for `owner_demod_id` under Move 3 A1(d). Future per-Sign
+sentinel/version mechanisms must route through ProvEvent's reserved
+slot or struct-level versioning (e.g., a separate version table keyed
+by sign_id), not a slot byte. The offset is structurally claimed.
+
+## 32. OP_SIGN_NEW signature: 5-arg shape preserved post-1.8.5c (added Pod 1.8.5c)
+
+Pod 1.8.5c S6 decision: OP_SIGN_NEW continues to pop 5 args (ABI
+preserved). The topmost arg (formerly `provenance_handle`, validated
+as 0) is now silently discarded — the validation check was removed and
+the slot field at +0x70 was reclaimed for `arena_id`. The popped value
+is dead. Pod 3+ handle-pool work may either rebind the 5th arg to a
+new field (e.g., a real provenance handle once ProvEvent is consumed)
+or shrink to 4-arg with explicit ABI break and atomic atreyu_x86.py
+update. Track this disposition at the handle-pool pod.
+
+## 33. tools/pod185b_qemu_test.sh + tools/pod185c_qemu_test.sh (added Pod 1.8.5c)
+
+Two throwaway QEMU monitor-pipe scripts now untracked across two pods.
+Both follow the same shape: inject a .cbc onto a scratch image, boot
+QEMU daemonized, send keystrokes, screendump, quit. Either earn
+permanent test-fixture status under `tools/test/` (parameterized to
+take any test pair) or get removed in the housekeeping bundle pod.
+Carryover from Pod 1.8.5b's housekeeping deferral.
+
+## 34. tools/pod185c_b6_liveness.sh (added Pod 1.8.5c)
+
+Third throwaway script — pristine-boot liveness probe with screendump.
+Single-purpose, simpler than the round-trip harnesses but overlapping
+with the existing `test_qemu.sh --headless` (which already does
+liveness but does not screendump). Same disposition options as #33:
+earn `tools/test/` status by merging into `test_qemu.sh` as a
+`--headless-screendump` mode, or remove in housekeeping bundle.

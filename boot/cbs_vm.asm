@@ -143,6 +143,10 @@ cbs_run:
     je      .op_energy_source_op
     cmp     al, OP_ENERGY_FREE
     je      .op_energy_free
+    cmp     al, OP_ENERGY_RECOVER
+    je      .op_energy_recover
+    cmp     al, OP_PHASE_QUERY
+    je      .op_phase_query
 
     ; Unknown opcode
     lea     rsi, [rel str_vm_unk]
@@ -738,17 +742,37 @@ cbs_run:
 .pstr_done:
     jmp     .fetch
 
-; --- Sign typed primitive (Pod 1.7) ---
+; --- Sign typed primitive (Pod 1.7; canonical-ID retrofit Pod 1.8.5b; arena/owner retrofit Pod 1.8.5c) ---
 ; D1.7.6 energy costs are placeholders; Pod 1.8 supersedes.
 ; vm_sign_alloc inherits cap_alloc_node shape (Pod 0.9) with 64-bit
 ; width discipline (rcx/rax/qword, not ecx/eax/dword).
+;
+; Sign slot layout (128 bytes, SIGN_SLOT_SIZE):
+;   +0x00 hash[32]              — full content hash
+;   +0x20 label[64]             — byte 0 = length, bytes 1-63 = chars
+;   +0x60 energy_cost (u64)
+;   +0x68 embedding_handle (u64) — V1.0 = 0; reserved for handle pools (Pod 3+)
+;   +0x70 arena_id (u64)        — Pod 1.8.5c Move 3; V1.0 = 0 (single global arena;
+;                                 Pod 1.10 Cap introduces real arenas);
+;                                 reclaimed from former provenance_handle slot per A1(d)
+;   +0x78 owner_demod_id (u64)  — Pod 1.8.5c Move 3; V1.0 = 0 (no demod ownership tracking;
+;                                 Pod 1.12 Demod introduces real ownership);
+;                                 reclaimed from former V1.1 sentinel slot per A1(d)
+;
+; OP_SIGN_NEW signature preserved at 5 args (Pod 1.8.5c S6 decision):
+; the topmost arg (formerly provenance_handle, validated as 0) is now
+; silently discarded. ABI unchanged for callers; field at +0x70 reclaimed
+; for arena_id under Move 3.
 
 .op_sign_new:
     ; Energy: handled by fetch-loop cost table (Pod 1.8)
-    ; Pop 5 args: provenance_handle, embedding_handle, energy_cost,
-    ;             label_addr, hash_addr (top-down per A3)
+    ; Pop 5 args: <ignored>, embedding_handle, energy_cost,
+    ;             label_addr, hash_addr (top-down).
+    ; Pod 1.8.5c S6/A1(d): the topmost arg (formerly provenance_handle)
+    ; is silently discarded; the slot at +0x70 is reclaimed for arena_id.
+    ; ABI preserved at 5 args; callers do not need updating.
     sub     r13, 8
-    mov     r8, [r13]           ; provenance_handle
+    mov     r8, [r13]           ; (formerly provenance_handle; now ignored)
     sub     r13, 8
     mov     r9, [r13]           ; embedding_handle
     sub     r13, 8
@@ -761,11 +785,10 @@ cbs_run:
     movzx   eax, byte [r11]
     cmp     eax, 63
     ja      .sign_new_fail
-    ; Validate handles: must be 0 in V1.0 (pools land Pod 3+)
+    ; Validate embedding_handle: must be 0 in V1.0 (handle pools land Pod 3+)
     test    r9, r9
     jnz     .sign_new_fail
-    test    r8, r8
-    jnz     .sign_new_fail
+    ; (provenance_handle check removed Pod 1.8.5c; field reclaimed for arena_id)
     ; Allocate pool slot
     call    .sign_alloc
     test    rax, rax
@@ -785,9 +808,9 @@ cbs_run:
     rep     movsb
     ; rdi now at slot+0x60; write remaining fields
     mov     [rdi], r10          ; energy_cost at +0x60
-    mov     qword [rdi + 8], 0  ; embedding_handle at +0x68
-    mov     qword [rdi + 16], 0 ; provenance_handle at +0x70
-    mov     qword [rdi + 24], 0 ; reserved at +0x78 (V1.1 sentinel)
+    mov     qword [rdi + 8], 0  ; embedding_handle at +0x68 (reserved Pod 3+)
+    mov     qword [rdi + 16], 0 ; arena_id at +0x70 (Pod 1.8.5c Move 3; V1.0 = 0)
+    mov     qword [rdi + 24], 0 ; owner_demod_id at +0x78 (Pod 1.8.5c Move 3; V1.0 = 0)
     ; Pod 1.8.5b Move 4: register slot in canonical-ID registry.
     pop     rdi                 ; restore slot_ptr as registry input
     call    registry_register_sign
@@ -876,8 +899,13 @@ cbs_run:
     add     r13, 8
     jmp     .fetch
 
-; --- Energy typed primitive (Pod 1.8) ---
-; A1: 128-byte slots, joules at +0x00, source_op at +0x08, rest reserved.
+; --- Energy typed primitive (Pod 1.8; arena/owner retrofit Pod 1.8.5c) ---
+; Energy slot layout (128 bytes, ENERGY_SLOT_SIZE):
+;   +0x00 joules (u64)            — ENERGY_OFF_JOULES
+;   +0x08 source_op (u64)         — ENERGY_OFF_SOURCE_OP
+;   +0x10 arena_id (u64)          — Pod 1.8.5c Move 3; V1.0 = 0 (Pod 1.10 Cap)
+;   +0x18 owner_demod_id (u64)    — Pod 1.8.5c Move 3; V1.0 = 0 (Pod 1.12 Demod)
+;   +0x20-0x7F reserved (96 bytes) — explicitly zeroed at construction
 ; Energy: handled by fetch-loop cost table.
 
 .op_energy_new:
@@ -893,11 +921,14 @@ cbs_run:
     ; rax = slot pointer; rdx (bump-index energy_id) discarded under Move 4
     mov     [rax + ENERGY_OFF_JOULES], rcx      ; joules at +0x00
     mov     [rax + ENERGY_OFF_SOURCE_OP], rbx   ; source_op at +0x08
-    ; Zero reserved area (112 bytes at +0x10)
+    ; Pod 1.8.5c Move 3: arena_id at +0x10, owner_demod_id at +0x18
+    mov     qword [rax + 0x10], 0   ; arena_id (V1.0 = 0)
+    mov     qword [rax + 0x18], 0   ; owner_demod_id (V1.0 = 0)
+    ; Zero reserved area (96 bytes at +0x20)
     push    rax                     ; save slot_ptr across stosq + register
-    lea     rdi, [rax + 0x10]
+    lea     rdi, [rax + 0x20]
     xor     eax, eax
-    mov     rcx, 14                 ; 14 * 8 = 112 bytes
+    mov     rcx, 12                 ; 12 * 8 = 96 bytes
     rep     stosq
     pop     rdi                     ; restore slot_ptr as registry input
     ; Pod 1.8.5b Move 4: register slot in canonical-ID registry.
@@ -955,6 +986,24 @@ cbs_run:
     ; V1.0 no-op: consume stack arg but don't modify pool state.
     ; V1.1+ activates free-list recycling here.
     sub     r13, 8                  ; pop energy_id (discard)
+    jmp     .fetch
+
+; --- Pod 1.8.5c Move 6: OP_ENERGY_RECOVER (0xD4) ---
+; V1.0 no-op-with-log. Pod 2 (Cop) implements the recovery curve.
+; Stack effect: pop 1 u64 (recovery argument; shape TBD by Pod 2);
+; push nothing.
+.op_energy_recover:
+    sub     r13, 8                  ; pop recovery argument (discard V1.0)
+    lea     rsi, [rel str_op_energy_recover_noop]
+    call    auryn_puts
+    jmp     .fetch
+
+; --- Pod 1.8.5c Move 7: OP_PHASE_QUERY (0xD5) ---
+; Push current vm_phase (u64) onto operand stack.
+.op_phase_query:
+    mov     rax, [rel vm_phase]
+    mov     [r13], rax
+    add     r13, 8
     jmp     .fetch
 
 ; vm_energy_alloc: bump allocator for Energy pool (mirrors sign_alloc shape)

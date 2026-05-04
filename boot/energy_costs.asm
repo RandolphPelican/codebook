@@ -19,11 +19,13 @@
 
 ; energy_cost_lookup — opcode byte in al, joules out in rax
 ; Clobbers: none beyond rax
-; Single indexed fetch from the cost table.
+; Pod 1.8.5c Move 1: indirected through current_demod_cost_table_ptr
+;   so Pod 2 (Cop) can hand out per-demod tuned tables. V1.0 the pointer
+;   defaults to the global energy_cost_table below (set in vmdata.asm).
 energy_cost_lookup:
     push    rbx
     movzx   rbx, al
-    lea     rax, [rel energy_cost_table]
+    mov     rax, [rel current_demod_cost_table_ptr]
     mov     rax, [rax + rbx * 8]
     pop     rbx
     ret
@@ -111,12 +113,14 @@ energy_cost_table:
     times 16 dq 1           ; 0xB0–0xBF — unallocated (Outcome 0xB0–0xBF Pod 1.9)
 ; Row 0xC0–0xCF
     times 16 dq 1           ; 0xC0–0xCF — unallocated (Cap 0xC0–0xCF Pod 1.10)
-; Row 0xD0–0xDF — Energy opcodes (Pod 1.8)
+; Row 0xD0–0xDF — Energy opcodes (Pod 1.8) + Pod 1.8.5c 0xD4/0xD5
     dq 10                   ; 0xD0 — OP_ENERGY_NEW
     dq 1                    ; 0xD1 — OP_ENERGY_JOULES (accessor)
     dq 1                    ; 0xD2 — OP_ENERGY_SOURCE_OP (accessor)
     dq 0                    ; 0xD3 — OP_ENERGY_FREE (V1.0 no-op)
-    dq 1, 1, 1, 1, 1       ; 0xD4–0xD8 — reserved (Energy V1.1+)
+    dq 1                    ; 0xD4 — OP_ENERGY_RECOVER (Pod 1.8.5c Move 6, V1.0 no-op-with-log)
+    dq 0                    ; 0xD5 — OP_PHASE_QUERY (Pod 1.8.5c Move 7, structural — 0j like HALT/RESERVE)
+    dq 1, 1, 1             ; 0xD6–0xD8 — reserved (Energy V1.1+)
     dq 1, 1, 1, 1, 1       ; 0xD9–0xDD — reserved
     dq 1, 1                 ; 0xDE–0xDF — reserved
 ; Row 0xE0–0xEF

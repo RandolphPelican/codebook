@@ -286,6 +286,7 @@ str_vm_unk:   db '  Unknown opcode: ',0
 str_ret_underflow: db '  VIOLATION: return stack underflow',10,0
 str_call_overflow: db '  VIOLATION: return stack overflow',10,0
 str_run_bad:  db '  Usage: run <0-8>',10,0
+str_op_energy_recover_noop: db '  OP_ENERGY_RECOVER no-op V1.0',10,0
 
 str_prog_list:
     db '  CBS Demo Programs:',10

@@ -44,6 +44,29 @@ energy_registry_count:   dq 0
 energy_registry_next_id: dq 1
 energy_registry:         times ENERGY_POOL_SLOTS * 16 db 0
 
+; Pod 1.8.5c Move 7 — current VM phase (SEED at boot, advances through MIND)
+    align 16
+vm_phase: dq VM_PHASE_SEED
+
+; Pod 1.8.5c Move 1 + Move 2 — current demod runtime state
+;   V1.0 singleton placeholder. Pod 1.12 (Demod<S>) replaces with real
+;   per-demod state. cost_table_ptr is initialized to energy_cost_table
+;   at runtime in efi_entry (NASM -f bin cannot resolve dq <symbol>
+;   to a runtime virtual address; static init would store a file offset
+;   that dereferences to garbage). prov_enabled is cap-flag-gated
+;   (Move 2), default OFF.
+    align 16
+current_demod_cost_table_ptr:  dq 0
+current_demod_prov_enabled:    dq 0
+
+; Pod 1.8.5c Move 2 — provenance ring buffer (4KB, 128 entries × 32 bytes)
+;   Overwrite-on-full. prov_ring_head is the next write index, masked
+;   by PROV_RING_MASK. V1.0 ships the conduit; Pod 2 (Cop) wires
+;   automatic invocation behind cap grant.
+    align 16
+prov_ring_head: dq 0
+prov_ring_buf:  times PROV_RING_ENTRIES * PROV_EVENT_SIZE db 0
+
 ; Memory map buffer (8KB)
     align 16
 mmap_buf:   times 8192 db 0

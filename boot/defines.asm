@@ -100,6 +100,37 @@
 %define OP_ENERGY_SOURCE_OP 0xD2
 %define OP_ENERGY_FREE      0xD3
 
+; --- Pod 1.8.5c Move 6: OP_ENERGY_RECOVER (V1.0 no-op-with-log) ---
+%define OP_ENERGY_RECOVER   0xD4
+
+; --- Pod 1.8.5c Move 7: OP_PHASE_QUERY (reads vm_phase to operand stack) ---
+%define OP_PHASE_QUERY      0xD5
+
+; --- Pod 1.8.5c Move 7: vm_phase enum ---
+; Boot sequence steps SEED → FORM → CHANNELS → MIND in V1.0.
+; MODES is enum-reserved for Pod 5 (Surfaces); not written by V1.0 boot
+; per architect call A2 (collapse). MODES becomes a real transition
+; when surface-mode-switching machinery exists.
+%define VM_PHASE_SEED      0
+%define VM_PHASE_FORM      1
+%define VM_PHASE_CHANNELS  2
+%define VM_PHASE_MODES     3
+%define VM_PHASE_MIND      4
+
+; --- Pod 1.8.5c Move 2: ProvEvent struct (32 bytes, cache-aligned per A4) ---
+;   +0x00: opcode (u8) + 7 bytes pad
+;   +0x08: demod_id (u64)
+;   +0x10: fetch_counter (u64)
+;   +0x18: reserved (u64) — future timestamp / source / outcome bits
+; Ring buffer: 4KB / 32B = 128 entries (power-of-2; mask 0x7F).
+%define PROV_EVENT_SIZE     0x20
+%define PROV_RING_ENTRIES   128
+%define PROV_RING_MASK      0x7F
+%define PROV_OFF_OPCODE     0x00
+%define PROV_OFF_DEMOD_ID   0x08
+%define PROV_OFF_FETCH_CTR  0x10
+%define PROV_OFF_RESERVED   0x18
+
 ; --- Sign struct layout (Pod 1.7; constants added Pod 1.8.5b for Energy parity) ---
 %define SIGN_SLOT_SIZE       0x80   ; 128 bytes
 %define SIGN_POOL_SLOTS      64
