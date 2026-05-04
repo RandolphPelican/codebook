@@ -359,7 +359,7 @@ new field (e.g., a real provenance handle once ProvEvent is consumed)
 or shrink to 4-arg with explicit ABI break and atomic atreyu_x86.py
 update. Track this disposition at the handle-pool pod.
 
-## 33. tools/pod185b_qemu_test.sh + tools/pod185c_qemu_test.sh (added Pod 1.8.5c)
+## ~~33. tools/pod185b_qemu_test.sh + tools/pod185c_qemu_test.sh (added Pod 1.8.5c)~~ (RESOLVED — Pod 1.9.4)
 
 Two throwaway QEMU monitor-pipe scripts now untracked across two pods.
 Both follow the same shape: inject a .cbc onto a scratch image, boot
@@ -368,7 +368,7 @@ permanent test-fixture status under `tools/test/` (parameterized to
 take any test pair) or get removed in the housekeeping bundle pod.
 Carryover from Pod 1.8.5b's housekeeping deferral.
 
-## 34. tools/pod185c_b6_liveness.sh (added Pod 1.8.5c)
+## ~~34. tools/pod185c_b6_liveness.sh (added Pod 1.8.5c)~~ (RESOLVED — Pod 1.9.4)
 
 Third throwaway script — pristine-boot liveness probe with screendump.
 Single-purpose, simpler than the round-trip harnesses but overlapping
@@ -530,7 +530,7 @@ outcomes). Pod 2 (Cop) hardens with explicit log + audit signal +
 possibly graceful degradation. May add `str_outcome_pool_full` at
 that pod. Forward-log only; no immediate action needed.
 
-## 48. tools/pod192b_qemu_test.sh joins housekeeping bundle (added Pod 1.9.2b)
+## ~~48. tools/pod192b_qemu_test.sh joins housekeeping bundle (added Pod 1.9.2b)~~ (RESOLVED — Pod 1.9.4)
 
 Fourth throwaway QEMU monitor-pipe test script (after
 tools/pod185b_qemu_test.sh, tools/pod185c_qemu_test.sh,
@@ -585,7 +585,7 @@ validated by static review of the .sign_new_fail_pool_full handler.
 Forward-log to a future verification pod (or to Pod 2 Cop when pool
 pressure becomes a real concern per #49).
 
-## 52. tools/pod193_qemu_test.sh joins housekeeping bundle (added Pod 1.9.3)
+## ~~52. tools/pod193_qemu_test.sh joins housekeeping bundle (added Pod 1.9.3)~~ (RESOLVED — Pod 1.9.4)
 
 Fifth throwaway QEMU monitor-pipe test script (after
 pod185b_qemu_test.sh, pod185c_qemu_test.sh, pod185c_b6_liveness.sh,
