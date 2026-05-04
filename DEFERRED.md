@@ -346,3 +346,47 @@ with the existing `test_qemu.sh --headless` (which already does
 liveness but does not screendump). Same disposition options as #33:
 earn `tools/test/` status by merging into `test_qemu.sh` as a
 `--headless-screendump` mode, or remove in housekeeping bundle.
+
+## 35. Pod 1.9.2 will close DEFERRED #13 (added Pod 1.9.1, forward-looking)
+
+Pod 1.9.1 sealed the architectural decision (D1.9.1.3 two-mode
+handlers + D1.9.1.4 five accessor opcodes). Pod 1.9.2 lands the
+slot pool, registry, opcode handlers, and `vm_fetch_count` substrate
+counter (D1.9.1.7). Pod 1.9.3 then refits the existing stack-violation
+halt sites (`str_ret_underflow`, `str_call_overflow` per #13) to push
+typed `Err(StackUnderflow)` / `Err(StackOverflow)` Outcomes via
+OP_OUTCOME_NEW_ERR. **#13 closes when Pod 1.9.3 commits.** Tracking
+here as in-flight; do not mark resolved until the refit lands.
+
+## 36. Pod 1.9.3 will close DEFERRED #16 (added Pod 1.9.1, forward-looking)
+
+Pod 1.9.1 sealed the err shape (D1.9.1.2 standard 32-byte error
+context). Pod 1.9.3 source pod refits `OP_SIGN_HASH`, `OP_SIGN_LABEL`,
+`OP_SIGN_ENERGY`, `OP_ENERGY_JOULES`, `OP_ENERGY_SOURCE_OP` (and any
+other accessor reaching the registry-lookup-returns-0 null path) to
+construct `Err(InvalidId)` Outcomes via OP_OUTCOME_NEW_ERR and push
+the resulting outcome_id instead of the silent-null sentinel.
+**#16 closes when Pod 1.9.3 commits.** Tracking here as in-flight.
+
+## 37. RECONSTITUTION pod-arc reconciliation (added Pod 1.9.1)
+
+v9 patch (Pod 1.9.1) was bounded to Outcome canon (4 edits per A5).
+Other accumulated drift remains:
+
+- **Pod 1.5.5 hash row** in pod arc says `b560a6c`; not verified
+  against repo this pod. Verify and correct if drifted.
+- **Pod 1.8 hash row** says `[DONE — Pod 1.8]` instead of an explicit
+  hash. Actual sealing commit is `8c38343` (per Pod 1.8.5b.5 backfill
+  notes). Replace placeholder with hash.
+- **Pod 1.8.5, 1.8.5b, 1.8.5b.5, 1.8.5c, 1.9.1** sub-pods missing
+  from the pod-arc table entirely. Add rows.
+- **Cap<R> opcode allocation** in v9 still says `0xB0-0xBF` (carried
+  forward from v8). Pod 1.8.5b's `boot/energy_costs.asm` comment
+  hint at `0xC0-0xCF` for Cap was never canonicalized in
+  RECONSTITUTION. Pod 1.10 (Cap source pod) decides the actual
+  range; until then the v8 placeholder stays.
+
+Bundle into a future RECONSTITUTION reconciliation pod (canon-only,
+no source change). Could land alongside Pod 1.8.5b.6 (v4 main body
+commit per #24) since both are RECONSTITUTION-class housekeeping.
+Priority: medium (drift accumulates but does not block source pods).

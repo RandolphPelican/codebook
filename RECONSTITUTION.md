@@ -1,6 +1,6 @@
-# CodebookOS — RECONSTITUTION MANIFESTO (v8)
+# CodebookOS — RECONSTITUTION MANIFESTO (v9)
 
-## Post-Pod-1.8 — Energy Source-Implemented, Per-Opcode Cost Table Active, Catalytic-Gateway Fetch Loop
+## Post-Pod-1.9.1 — Outcome<T> Canon Sealed (Pod 1.8.5b/c Conduits in Place)
 
 **Project:** CodebookOS x86_64 UEFI
 **Repo:** github.com/RandolphPelican/codebook
@@ -14,8 +14,34 @@
 **Updated:** April 28, 2026 (v6 — post-Pod-1.6 Sign as native type, typed-primitive pattern)
 **Updated:** April 28, 2026 (v7 — post-Pod-1.7 Sign source implementation, canon corrections)
 **Updated:** April 29, 2026 (v8 — post-Pod-1.8 Energy source implementation, per-opcode cost table, catalytic-gateway fetch loop)
-**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md, recon/POD0.9_CAP_GRAPH_DEEP_READ.md, recon/POD1.1_VM_AUDIT.md, recon/POD1.2_DECISION_RECORD.md, recon/POD1.4_DECISION_RECORD.md, recon/POD1.6_DECISION_RECORD.md, recon/POD1.7_DECISION_RECORD.md, recon/POD1.8_DECISION_RECORD.md
-**Supersedes:** RECONSTITUTION.md v7
+**Updated:** May 03, 2026 (v9 — post-Pod-1.9.1 Outcome<T> design canon, opcode allocation Outcome→0xE0-0xE4 / Demod→0xE5-0xEF, Pod 1.9 split into 1.9.1/1.9.2/1.9.3)
+**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md, recon/POD0.9_CAP_GRAPH_DEEP_READ.md, recon/POD1.1_VM_AUDIT.md, recon/POD1.2_DECISION_RECORD.md, recon/POD1.4_DECISION_RECORD.md, recon/POD1.6_DECISION_RECORD.md, recon/POD1.7_DECISION_RECORD.md, recon/POD1.8_DECISION_RECORD.md, recon/POD1.9.1_DESIGN_DECISIONS.md
+**Supersedes:** RECONSTITUTION.md v8
+
+## Why v9 exists
+
+v8 canonized the Energy source implementation and per-opcode cost
+table from Pod 1.8. v9 records what happened next: Pod 1.8.5b
+retrofitted Sign and Energy accessors to return canonical u64 IDs
+through registry indirection (Move 4); Pod 1.8.5b.5 closed the
+prompts/ bootstrap-paradox gap; Pod 1.8.5c landed five terraforming
+conduits (per-demod cost tables, auto-provenance default-OFF, arena/
+owner ownership fields, OP_ENERGY_RECOVER reservation, vm_phase enum
+with OP_PHASE_QUERY); Pod 1.9.1 (this commit) seals the Outcome<T>
+design canon before 1.9.2 implementation can drift on it.
+
+The opcode allocation table is updated: Outcome relocates from
+0xC0-0xCF (v8 placeholder) to 0xE0-0xE4 (D1.9.1.4 ratification);
+Demod's range tightens from 0xE0-0xEF to 0xE5-0xEF accordingly.
+The Outcome<T> subsection is replaced with the canonical definition
+per `recon/POD1.9.1_DESIGN_DECISIONS.md` D1.9.1.1-8.
+
+The pod-arc table splits Pod 1.9 into three sub-pods following the
+canon → source → refit pattern established by Pod 1.5/1.5.5/1.5.6
+and Pod 1.6/1.7. Other pod-arc reconciliation drift (Pod 1.5.5 hash,
+Pod 1.8 hash placeholder, missing 1.8.x sub-pod rows, Cap allocation
+hint at 0xC0-0xCF) is forward-logged to a future housekeeping pod
+and intentionally NOT touched in v9 (DEFERRED #37).
 
 ---
 
@@ -320,9 +346,10 @@ recompilation (DEFERRED #12, resolved in Pod 1.5).
 |-------|-----------|-----|
 | `0xA0–0xAF` | Sign | 1.6–1.7 |
 | `0xB0–0xBF` | Cap<R> | 1.10–1.11 |
-| `0xC0–0xCF` | Outcome<T> | 1.9 |
-| `0xD0–0xDF` | Energy | 1.8 |
-| `0xE0–0xEF` | Demod<S> | 1.12 |
+| `0xC0–0xCF` | (reserved; was Outcome v8 placeholder; relocated v9) | — |
+| `0xD0–0xDF` | Energy (+ Pod 1.8.5c 0xD4 OP_ENERGY_RECOVER, 0xD5 OP_PHASE_QUERY) | 1.8 / 1.8.5c |
+| `0xE0–0xE4` | Outcome<T> (relocated from 0xC0-0xCF in v9 per D1.9.1.4) | 1.9 |
+| `0xE5–0xEF` | Demod<S> (range tightened in v9 to make room for Outcome) | 1.12 |
 
 The existing `0x00–0x9F` range retains current opcode assignments
 (arithmetic, stack, flow control, I/O). The `0xF0–0xFF` range is
@@ -369,20 +396,92 @@ first byte of the bytecode stream. Pod 1's typed system ignores this
 header entirely. The NASM VM is the authority; the Python toolchain
 is historical.
 
-#### `Outcome<T>`, `Energy`, `Demod<S>` — v5 updates
+#### `Outcome<T>` — canonical definition (v9, Pod 1.9.1)
 
-`Outcome<T>`, `Energy`, and `Demod<S>` definitions are unchanged from
-v1/v2. v4 added implementation commitments from Pod 1.1 audit decisions;
-v5 updates pod numbers after the arc slide.
+`Outcome<T>` is the typed-error primitive. Every fallible operation
+returns an `Outcome<T>` that carries either a success value of type
+T or a structured error context. The full design is sealed in
+`recon/POD1.9.1_DESIGN_DECISIONS.md` (D1.9.1.1 through D1.9.1.8);
+v9 records the canonical shape here for cross-reference.
 
-**Outcome<T> as stack-error mechanism (Q8).** Stack underflow and
-overflow produce `Outcome<T>` typed errors rather than halting the VM
-or silently corrupting state. The specific error representation
-(error codes, stack-frame tagging, etc.) is deferred to Pod 1.9 when
-`Outcome<T>` becomes a native VM type. The principle is decided: stack
-violations are typed results, not fatal traps. (Pod 1.3's interim
-implementation uses halt-on-violation with diagnostic messages;
-Pod 1.9 replaces these with typed `Outcome<T>` results.)
+**Tagged shape with `value_type_id` discriminant (D1.9.1.1).** A
+single Outcome primitive carries:
+- `discriminant` (u64): 0=ok, 1=err
+- `value_type_id` (u64): names which canonical-ID type T is, using a
+  small enum (TYPE_CODE_SIGN=1, TYPE_CODE_ENERGY=2, TYPE_CODE_CAP=3,
+  TYPE_CODE_DEMOD=4, TYPE_CODE_SIGNAL=5, TYPE_CODE_OUTCOME=6;
+  TYPE_CODE_NONE=0 sentinel)
+- `value` (u64): canonical ID of success value if ok; unused if err
+
+This reuses Pod 1.8.5b's canonical-ID type space rather than forking
+into per-T opcode variants. One opcode family covers all T.
+
+**Standard 32-byte error context (D1.9.1.2).** Every err-Outcome
+inlines a 4-field error context: `error_code` (u64), `source_op`
+(u64), `demod_id` (u64), `fetch_counter` (u64). Total 32 bytes,
+ProvEvent-shape-compatible (Pod 1.8.5c Move 2 ProvEvent has the same
+shape), so errors and provenance share serialization machinery.
+
+**Two-mode handlers (D1.9.1.3).** Convention enforced by handler
+discipline: each opcode handler either fully succeeds (pushes
+Outcome::ok) or fully fails (cleans operand stack, pushes
+Outcome::err). No VM-level stack-frame tracking in V1.0 (Pod 2 Cop
+hardens via runtime stack-shape verification). This closes
+DEFERRED #13 architecturally; closure commits when Pod 1.9.3
+refits the existing stack-violation halt sites
+(`str_ret_underflow`, `str_call_overflow`) to push typed
+`Err(StackUnderflow)` / `Err(StackOverflow)` Outcomes.
+
+**Five accessor opcodes at 0xE0-0xE4 (D1.9.1.4):**
+- `OP_OUTCOME_NEW_OK` (0xE0): pop value, value_type_id; push outcome_id
+- `OP_OUTCOME_NEW_ERR` (0xE1): pop 4 err-context fields; push outcome_id; auto-provenance hook fires (D1.9.1.6)
+- `OP_OUTCOME_IS_OK` (0xE2): pop outcome_id; push 1 if ok else 0; **consumes** (caller dups first to retain)
+- `OP_OUTCOME_UNWRAP_OK` (0xE3): pop outcome_id; push value if ok; push sentinel + log if err
+- `OP_OUTCOME_UNWRAP_ERR` (0xE4): pop outcome_id; push 4 err fields if err; push 4 zero sentinels + log if ok
+
+**Inline error context (D1.9.1.5).** Error context lives inside the
+Outcome slot, not in a separate buffer with handle indirection.
+Pool capacity 64 means worst-case 2KB inlined storage; indirection
+buys nothing at V1.0 scale. Pod 3+ message handles route through
+reserved field +0x40 (parallels Pod 1.8.5c Sign provenance_handle
+supersession pattern).
+
+**Auto-provenance gated (D1.9.1.6).** `OP_OUTCOME_NEW_ERR` calls
+`prov_append` after writing the err context, passing user-supplied
+`err_source_op` (as opcode), `err_demod_id` (as demod_id), and
+`vm_fetch_count` (as fetch_counter). The cap-gate is internal to
+prov_append per Move 2 default-OFF doctrine.
+
+**`vm_fetch_count` substrate gap closure at Pod 1.9.2 (D1.9.1.7).**
+The substrate currently has no fetch counter (the field was
+declared in ProvEvent at Pod 1.8.5c but never sourced). Pod 1.9.2
+adds `vm_fetch_count` storage to vmdata.asm and increments at the
+.fetch loop head in cbs_vm.asm. The counter is also useful for
+substrate audit beyond D6.
+
+**UNWRAP-on-wrong-discriminant push-sentinel-and-log (D1.9.1.8).**
+V1.0 has no general fault path; halting on unwrap defeats the
+purpose of typed errors. UNWRAP_OK on err pushes 1 zero sentinel +
+logs; UNWRAP_ERR on ok pushes 4 zero sentinels + logs. Stack shape
+preserved across both discriminant paths.
+
+**Slot layout (128 bytes, OUTCOME_SLOT_SIZE):** discriminant +0x00,
+value_type_id +0x08, value +0x10, reserved +0x18; err_code +0x20,
+err_source_op +0x28, err_demod_id +0x30, err_fetch_counter +0x38;
+Pod 3+ reserved +0x40-+0x6F; arena_id +0x70 (Pod 1.8.5c Move 3
+inheritance); owner_demod_id +0x78 (Pod 1.8.5c Move 3 inheritance).
+Symmetric with Sign and Energy slots.
+
+**Pool sizing.** OUTCOME_POOL_SLOTS=64 (Sign/Energy precedent), bump
+allocator, registry table per Pod 1.8.5b shape (mapping outcome_id
+opaque counter → slot pointer; survives arena reorganization).
+
+#### `Energy`, `Demod<S>` — v5 updates (preserved from v8)
+
+`Energy` and `Demod<S>` definitions are unchanged from v1/v2. v4
+added implementation commitments from Pod 1.1 audit decisions; v5
+updated pod numbers after the arc slide. v8 concretized Energy as a
+native primitive with the per-opcode cost table.
 
 #### `Energy` — concretized in v8 (Pod 1.8)
 
@@ -586,7 +685,10 @@ Pod 1 — Engywook Re-Forged (typed VM with Sign/Cap/Outcome/Energy/Demod)
 ├── 1.6  Sign as native type (0xA0–0xAF)                   [DONE — 6264dbc]
 ├── 1.7  Sign source implementation (opcodes + pool + test) [DONE — 1d8593f]
 ├── 1.8  Energy: per-opcode cost table (0xD0–0xDF)         [DONE — Pod 1.8]
-├── 1.9  Outcome<T>: typed errors + stack bounds (0xC0–0xCF) [planned — typed primitives]
+├── 1.9  Outcome<T>: typed errors + stack bounds (0xE0–0xE4 per v9 D1.9.1.4)
+│   ├── 1.9.1 Outcome canon + RECONSTITUTION v9 patch     [DONE — this commit]
+│   ├── 1.9.2 Outcome source: pool, registry, 5 opcode handlers, vm_fetch_count [planned — closes DEFERRED #13]
+│   └── 1.9.3 Sign/Energy accessor refit to return Outcome [planned — closes DEFERRED #16]
 ├── 1.10 Cap<R> data structures (0xB0–0xBF)                [planned — cap replacement]
 ├── 1.11 Cap ops retirement (retire 0x90/0x91)             [planned — cap replacement]
 ├── 1.12 Demod<S> registration (0xE0–0xEF)                 [planned — demod]
