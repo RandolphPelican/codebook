@@ -22,3 +22,4 @@ pods do the same. Only source pods produce new hashes.
 | 1.7  | 975a7f809c350d09b2031b9f5490261986d878d5a04e66709f97fae7083b05dc | Sign source implementation |
 | 1.8  | ee50771f6802c7b5b69ba5c4af9d0393b13ced5b13b3e616a70bdf94727d4e65 | Energy as native type (per-opcode cost table + DEFERRED #15 resolved) |
 | 1.8.5b | a6b8c0f16a148058a41c33601123a7eb7941473b9a828982378473fe46d84a75 | Move 4 — canonical IDs retrofit (Sign + Energy via registry indirection); observed (TB WSL Ubuntu sha256sum verbatim, two-build determinism on BOOTX64.EFI, bare-metal Sign+Energy round-trip passed) |
+| 1.8.5b.5 | a6b8c0f16a148058a41c33601123a7eb7941473b9a828982378473fe46d84a75 | preserved (canon-only pod 1.8.5b.5 — prompts backfill, no source changes) |

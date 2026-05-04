@@ -239,3 +239,13 @@ narrative in chat-history canon stated `sendkey 1` for Gmork, which
 matched a pre-Pod-0.7 menu ordering. Pod 1.8.5b round-trip script
 `tools/pod185b_qemu_test.sh` (throwaway, not committed) uses `sendkey 2`
 correctly. Reference doc is current; recording for context only.
+
+## 24. Pod 1.8.5b.6: commit v4 main body verbatim (added Pod 1.8.5b.5)
+
+Architect-direct paste to TB required. Original draft in prior Chauncey
+session that produced `recon/CHAUNCEY_HANDOFF_v4_addendum.md` (committed
+at `e5595d5`); preserved in architect's catchup-doc upload to current
+Chauncey instance. Pod 1.8.5b.5 deferred this commit to avoid
+Chauncey-mediated verbatim transcription with PowerShell escape
+fragility. Priority: high (closes the bootstrap-paradox gap for v4
+handoff main body).
