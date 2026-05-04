@@ -113,6 +113,15 @@
 %define OP_OUTCOME_UNWRAP_OK  0xE3
 %define OP_OUTCOME_UNWRAP_ERR 0xE4
 
+; --- Pod 1.9.3 — err_code values for typed error paths ---
+; Code 0 reserved for "no err / uninitialized" (parallels TYPE_CODE_NONE).
+%define ERR_INVALID_ID         1   ; registry_lookup_* returned 0 (id=0 or not in registry)
+%define ERR_POOL_FULL          2   ; *_alloc returned 0 (pool at capacity)
+%define ERR_STACK_UNDERFLOW    3   ; OP_RET on empty return stack (Pod 1.3 str_ret_underflow → typed)
+%define ERR_STACK_OVERFLOW     4   ; OP_CALL on full return stack (Pod 1.3 str_call_overflow → typed)
+%define ERR_INVALID_SIGN_ARG   5   ; OP_SIGN_NEW invalid label length / non-zero embedding_handle
+%define ERR_INVALID_ENERGY_ARG 6   ; OP_ENERGY_NEW invalid joules/source_op (defined; unused V1.0 per A3)
+
 ; --- Pod 1.8.5c Move 7: vm_phase enum ---
 ; Boot sequence steps SEED → FORM → CHANNELS → MIND in V1.0.
 ; MODES is enum-reserved for Pod 5 (Surfaces); not written by V1.0 boot

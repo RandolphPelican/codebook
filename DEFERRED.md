@@ -125,7 +125,7 @@ surface .cbc files (atreyu.cbc, bastian.cbc, rockbiter.cbc) hand-patched
 with automated widening script. All value operands now 8-byte; positional
 operands unchanged at 4-byte per D1.
 
-## 13. Stack-error mechanism design (revised Pod 1.4)
+## ~~13. Stack-error mechanism design (revised Pod 1.4)~~ (RESOLVED — Pod 1.9.3)
 
 Pod 1.9 (Outcome<T>) must define the specific representation for
 stack-violation errors: error codes, stack-frame tagging, how a
@@ -135,6 +135,16 @@ violations are typed Outcome results, not fatal traps), but the
 encoding is deferred to Pod 1.9's recon phase. Pod 1.3's interim
 implementation halts with diagnostic messages (`str_ret_underflow`,
 `str_call_overflow`); Pod 1.9 replaces these with typed results.
+
+**Resolved Pod 1.9.3 D1.9.3.2 (Pre-A2 option b — tag-the-halt):**
+`.ret_underflow` and `.call_overflow` now construct `Err(ERR_STACK_UNDERFLOW)`
+and `Err(ERR_STACK_OVERFLOW)` Outcomes via `.construct_err_outcome` helper,
+push the outcome_id to the operand stack, then emit the existing diagnostic
+and halt via `.done`. The Err is observable on the operand stack at halt
+time (post-mortem). Continuing past stack violations remains Pod 2 (Cop)
+territory. B6 and B7 confirmed via screen output: pre-violation marker →
+diagnostic appears → halt clean (program does not reach post-violation
+prints).
 
 ## 14. precompile_all.sh CRLF line endings (added Pod 1.7)
 
@@ -155,7 +165,7 @@ r15 is misleading. Fix in Pod 1.8 (Energy typed primitive) when the
 energy display is redesigned. See D1.7.8 in
 `recon/POD1.7_DECISION_RECORD.md`.
 
-## 16. Outcome error path for invalid canonical-ID lookups (added Pod 1.8.5b)
+## 16. Outcome error path for invalid canonical-ID lookups (added Pod 1.8.5b; PARTIALLY RESOLVED Pod 1.9.3)
 
 `registry_lookup_sign` and `registry_lookup_energy` return `0` when an
 ID is not found (id == 0 or no matching entry). Current Sign/Energy
@@ -165,6 +175,26 @@ on the operand stack — no typed `Outcome::Err` representation. Pod 1.9
 retrofitted to push `Err(InvalidId)` instead of silent null. Same
 pattern will apply to `cap_id`, `demod_id`, `signal_id` registry
 lookups when those primitives land.
+
+**PARTIAL CLOSURE — Pod 1.9.3 (D1.9.3.1, A1 i-revised):**
+Single-value accessors refitted under Path A (success wraps in
+Outcome::Ok via `.construct_ok_outcome`; failure constructs Err via
+`.construct_err_outcome`):
+- OP_SIGN_ENERGY ✓
+- OP_ENERGY_JOULES ✓
+- OP_ENERGY_SOURCE_OP ✓
+
+**STILL OPEN — multi-value accessors (HASH, LABEL):**
+- OP_SIGN_HASH (returns 4 hash qwords on success)
+- OP_SIGN_LABEL (returns addr+length on success)
+
+Outcome<T> per D1.9.1.1 wraps a single u64. Multi-value accessors
+require either (a) new Outcome design supporting multi-value wrapping,
+(b) handle-pool redesign returning single u64 handle to multi-value
+data, or (c) substrate peek-without-consume primitive enabling
+discriminant-then-shape-branching. Pod 3+ work; not blocking Pod 1.10
+(Cap) or Pod 1.12 (Demod) since those typed primitives are likely
+single-value (cap_id, demod_id).
 
 ## 17. Cap, Demod, Signal registry implementations (added Pod 1.8.5b)
 
@@ -455,7 +485,15 @@ verified clean (no crash, VM state preserved across the call). When
 Pod 2 (Cop) flips the cap, the existing wire-up activates without
 further source change.
 
-## 44. Pod 1.9.3: Sign accessor refit to return Outcome (added Pod 1.9.2b, forward-looking)
+## ~~44. Pod 1.9.3: Sign accessor refit to return Outcome (added Pod 1.9.2b, forward-looking)~~ (PARTIALLY RESOLVED — Pod 1.9.3)
+
+OP_SIGN_ENERGY refitted under Path A (success wraps in Outcome::Ok;
+failure constructs Err). OP_SIGN_HASH and OP_SIGN_LABEL deferred per
+A1 (i-revised) — multi-value accessor refit pending Outcome<T>
+multi-value design or handle-pool redesign (see #16 still-open
+section).
+
+(Original entry text follows for context.)
 
 Existing Sign accessors (OP_SIGN_HASH, OP_SIGN_LABEL, OP_SIGN_ENERGY)
 fall through to silent-null sentinel paths when registry_lookup_sign
@@ -464,13 +502,13 @@ via OP_OUTCOME_NEW_ERR and push the resulting outcome_id instead of
 the silent null. Closes DEFERRED #16. The `value_type_id` for these
 err-Outcomes is TYPE_CODE_SIGN per D1.9.2b.3 (expected-T-on-error).
 
-## 45. Pod 1.9.3: Energy accessor refit to return Outcome (added Pod 1.9.2b, forward-looking)
+## ~~45. Pod 1.9.3: Energy accessor refit to return Outcome (added Pod 1.9.2b, forward-looking)~~ (RESOLVED — Pod 1.9.3)
 
 Same shape as #44 for Energy accessors (OP_ENERGY_JOULES,
 OP_ENERGY_SOURCE_OP). Refit silent-null paths to push
 `Err(InvalidId)` Outcomes. `value_type_id = TYPE_CODE_ENERGY`.
 
-## 46. Pod 1.9.3: stack-violation halt sites refit to push Err Outcomes (added Pod 1.9.2b, forward-looking)
+## ~~46. Pod 1.9.3: stack-violation halt sites refit to push Err Outcomes (added Pod 1.9.2b, forward-looking)~~ (RESOLVED — Pod 1.9.3)
 
 Closes DEFERRED #13. Existing stack-violation halt sites
 (`str_ret_underflow`, `str_call_overflow`) currently halt with a
@@ -502,3 +540,58 @@ parameterized test runner, or remove in housekeeping bundle pod.
 The bundle has now grown to four scripts spanning three source pods;
 merge-into-test_qemu.sh option worth flagging as the more sustainable
 path at the eventual reconciliation pod.
+
+## 49. Outcome pool sizing review / free-list mechanism for Path A semantics (added Pod 1.9.3)
+
+Pod 1.9.3 D1.9.3.1 ratified Path A: every successful single-value
+accessor allocates an Outcome slot via `.construct_ok_outcome` and
+registers it in `outcome_registry`. With OUTCOME_POOL_SLOTS=64 and
+no free-list, a program calling accessors 64+ times across a single
+VM run exhausts the pool. Test programs in V1.0 call accessors 1-3
+times; exhaustion is multi-program territory across non-resetting
+substrate state.
+
+Pod 2 (Cop) territory:
+- Pool sizing review (does 64 hold for production workloads?)
+- Free-list mechanism for OP_OUTCOME_FREE (currently no such opcode;
+  would need to land alongside the recycling)
+- Or: "Outcome::Ok wrapping is opt-in via a separate UNWRAP_OK
+  variant" if pool pressure becomes load-bearing — but that fragments
+  the typed-primitive accessor pattern Pod 1.10 / Pod 1.12 inherit.
+
+Not blocking V1.0 typed-primitive pods. Real concern for production
+scale.
+
+## 50. ERR_INVALID_ENERGY_ARG defined-but-unused (added Pod 1.9.3)
+
+Pod 1.9.3 S1 added `ERR_INVALID_ENERGY_ARG equ 6` to defines.asm
+per the original prompt's err_code list. Per A3 ratification,
+`.energy_new_fail` uses single err_code ERR_POOL_FULL because
+OP_ENERGY_NEW currently doesn't validate joules or source_op.
+
+The constant is defined but unused in V1.0. When Energy NEW arg
+validation lands (Pod 2 Cop or wherever), the constant activates
+without redefinition. Honest forward-log of the architectural
+intent.
+
+## 51. T7 test_sign_pool_full forward-logged (added Pod 1.9.3)
+
+Verifies OP_SIGN_NEW.sign_new_fail_pool_full path produces
+Err(POOL_FULL) Outcome. Requires loop emission for 65 NEW_OK
+constructions in atreyu_x86.py. Skipped Pod 1.9.3 per A4 — adds
+substantial test bytecode without testing anything that can't be
+validated by static review of the .sign_new_fail_pool_full handler.
+
+Forward-log to a future verification pod (or to Pod 2 Cop when pool
+pressure becomes a real concern per #49).
+
+## 52. tools/pod193_qemu_test.sh joins housekeeping bundle (added Pod 1.9.3)
+
+Fifth throwaway QEMU monitor-pipe test script (after
+pod185b_qemu_test.sh, pod185c_qemu_test.sh, pod185c_b6_liveness.sh,
+pod192b_qemu_test.sh per #33-#34, #48). Same disposition; the
+housekeeping bundle now spans four source pods (1.8.5b, 1.8.5c,
+1.9.2b, 1.9.3). Merge-into-test_qemu.sh as a parameterized
+fresh-boot harness is increasingly the right shape — each script
+follows the same template (mkfifo / daemonize / sendkey /
+screendump / quit) with only the test surface name varying.

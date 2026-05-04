@@ -401,6 +401,18 @@ cbs_run:
     jmp     .fetch
 
 .ret_underflow:
+    ; Pod 1.9.3 D1.9.3.2 (Pre-A2 option b): tag-the-halt-with-typed-context.
+    ; Construct Err Outcome before existing diagnostic emit + halt.
+    ; The Err is observable on operand stack at halt time (post-mortem).
+    mov     rdi, ERR_STACK_UNDERFLOW
+    mov     rsi, OP_RET
+    xor     rdx, rdx                ; demod_id
+    xor     rcx, rcx                ; fetch_counter (no user supplied at violation)
+    mov     r8, TYPE_CODE_NONE      ; D1.9.3.3: stack violations have no expected-T
+    call    .construct_err_outcome
+    mov     [r13], rax              ; push outcome_id (or 0 if Outcome pool full)
+    add     r13, 8
+    ; Existing diagnostic + halt preserved
     lea     rsi, [rel str_ret_underflow]
     call    auryn_puts
     jmp     .done
@@ -696,6 +708,19 @@ cbs_run:
     jmp     .fetch
 
 .call_overflow:
+    ; Pod 1.9.3 D1.9.3.2 (Pre-A2 option b): tag-the-halt-with-typed-context.
+    ; Note: r13 still has the call_offset from operand stack (OP_CALL bounds check
+    ; fired before the offset pop). Err outcome_id pushed on top of it; post-mortem
+    ; sees [..., call_offset, outcome_id]. Both visible.
+    mov     rdi, ERR_STACK_OVERFLOW
+    mov     rsi, OP_CALL
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_NONE
+    call    .construct_err_outcome
+    mov     [r13], rax              ; push outcome_id
+    add     r13, 8
+    ; Existing diagnostic + halt preserved
     lea     rsi, [rel str_call_overflow]
     call    auryn_puts
     jmp     .done
@@ -796,15 +821,15 @@ cbs_run:
     ; Validate label length <= 63 (A4)
     movzx   eax, byte [r11]
     cmp     eax, 63
-    ja      .sign_new_fail
+    ja      .sign_new_fail_invalid_arg
     ; Validate embedding_handle: must be 0 in V1.0 (handle pools land Pod 3+)
     test    r9, r9
-    jnz     .sign_new_fail
+    jnz     .sign_new_fail_invalid_arg
     ; (provenance_handle check removed Pod 1.8.5c; field reclaimed for arena_id)
     ; Allocate pool slot
     call    .sign_alloc
     test    rax, rax
-    jz      .sign_new_fail
+    jz      .sign_new_fail_pool_full
     ; rax = slot pointer; rcx (bump-index sign_id) discarded under Move 4
     push    rax                 ; save slot_ptr across memcpy + register
     ; Copy hash (32 bytes) from hash_addr to slot+0x00
@@ -827,14 +852,32 @@ cbs_run:
     pop     rdi                 ; restore slot_ptr as registry input
     call    registry_register_sign
     test    rax, rax
-    jz      .sign_new_fail      ; registry full (capacities matched, should not occur in V1.0)
+    jz      .sign_new_fail_pool_full   ; registry full (capacities matched, should not occur in V1.0)
     ; Push sign_id (rax) on operand stack
     mov     [r13], rax
     add     r13, 8
     jmp     .fetch
-.sign_new_fail:
-    ; Validation failed or pool full: push null handle (0)
-    mov     qword [r13], 0
+; Pod 1.9.3 A2: split fail labels with distinguished err_codes.
+.sign_new_fail_invalid_arg:
+    ; Err(InvalidSignArg, source_op=OP_SIGN_NEW, value_type_id=TYPE_CODE_SIGN)
+    mov     rdi, ERR_INVALID_SIGN_ARG
+    mov     rsi, OP_SIGN_NEW
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_SIGN
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+.sign_new_fail_pool_full:
+    ; Err(PoolFull, source_op=OP_SIGN_NEW, value_type_id=TYPE_CODE_SIGN)
+    mov     rdi, ERR_POOL_FULL
+    mov     rsi, OP_SIGN_NEW
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_SIGN
+    call    .construct_err_outcome
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
@@ -894,20 +937,33 @@ cbs_run:
 .op_sign_energy:
     ; Energy: handled by fetch-loop cost table (Pod 1.8)
     ; Pod 1.8.5b Move 4: resolve sign_id via registry indirection.
+    ; Pod 1.9.3 (D1.9.3.5): both paths construct Outcome<u64>.
+    ; Per-opcode cost (5j) covers either path; handler internal Outcome
+    ; construction is free relative to flat cost-table accounting.
     ; Pop sign_id
     sub     r13, 8
     mov     rdi, [r13]
     call    registry_lookup_sign    ; rax = slot_ptr (0 if invalid)
     test    rax, rax
-    jz      .sign_energy_null
+    jz      .sign_energy_invalid_id
     mov     rbx, rax
-    ; energy_cost at slot+0x60
-    mov     rax, [rbx + 0x60]
-    mov     [r13], rax
+    ; energy_cost at slot+0x60 — wrap in Ok outcome
+    mov     rdi, [rbx + 0x60]       ; value = energy_cost
+    mov     r8, TYPE_CODE_SIGN
+    call    .construct_ok_outcome
+    mov     [r13], rax              ; push outcome_id
     add     r13, 8
     jmp     .fetch
-.sign_energy_null:
-    mov     qword [r13], 0
+.sign_energy_invalid_id:
+    ; Pod 1.9.3 — push Err(InvalidId, source_op=OP_SIGN_ENERGY, value_type_id=TYPE_CODE_SIGN)
+    mov     rdi, ERR_INVALID_ID
+    mov     rsi, OP_SIGN_ENERGY
+    xor     rdx, rdx                ; demod_id (current_demod placeholder = 0)
+    xor     rcx, rcx                ; fetch_counter (no user supplied)
+    mov     r8, TYPE_CODE_SIGN
+    call    .construct_err_outcome
+    ; rax = outcome_id (or 0 if Outcome pool full — same sentinel shape as legacy)
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
@@ -951,46 +1007,72 @@ cbs_run:
     mov     [r13], rax
     add     r13, 8
     jmp     .fetch
+; Pod 1.9.3 A3: single fail label, ERR_POOL_FULL only
+; (joules/source_op not validated yet; ERR_INVALID_ENERGY_ARG defined but unused).
 .energy_new_fail:
-    mov     qword [r13], 0
+    mov     rdi, ERR_POOL_FULL
+    mov     rsi, OP_ENERGY_NEW
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_ENERGY
+    call    .construct_err_outcome
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
 .op_energy_joules:
     ; Pod 1.8.5b Move 4: resolve energy_id via registry indirection.
+    ; Pod 1.9.3 (D1.9.3.5): both paths construct Outcome<u64>.
     ; Pop energy_id
     sub     r13, 8
     mov     rdi, [r13]
     call    registry_lookup_energy  ; rax = slot_ptr (0 if invalid)
     test    rax, rax
-    jz      .energy_joules_null
+    jz      .energy_joules_invalid_id
     mov     rbx, rax
-    ; Read joules at +0x00
-    mov     rax, [rbx + ENERGY_OFF_JOULES]
+    ; Read joules at +0x00 — wrap in Ok outcome
+    mov     rdi, [rbx + ENERGY_OFF_JOULES]
+    mov     r8, TYPE_CODE_ENERGY
+    call    .construct_ok_outcome
     mov     [r13], rax
     add     r13, 8
     jmp     .fetch
-.energy_joules_null:
-    mov     qword [r13], 0
+.energy_joules_invalid_id:
+    mov     rdi, ERR_INVALID_ID
+    mov     rsi, OP_ENERGY_JOULES
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_ENERGY
+    call    .construct_err_outcome
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
 .op_energy_source_op:
     ; Pod 1.8.5b Move 4: resolve energy_id via registry indirection.
+    ; Pod 1.9.3 (D1.9.3.5): both paths construct Outcome<u64>.
     ; Pop energy_id
     sub     r13, 8
     mov     rdi, [r13]
     call    registry_lookup_energy  ; rax = slot_ptr (0 if invalid)
     test    rax, rax
-    jz      .energy_source_op_null
+    jz      .energy_source_op_invalid_id
     mov     rbx, rax
-    ; Read source_op at +0x08
-    mov     rax, [rbx + ENERGY_OFF_SOURCE_OP]
+    ; Read source_op at +0x08 — wrap in Ok outcome
+    mov     rdi, [rbx + ENERGY_OFF_SOURCE_OP]
+    mov     r8, TYPE_CODE_ENERGY
+    call    .construct_ok_outcome
     mov     [r13], rax
     add     r13, 8
     jmp     .fetch
-.energy_source_op_null:
-    mov     qword [r13], 0
+.energy_source_op_invalid_id:
+    mov     rdi, ERR_INVALID_ID
+    mov     rsi, OP_ENERGY_SOURCE_OP
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_ENERGY
+    call    .construct_err_outcome
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
@@ -1210,6 +1292,107 @@ cbs_run:
     lea     rsi, [rel str_unwrap_err_on_ok]
     call    auryn_puts
     jmp     .fetch
+
+; --- Pod 1.9.3: inline Ok Outcome construction helper ---
+; Constructs an Ok Outcome directly via slot-write + registry-register
+; (no dispatch roundtrip through OP_OUTCOME_NEW_OK). Used by refitted
+; accessor success paths so they consistently return Outcome<T>.
+; Per-opcode cost table is flat-per-opcode (debited at .fetch); handler
+; internal Outcome construction is free relative to cost accounting.
+;
+; Internal calling convention (mirrors .construct_err_outcome):
+;   Input:    rdi = value, r8 = value_type_id
+;   Output:   rax = outcome_id (>=1 on success, 0 if Outcome pool full)
+;   Clobbers: rax, rbx, rcx, rdx, rsi, rdi
+;   Preserves: r12, r13, r14, r15, rbp, r8, r9, r10, r11
+.construct_ok_outcome:
+    push    r8                      ; value_type_id
+    push    rdi                     ; value
+    call    .outcome_alloc          ; rax = slot_ptr (0 if pool full)
+    test    rax, rax
+    jz      .construct_ok_outcome_fail
+    mov     rbx, rax                ; slot_ptr
+    pop     rdi                     ; value
+    pop     r8                      ; value_type_id
+    ; Write slot fields
+    mov     qword [rbx + 0x00], 0   ; discriminant = ok
+    mov     [rbx + 0x08], r8        ; value_type_id
+    mov     [rbx + 0x10], rdi       ; value
+    mov     qword [rbx + 0x18], 0   ; reserved
+    ; Zero err context + Pod 3+ reserved + Move 3 fields (12 qwords at +0x20)
+    push    r8
+    push    rdi
+    lea     rdi, [rbx + 0x20]
+    xor     eax, eax
+    mov     rcx, 12
+    rep     stosq
+    pop     rdi
+    pop     r8
+    ; Register
+    mov     rdi, rbx
+    call    registry_register_outcome
+    ret
+.construct_ok_outcome_fail:
+    add     rsp, 16                 ; discard 2 saved registers
+    xor     rax, rax
+    ret
+
+; --- Pod 1.9.3: inline Err Outcome construction helper (D1.9.3.5) ---
+; Constructs an Err Outcome directly via slot-write + registry-register
+; (no dispatch roundtrip through OP_OUTCOME_NEW_ERR). Used by accessor
+; failure paths and stack-violation refits.
+;
+; Internal calling convention:
+;   Input:    rdi = err_code, rsi = source_op, rdx = demod_id,
+;             rcx = fetch_counter, r8 = value_type_id
+;   Output:   rax = outcome_id (>=1 on success, 0 if Outcome pool full)
+;   Clobbers: rax, rbx, rcx, rdx, rsi, rdi
+;   Preserves: r12, r13, r14, r15, rbp, r8, r9, r10, r11
+;              (caller-side vm-state regs survive the call)
+.construct_err_outcome:
+    ; Save inputs across .outcome_alloc + registry_register_outcome
+    push    r8                      ; value_type_id
+    push    rcx                     ; fetch_counter
+    push    rdx                     ; demod_id
+    push    rsi                     ; source_op
+    push    rdi                     ; err_code
+    call    .outcome_alloc          ; rax = slot_ptr (0 if pool full)
+    test    rax, rax
+    jz      .construct_err_outcome_fail
+    mov     rbx, rax                ; slot_ptr (preserved across registry_register_outcome)
+    ; Restore inputs
+    pop     rdi                     ; err_code
+    pop     rsi                     ; source_op
+    pop     rdx                     ; demod_id
+    pop     rcx                     ; fetch_counter
+    pop     r8                      ; value_type_id
+    ; Write slot fields
+    mov     qword [rbx + 0x00], 1   ; discriminant = err
+    mov     [rbx + 0x08], r8        ; value_type_id
+    mov     qword [rbx + 0x10], 0   ; value (unused for err)
+    mov     qword [rbx + 0x18], 0   ; reserved
+    mov     [rbx + 0x20], rdi       ; err_code
+    mov     [rbx + 0x28], rsi       ; err_source_op
+    mov     [rbx + 0x30], rdx       ; err_demod_id
+    mov     [rbx + 0x38], rcx       ; err_fetch_counter
+    mov     qword [rbx + 0x40], 0   ; Pod 3+ reserved
+    mov     qword [rbx + 0x48], 0
+    mov     qword [rbx + 0x50], 0
+    mov     qword [rbx + 0x58], 0
+    mov     qword [rbx + 0x60], 0
+    mov     qword [rbx + 0x68], 0
+    mov     qword [rbx + 0x70], 0   ; arena_id (Move 3, V1.0 = 0)
+    mov     qword [rbx + 0x78], 0   ; owner_demod_id (Move 3, V1.0 = 0)
+    ; Register
+    mov     rdi, rbx
+    call    registry_register_outcome  ; rax = outcome_id (0 if registry full)
+    ret
+.construct_err_outcome_fail:
+    ; .outcome_alloc returned 0 — Outcome pool full. Restore stack and
+    ; return 0 sentinel. Caller falls back to legacy 0 push.
+    add     rsp, 40                 ; discard 5 saved registers
+    xor     rax, rax
+    ret
 
 ; vm_outcome_alloc: bump allocator for Outcome pool (matches sign_alloc/
 ; energy_alloc shape; no rcx/rdx 1-based id since registry assigns id).

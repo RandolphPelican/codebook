@@ -147,6 +147,19 @@ class AtreyuX86:
             # Leaves 4 values on stack (err_code at bottom, err_fetch_counter at TOS per A1).
             # Test programs follow with print {'type':'tos'} statements to consume in TOS-pop order.
             self._expr(n['value']); e.emit(OP_OUTCOME_UNWRAP_ERR)
+        elif t == 'raw_op_ret':
+            # Pod 1.9.3 T5 test primitive — emit raw OP_RET to trigger
+            # ret_underflow on empty return stack.
+            e.emit(OP_RET)
+        elif t == 'raw_call_overflow_burst':
+            # Pod 1.9.3 T6 test primitive — emit N pairs of (PUSH 0; CALL).
+            # Each pair fills one vm_ret_stack slot; offset 0 means r12 += 0
+            # (next instruction continues normally). After vm_ret_stack capacity
+            # (256) is exhausted, next CALL hits .call_overflow.
+            n_calls = n.get('count', 300)
+            for _ in range(n_calls):
+                e.emit(OP_PUSH); e.emit_i64(0)
+                e.emit(OP_CALL)
 
     def _sign_new(self, n):
         """Emit OP_SIGN_NEW with inline hash and label data."""
@@ -220,18 +233,35 @@ class AtreyuX86:
             print(f"Warning: function calls not yet supported in bytecode", file=sys.stderr)
         elif t == 'sign_new': self._sign_new(n)
         elif t == 'sign_energy':
-            self._expr(n['operand']); e.emit(OP_SIGN_ENERGY)
+            # Pod 1.9.3 (S7): OP_SIGN_ENERGY now returns Outcome<u64>.
+            # AST handler emits accessor + UNWRAP_OK so demo_sign() body stays unchanged.
+            self._expr(n['operand']); e.emit(OP_SIGN_ENERGY); e.emit(OP_OUTCOME_UNWRAP_OK)
         elif t == 'sign_hash_first':
+            # Pod 1.9.3 A1: OP_SIGN_HASH refit deferred (multi-value accessor;
+            # see DEFERRED note). Handler unchanged — pushes 4 hash qwords on success;
+            # null path still pushes 4 zeros (legacy, pending multi-value Outcome design).
             self._expr(n['operand']); e.emit(OP_SIGN_HASH)
             e.emit(OP_DROP); e.emit(OP_DROP); e.emit(OP_DROP)  # drop top 3, keep slot0
         elif t == 'energy_new': self._energy_new(n)
         elif t == 'energy_joules':
-            self._expr(n['operand']); e.emit(OP_ENERGY_JOULES)
+            # Pod 1.9.3 (S7): OP_ENERGY_JOULES now returns Outcome<u64>.
+            self._expr(n['operand']); e.emit(OP_ENERGY_JOULES); e.emit(OP_OUTCOME_UNWRAP_OK)
         elif t == 'energy_source_op':
-            self._expr(n['operand']); e.emit(OP_ENERGY_SOURCE_OP)
+            # Pod 1.9.3 (S7): OP_ENERGY_SOURCE_OP now returns Outcome<u64>.
+            self._expr(n['operand']); e.emit(OP_ENERGY_SOURCE_OP); e.emit(OP_OUTCOME_UNWRAP_OK)
         elif t == 'phase_query':
             # Pod 1.8.5c Move 7 — read vm_phase u64 onto operand stack
             e.emit(OP_PHASE_QUERY)
+        elif t == 'sign_energy_raw_id':
+            # Pod 1.9.3 T3 test primitive — push raw u64 id, emit OP_SIGN_ENERGY.
+            # NO UNWRAP_OK — caller wants the raw outcome_id (Err on invalid).
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_SIGN_ENERGY)
+        elif t == 'energy_joules_raw_id':
+            # Pod 1.9.3 T4 test primitive — push raw u64 id, emit OP_ENERGY_JOULES.
+            # NO UNWRAP_OK — caller wants the raw outcome_id.
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_ENERGY_JOULES)
         # --- Pod 1.9.2b Outcome expressions ---
         elif t == 'tos':
             # No-op: value is already on operand stack (used with 'print' to
@@ -473,6 +503,84 @@ def demo_outcome_unwrap_err():
         {'type':'print','value':{'type':'str','value':'=== UNWRAP_ERR test complete ==='}},
     ]}
 
+def demo_sign_invalid_id():
+    """Pod 1.9.3 T3 — OP_SIGN_ENERGY on invalid sign_id returns Err Outcome.
+    Construct valid Sign (sign_id=1), then call OP_SIGN_ENERGY with sign_id=99 (invalid).
+    Verify is_ok=0 and unwrap_err returns 4 fields per A1 verbatim."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Sign Invalid ID Test (Pod 1.9.3 T3) ==='}},
+        # Construct a valid Sign so the pool has something
+        {'type':'let','name':'s','value':{
+            'type':'sign_new',
+            'hash': b'\xab' + b'\x00' * 31, 'label': 'hello', 'energy': 42,
+        }},
+        # Now call OP_SIGN_ENERGY with invalid sign_id=99 → Err Outcome
+        # Use raw emission via let-bound int + outcome handler shape
+        {'type':'let','name':'o','value':{'type':'sign_energy_raw_id','id':99}},
+        {'type':'print','value':{'type':'str','value':'is_ok:'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter (TOS):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 163 = OP_SIGN_ENERGY):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 1 = ERR_INVALID_ID):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== Sign Invalid ID test complete ==='}},
+    ]}
+
+def demo_energy_invalid_id():
+    """Pod 1.9.3 T4 — OP_ENERGY_JOULES on invalid energy_id returns Err Outcome."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Energy Invalid ID Test (Pod 1.9.3 T4) ==='}},
+        {'type':'let','name':'e','value':{
+            'type':'energy_new', 'joules': 500, 'source_op': 0xA0,
+        }},
+        # Call OP_ENERGY_JOULES with invalid energy_id=99 → Err Outcome
+        {'type':'let','name':'o','value':{'type':'energy_joules_raw_id','id':99}},
+        {'type':'print','value':{'type':'str','value':'is_ok:'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter (TOS):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 209 = OP_ENERGY_JOULES):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 1 = ERR_INVALID_ID):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== Energy Invalid ID test complete ==='}},
+    ]}
+
+def demo_stack_underflow():
+    """Pod 1.9.3 T5 — trigger OP_RET on empty return stack.
+    Pre-violation marker shows program reached the trigger; post-violation
+    diagnostic in screen output proves Err Outcome construction completed
+    before halt (per S6 layering: Err push → diagnostic → halt)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Stack Underflow Test (Pod 1.9.3 T5) ==='}},
+        {'type':'print','value':{'type':'str','value':'before underflow'}},
+        {'type':'print','value':{'type':'str','value':'triggering OP_RET on empty return stack...'}},
+        {'type':'raw_op_ret'},   # triggers underflow → diagnostic + Err on stack + halt
+        # Anything below here will not execute (VM halted)
+        {'type':'print','value':{'type':'str','value':'(this should not appear)'}},
+    ]}
+
+def demo_stack_overflow():
+    """Pod 1.9.3 T6 — fill return stack via recursive OP_CALL until overflow.
+    256-entry vm_ret_stack (per vmdata.asm); test uses a self-call loop."""
+    # Simplest approach: emit a function that calls itself recursively without ever
+    # returning. Recursion depth = vm_ret_stack capacity = 256 frames before overflow.
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Stack Overflow Test (Pod 1.9.3 T6) ==='}},
+        {'type':'print','value':{'type':'str','value':'before overflow'}},
+        {'type':'print','value':{'type':'str','value':'calling self until vm_ret_stack overflows...'}},
+        {'type':'raw_call_overflow_burst'},   # emit 300 (PUSH 0; CALL) pairs to overflow vm_ret_stack
+        {'type':'print','value':{'type':'str','value':'(this should not appear)'}},
+    ]}
+
 def demo_outcome_dup_is_ok():
     """Pod 1.9.2b T6 — DUP-IS_OK pattern: keep outcome_id available for subsequent UNWRAP"""
     # Custom approach: use var(o) for the IS_OK pop (consumes copy from var-table re-push),
@@ -618,5 +726,38 @@ if __name__ == '__main__':
     elif '--outcome-dup-is-ok-test' in sys.argv:
         c = AtreyuX86(); bc = c.compile(demo_outcome_dup_is_ok())
         print(f"DUP-IS_OK test: {len(bc)} bytes")
+    # --- Pod 1.9.3 test surfaces (T3-T6) ---
+    elif '--sign-invalid-id-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_sign_invalid_id())
+        out = sys.argv[sys.argv.index('--sign-invalid-id-build')+1] if len(sys.argv) > sys.argv.index('--sign-invalid-id-build')+1 else 'test_sign_invalid_id.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Sign Invalid ID test: compiled {len(bc)} bytes -> {out}")
+    elif '--sign-invalid-id-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_sign_invalid_id())
+        print(f"Sign Invalid ID test: {len(bc)} bytes")
+    elif '--energy-invalid-id-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_energy_invalid_id())
+        out = sys.argv[sys.argv.index('--energy-invalid-id-build')+1] if len(sys.argv) > sys.argv.index('--energy-invalid-id-build')+1 else 'test_energy_invalid_id.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Energy Invalid ID test: compiled {len(bc)} bytes -> {out}")
+    elif '--energy-invalid-id-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_energy_invalid_id())
+        print(f"Energy Invalid ID test: {len(bc)} bytes")
+    elif '--stack-underflow-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_stack_underflow())
+        out = sys.argv[sys.argv.index('--stack-underflow-build')+1] if len(sys.argv) > sys.argv.index('--stack-underflow-build')+1 else 'test_stack_underflow.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Stack Underflow test: compiled {len(bc)} bytes -> {out}")
+    elif '--stack-underflow-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_stack_underflow())
+        print(f"Stack Underflow test: {len(bc)} bytes")
+    elif '--stack-overflow-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_stack_overflow())
+        out = sys.argv[sys.argv.index('--stack-overflow-build')+1] if len(sys.argv) > sys.argv.index('--stack-overflow-build')+1 else 'test_stack_overflow.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Stack Overflow test: compiled {len(bc)} bytes -> {out}")
+    elif '--stack-overflow-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_stack_overflow())
+        print(f"Stack Overflow test: {len(bc)} bytes")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test}")
