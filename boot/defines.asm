@@ -100,8 +100,26 @@
 %define OP_ENERGY_SOURCE_OP 0xD2
 %define OP_ENERGY_FREE      0xD3
 
+; --- Sign struct layout (Pod 1.7; constants added Pod 1.8.5b for Energy parity) ---
+%define SIGN_SLOT_SIZE       0x80   ; 128 bytes
+%define SIGN_POOL_SLOTS      64
+
 ; --- Energy struct layout (Pod 1.8) ---
 %define ENERGY_OFF_JOULES    0x00
 %define ENERGY_OFF_SOURCE_OP 0x08
 %define ENERGY_SLOT_SIZE     0x80   ; 128 bytes
 %define ENERGY_POOL_SLOTS    64
+
+; --- Canonical ID types (Pod 1.8.5b — Move 4) ---
+; All canonical IDs are u64. ID 0 is reserved as null/invalid.
+; sign_id and energy_id are retrofitted in this pod and now flow
+; through registry indirection (boot/registry.asm) rather than
+; mapping directly to slot indices.
+; cap_id, demod_id, signal_id are reserved as types here; their
+; primitives don't exist yet — Pod 1.10 (Cap), Pod 1.12 (Demod),
+; Pod 4 (Interpreter) inherit the registry pattern when they land.
+%define SIGN_ID_NULL    0
+%define ENERGY_ID_NULL  0
+%define CAP_ID_NULL     0
+%define DEMOD_ID_NULL   0
+%define SIGNAL_ID_NULL  0

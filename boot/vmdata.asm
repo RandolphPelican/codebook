@@ -17,15 +17,32 @@ vm_ret_stack:   times 256 dq 0
 vm_stack:   times 512 dq 0     ; 4KB VM stack
 vm_vars:    times 64 dq 0      ; 512 bytes variables (64-bit, Pod 1.5)
 
-; Sign pool (64 nodes × 128 bytes = 8KB, Pod 1.7)
+; Sign pool (64 nodes × 128 bytes = 8KB, Pod 1.7;
+;            named constants applied Pod 1.8.5b for Energy parity)
     align 16
-vm_sign_pool:   times 64 * 128 db 0
+vm_sign_pool:   times SIGN_POOL_SLOTS * SIGN_SLOT_SIZE db 0
 vm_sign_next:   dq 0            ; bump allocator index (next free slot)
 
 ; Energy pool (64 nodes x 128 bytes = 8KB, Pod 1.8)
     align 16
 vm_energy_pool:  times ENERGY_POOL_SLOTS * ENERGY_SLOT_SIZE db 0
 vm_energy_next:  dq 0            ; bump allocator index (next free slot)
+
+; Sign registry (Pod 1.8.5b — Move 4)
+;   Maps sign_id (opaque counter, 1-based) -> slot pointer (u64).
+;   Each entry = {id: u64, slot_ptr: u64} = 16 bytes.
+;   Capacity matches vm_sign_pool. ID 0 reserved as null.
+    align 16
+sign_registry_count:   dq 0
+sign_registry_next_id: dq 1
+sign_registry:         times SIGN_POOL_SLOTS * 16 db 0
+
+; Energy registry (Pod 1.8.5b — Move 4)
+;   Mirrors sign_registry shape. Capacity matches vm_energy_pool.
+    align 16
+energy_registry_count:   dq 0
+energy_registry_next_id: dq 1
+energy_registry:         times ENERGY_POOL_SLOTS * 16 db 0
 
 ; Memory map buffer (8KB)
     align 16

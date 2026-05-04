@@ -368,6 +368,7 @@ fixup_color:
 %include "boot/gmork.asm"      ; string utils: str_eq, starts_with, parse_hex, print_*
 %include "boot/energy_costs.asm" ; Pod 1.8: per-opcode energy cost table + lookup
 %include "boot/cbs_vm.asm"     ; CBS bytecode VM
+%include "boot/registry.asm"   ; Pod 1.8.5b: canonical-ID registry for Sign and Energy
 %include "boot/bastian.asm"    ; home surface (bastian precedes gmork_main in original)
 %include "boot/gmork_cmds.asm"  ; gmork_main, get_mmap, show_memmap, paint_bars
 %include "drivers/kbd_ps2.asm"  ; PS/2 keyboard driver — native_keyboard_read

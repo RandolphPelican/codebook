@@ -770,8 +770,8 @@ cbs_run:
     call    .sign_alloc
     test    rax, rax
     jz      .sign_new_fail
-    ; rax = slot pointer, rcx = 1-based sign_id
-    push    rcx                 ; save sign_id across memcpy
+    ; rax = slot pointer; rcx (bump-index sign_id) discarded under Move 4
+    push    rax                 ; save slot_ptr across memcpy + register
     ; Copy hash (32 bytes) from hash_addr to slot+0x00
     mov     rdi, rax            ; dest = slot base
     mov     rsi, rbx            ; src = hash_addr
@@ -788,9 +788,13 @@ cbs_run:
     mov     qword [rdi + 8], 0  ; embedding_handle at +0x68
     mov     qword [rdi + 16], 0 ; provenance_handle at +0x70
     mov     qword [rdi + 24], 0 ; reserved at +0x78 (V1.1 sentinel)
-    pop     rcx                 ; restore sign_id
-    ; Push sign_id on operand stack
-    mov     [r13], rcx
+    ; Pod 1.8.5b Move 4: register slot in canonical-ID registry.
+    pop     rdi                 ; restore slot_ptr as registry input
+    call    registry_register_sign
+    test    rax, rax
+    jz      .sign_new_fail      ; registry full (capacities matched, should not occur in V1.0)
+    ; Push sign_id (rax) on operand stack
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 .sign_new_fail:
@@ -801,19 +805,14 @@ cbs_run:
 
 .op_sign_hash:
     ; Energy: handled by fetch-loop cost table (Pod 1.8)
+    ; Pod 1.8.5b Move 4: resolve sign_id via registry indirection.
     ; Pop sign_id
     sub     r13, 8
-    mov     rax, [r13]
-    ; Validate handle: 1 <= sign_id <= 64
+    mov     rdi, [r13]
+    call    registry_lookup_sign    ; rax = slot_ptr (0 if invalid)
     test    rax, rax
     jz      .sign_hash_null
-    cmp     rax, 64
-    ja      .sign_hash_null
-    ; Calculate slot pointer: vm_sign_pool + (sign_id-1) * 128
-    dec     rax
-    shl     rax, 7
-    lea     rbx, [rel vm_sign_pool]
-    add     rbx, rax
+    mov     rbx, rax                ; slot_ptr in rbx (matches downstream layout)
     ; Push 4 slots (32 bytes of hash, low-to-high)
     mov     rax, [rbx]
     mov     [r13], rax
@@ -835,18 +834,14 @@ cbs_run:
 
 .op_sign_label:
     ; Energy: handled by fetch-loop cost table (Pod 1.8)
+    ; Pod 1.8.5b Move 4: resolve sign_id via registry indirection.
     ; Pop sign_id
     sub     r13, 8
-    mov     rax, [r13]
+    mov     rdi, [r13]
+    call    registry_lookup_sign    ; rax = slot_ptr (0 if invalid)
     test    rax, rax
     jz      .sign_label_null
-    cmp     rax, 64
-    ja      .sign_label_null
-    ; Slot pointer
-    dec     rax
-    shl     rax, 7
-    lea     rbx, [rel vm_sign_pool]
-    add     rbx, rax
+    mov     rbx, rax
     ; Label at slot+0x20: byte 0 = length, bytes 1-63 = chars
     ; Push (addr of chars, length) — matches PUSH_STR/PRINT_STR convention
     lea     rax, [rbx + 0x21]      ; pointer to char data (skip length byte)
@@ -863,18 +858,14 @@ cbs_run:
 
 .op_sign_energy:
     ; Energy: handled by fetch-loop cost table (Pod 1.8)
+    ; Pod 1.8.5b Move 4: resolve sign_id via registry indirection.
     ; Pop sign_id
     sub     r13, 8
-    mov     rax, [r13]
+    mov     rdi, [r13]
+    call    registry_lookup_sign    ; rax = slot_ptr (0 if invalid)
     test    rax, rax
     jz      .sign_energy_null
-    cmp     rax, 64
-    ja      .sign_energy_null
-    ; Slot pointer
-    dec     rax
-    shl     rax, 7
-    lea     rbx, [rel vm_sign_pool]
-    add     rbx, rax
+    mov     rbx, rax
     ; energy_cost at slot+0x60
     mov     rax, [rbx + 0x60]
     mov     [r13], rax
@@ -899,20 +890,22 @@ cbs_run:
     call    .energy_alloc
     test    rax, rax
     jz      .energy_new_fail
-    ; rax = slot pointer, rdx = 1-based energy_id
+    ; rax = slot pointer; rdx (bump-index energy_id) discarded under Move 4
     mov     [rax + ENERGY_OFF_JOULES], rcx      ; joules at +0x00
     mov     [rax + ENERGY_OFF_SOURCE_OP], rbx   ; source_op at +0x08
     ; Zero reserved area (112 bytes at +0x10)
-    push    rdi
-    push    rcx
+    push    rax                     ; save slot_ptr across stosq + register
     lea     rdi, [rax + 0x10]
     xor     eax, eax
     mov     rcx, 14                 ; 14 * 8 = 112 bytes
     rep     stosq
-    pop     rcx
-    pop     rdi
-    ; Push energy_id on operand stack
-    mov     [r13], rdx
+    pop     rdi                     ; restore slot_ptr as registry input
+    ; Pod 1.8.5b Move 4: register slot in canonical-ID registry.
+    call    registry_register_energy
+    test    rax, rax
+    jz      .energy_new_fail        ; registry full (capacities matched, should not occur in V1.0)
+    ; Push energy_id (rax) on operand stack
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 .energy_new_fail:
@@ -921,19 +914,14 @@ cbs_run:
     jmp     .fetch
 
 .op_energy_joules:
+    ; Pod 1.8.5b Move 4: resolve energy_id via registry indirection.
     ; Pop energy_id
     sub     r13, 8
-    mov     rax, [r13]
-    ; Validate: 1 <= energy_id <= 64
+    mov     rdi, [r13]
+    call    registry_lookup_energy  ; rax = slot_ptr (0 if invalid)
     test    rax, rax
     jz      .energy_joules_null
-    cmp     rax, ENERGY_POOL_SLOTS
-    ja      .energy_joules_null
-    ; Slot pointer: vm_energy_pool + (energy_id-1) * 128
-    dec     rax
-    shl     rax, 7
-    lea     rbx, [rel vm_energy_pool]
-    add     rbx, rax
+    mov     rbx, rax
     ; Read joules at +0x00
     mov     rax, [rbx + ENERGY_OFF_JOULES]
     mov     [r13], rax
@@ -945,19 +933,14 @@ cbs_run:
     jmp     .fetch
 
 .op_energy_source_op:
+    ; Pod 1.8.5b Move 4: resolve energy_id via registry indirection.
     ; Pop energy_id
     sub     r13, 8
-    mov     rax, [r13]
-    ; Validate: 1 <= energy_id <= 64
+    mov     rdi, [r13]
+    call    registry_lookup_energy  ; rax = slot_ptr (0 if invalid)
     test    rax, rax
     jz      .energy_source_op_null
-    cmp     rax, ENERGY_POOL_SLOTS
-    ja      .energy_source_op_null
-    ; Slot pointer
-    dec     rax
-    shl     rax, 7
-    lea     rbx, [rel vm_energy_pool]
-    add     rbx, rax
+    mov     rbx, rax
     ; Read source_op at +0x08
     mov     rax, [rbx + ENERGY_OFF_SOURCE_OP]
     mov     [r13], rax

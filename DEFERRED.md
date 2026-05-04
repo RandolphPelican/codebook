@@ -154,3 +154,88 @@ register from UEFI context. r14 (energy remaining) is correct;
 r15 is misleading. Fix in Pod 1.8 (Energy typed primitive) when the
 energy display is redesigned. See D1.7.8 in
 `recon/POD1.7_DECISION_RECORD.md`.
+
+## 16. Outcome error path for invalid canonical-ID lookups (added Pod 1.8.5b)
+
+`registry_lookup_sign` and `registry_lookup_energy` return `0` when an
+ID is not found (id == 0 or no matching entry). Current Sign/Energy
+accessor handlers fall through to existing null-paths that push 0/null
+on the operand stack — no typed `Outcome::Err` representation. Pod 1.9
+(Outcome) formalizes the error type and accessor handlers should be
+retrofitted to push `Err(InvalidId)` instead of silent null. Same
+pattern will apply to `cap_id`, `demod_id`, `signal_id` registry
+lookups when those primitives land.
+
+## 17. Cap, Demod, Signal registry implementations (added Pod 1.8.5b)
+
+`CAP_ID_NULL`, `DEMOD_ID_NULL`, `SIGNAL_ID_NULL` are reserved as types
+in `boot/defines.asm` (Pod 1.8.5b Move 4) but the corresponding
+registry tables and `registry_register_*` / `registry_lookup_*`
+functions don't exist yet. Pod 1.10 (Cap), Pod 1.12 (Demod), and
+Pod 4 (Interpreter) add their own registry pairs in `boot/registry.asm`
+following the Sign/Energy shape established by this pod.
+
+## 18. Linear-scan registry lookup optimization (added Pod 1.8.5b, post-V1)
+
+`registry_lookup_sign` and `registry_lookup_energy` use linear scan
+over `{id, slot_ptr}` entries (O(n) where n = pool capacity, currently
+64). Acceptable for V1.0; at high pool capacities or high lookup
+frequencies an open-addressing hash table or sorted-array binary
+search would amortize. Defer until profiling shows accessor calls as
+a hot path.
+
+## 19. OP_*_FREE registry invalidation (added Pod 1.8.5b)
+
+`OP_ENERGY_FREE` is a V1.0 no-op (consumes id, no slot recycling).
+Future SIGN/ENERGY/CAP/etc. FREE primitives that reclaim slots must
+also invalidate the registry entry — either set `slot_ptr = 0` and
+have `registry_lookup_*` treat that as not-found, or compact the
+registry on free. Without this, a freed-then-recycled slot would map
+two distinct IDs to the same `slot_ptr`, breaking the canonical-ID
+invariant. Sealed for whichever pod activates free-list recycling
+(Pod 1.10+ or post-V1).
+
+## 20. codebook.img non-determinism (mtools mformat random volume serial) (added Pod 1.8.5b)
+
+`./build.sh` produces a `BOOTX64.EFI` that is byte-deterministic across
+runs but a `codebook.img` (FAT32 wrapper) that is not — `mkfs.vfat` /
+`mformat` injects a random volume serial number on each invocation
+(observed e.g. `1F9C-6BAD` then different on rebuild). The substantive
+product is the EFI; the .img is transport. `binary_contracts.md`
+records EFI sha256 only, so this does not affect the contract chain.
+Cleanup: pass a fixed serial via `mkfs.vfat -i HHHHHHHH` or equivalent
+mtools flag in build.sh. Latent at least since Pod 1.8; surfaced
+explicitly during Pod 1.8.5b R5 recon. Low priority.
+
+## 21. .cbc test files not copied onto FAT32 image (added Pod 1.8.5b)
+
+`./build.sh` copies only `BOOTX64.EFI` to the FAT32 image; .cbc files
+in `surfaces/` (sign_test.cbc, test_energy.cbc, etc.) are not copied,
+so `gmork> load <filename>` cannot find them out-of-the-box. Pod 1.7
+and Pod 1.8 (and Pod 1.8.5b's B2/B3 round-trips) have been working
+around this by manually `mcopy`-ing test files onto a scratch image
+before launching QEMU. A `--with-tests` or `--full-image` flag in
+build.sh that copies `surfaces/*.cbc` onto the image would make
+testing more ergonomic. Low priority; document the workaround in
+`recon/POD1.8_QEMU_AUTOMATION.md` if a fresh test setup is needed
+before this is fixed.
+
+## 22. morla.asm reuses str_run_bad for file-not-found (added Pod 1.8.5b)
+
+`boot/morla.asm:193` and `:247` print `str_run_bad` ("Usage: run
+<0-8>") when a `load <filename>` operation fails (file not found,
+read error, etc.). The user sees a misleading message about the `run`
+command when the actual issue is with `load`. Should be a dedicated
+`str_load_failed` (or similar) message. Surfaced during Pod 1.8.5b
+B2/B3 round-trip when test files were not on the image. Low priority,
+cosmetic.
+
+## 23. Bastian menu order (added Pod 1.8.5b)
+
+`recon/POD1.8_QEMU_AUTOMATION.md` step-by-step example uses `sendkey 2`
+to enter Gmork, which is correct under the current Bastian menu (item
+1 = Bastian Home, item 2 = Gmork Terminal). Earlier QEMU-automation
+narrative in chat-history canon stated `sendkey 1` for Gmork, which
+matched a pre-Pod-0.7 menu ordering. Pod 1.8.5b round-trip script
+`tools/pod185b_qemu_test.sh` (throwaway, not committed) uses `sendkey 2`
+correctly. Reference doc is current; recording for context only.
