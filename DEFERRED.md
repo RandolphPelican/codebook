@@ -794,7 +794,7 @@ architect changes direction. Six-script accumulation is the
 largest since pre-1.9.4 cleanup; merge-into-test_qemu.sh shape is
 increasingly attractive. Schedule housekeeping pod when convenient.
 
-## 63. Pod 1.10.3 Cap metabolic wiring (added Pod 1.10.2b2, forward-looking)
+## ~~63. Pod 1.10.3 Cap metabolic wiring (added Pod 1.10.2b2, forward-looking)~~ (RESOLVED — Pod 1.10.3)
 
 Pod 1.10.3 lands the metabolic dimension on Cap slots, setting stage
 for Pod 2 Cop's spatial-merge activation:
@@ -902,3 +902,72 @@ substrate work is the largest since pre-1.9.4 cleanup;
 merge-into-test_qemu.sh shape is increasingly tractable.
 Housekeeping pod (Pod 1.10.3 candidate or Pod 2 candidate)
 worth scheduling.
+
+## 68. Pod 2 (Cop is born) inherits Pod 1.10.3 substrate prep (added Pod 1.10.3, forward-looking)
+
+Pod 1.10.3 closes the substrate-prep arc. Every cap has metabolic
+accounting fields (energy_budget MAC-input + energy_used non-MAC).
+Every primitive across all four typed pools (Sign, Energy, Outcome,
+Cap) carries full provenance (arena/owner/creator). Pod 2 (Cop)
+becomes pure behavior on prepared substrate:
+- Spatial-merge activation (delegation tax — every authority-
+  exercise increments ancestor energy_used by half-cost up the
+  parent_cap_id chain via OP_CAP_PARENT walk)
+- cap_bitmap structured semantics (per-cap permission bitmap)
+- Nonce + expiry enforcement
+- Ed25519 cross-trust (V1.1+)
+- Revocation policy via generation_counter advancement
+- ERR_CAP_AUTHORITY_EXCEEDED activation (per #61) when sub-arena
+  delegation lands
+
+**No further Cap slot additions needed.** The substrate is
+complete-as-substrate. Cop is smaller and more focused than v3
+manifesto anticipated; substrate prep moved into Pod 1.10.3 means
+Cop becomes behavior-on-prepared-substrate rather than behavior +
+substrate prep.
+
+## 69. CBS print_dec is signed-interpreting (added Pod 1.10.3, forward-looking)
+
+CBS `OP_PRINT_NUM` (which the demo emitter uses for numeric prints)
+renders u64 values via signed i64 conversion. Values >= 2^63 render
+as negative — e.g., `ENERGY_BUDGET_UNBOUNDED = 0xFFFFFFFFFFFFFFFF`
+renders as `-1` rather than `18446744073709551615`.
+
+Surfaced at Pod 1.10.3 B9 — substrate stored MAX_U64 correctly
+(MAC verify at boot succeeded over 7-qword range; accessor read it
+back identically), but the demo's expectation comment expected the
+unsigned decimal rendering. Demo comment fixed at C0; substrate
+behavior is correct.
+
+For substrate-internal values that semantically represent unsigned
+quantities (energy_budget, energy_used, joules, slot offsets), this
+can mislead readers of test output if the value approaches/exceeds
+2^63. Future pods consider `OP_PRINT_DEC_UNSIGNED` for explicit
+unsigned rendering when semantically required. Not Pod 1.10.3's
+task; Pod 2 (Cop) or Pod 3 may surface it.
+
+## 70. Pod 1.10.3 throwaway test scripts join housekeeping bundle (added Pod 1.10.3)
+
+Three throwaway QEMU test scripts in working tree (all unstaged
+per DEFERRED #10 + Pod 1.9.4 D1.9.4.1 precedent):
+- tools/pod1103_qemu_test.sh — B4+B19 pristine boot harness
+  (copied from pod1102b2; SCREEN basename swap)
+- tools/pod1103_canary_test.sh — generic surface canary harness
+  (copied unchanged from pod1102b2; pod-agnostic by design)
+- tools/pod1103_b5_b6_runner.sh — B5/B6 batch runner with
+  reference paths swapped to pod1102b2 refs
+
+Bundle accumulating since 1.9.4 cleared; ~12 scripts now (three
+each from 1.10.2a per #59, 1.10.2b1 per #62, 1.10.2b2 per #67,
+1.10.3 here). Same disposition options as #33-#34, #48, #52, #59,
+#62, #67: merge-into-test_qemu.sh as parameterized harness, or
+remove. Pod 1.9.4 ratified removal-over-merge for fastest path;
+future bundle dispositions inherit unless architect changes
+direction.
+
+Twelve-script accumulation across four pods of substrate work is
+the largest since pre-1.9.4 cleanup; merge-into-test_qemu.sh shape
+is becoming tractable — the canary test scripts are pod-agnostic
+by design (just argument-driven), so a unified pod-agnostic runner
+would absorb all 12 into one harness. Pod 2 or Pod 3 candidate for
+absorption.

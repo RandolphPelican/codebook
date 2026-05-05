@@ -149,6 +149,9 @@
 %define OP_CAP_OWNER     0xB5   ; Pod 1.10.2b1 — pop cap_id, MAC verify, push Outcome<owner_demod_id>
 %define OP_CAP_RESOURCE  0xB6   ; Pod 1.10.2b1 — pop cap_id, MAC verify, push Outcome<resource_descriptor>
 %define OP_CAP_PARENT    0xB7   ; Pod 1.10.2b2 — pop cap_id, MAC verify, push Outcome<parent_cap_id>
+; Pod 1.10.3 — Cap metabolic accessors
+%define OP_CAP_BUDGET    0xB8   ; pop cap_id, MAC verify, push Outcome<energy_budget>
+%define OP_CAP_USED      0xB9   ; pop cap_id, MAC verify, push Outcome<energy_used>
 
 ; --- Pod 1.10.2a Cap pool / slot constants (D1.10.1.10) ---
 ; CAP_ID_NULL=0 already defined above in canonical-ID null-sentinel block (Pod 1.8.5b).
@@ -166,8 +169,13 @@
 %define CAP_OFF_RESOURCE_DESC      0x18
 %define CAP_OFF_PARENT_CAP_ID      0x20
 %define CAP_OFF_GENERATION_COUNTER 0x28
-%define CAP_OFF_MAC                0x30
-%define CAP_MAC_INPUT_QWORDS       6   ; cap_id_self through generation_counter (48 bytes)
+; Pod 1.10.3 layout shift: energy_budget joins MAC-input range at +0x30;
+; MAC moves from +0x30 to +0x38; energy_used (non-MAC, mutable) at +0x40.
+%define CAP_OFF_ENERGY_BUDGET      0x30   ; Pod 1.10.3 — MAC-input, immutable identity component
+%define CAP_OFF_MAC                0x38   ; was 0x30 pre-1.10.3
+%define CAP_OFF_ENERGY_USED        0x40   ; Pod 1.10.3 — non-MAC, substrate-managed mutable state
+%define CAP_MAC_INPUT_QWORDS       7   ; was 6 pre-1.10.3 — cap_id_self through energy_budget (56 bytes)
+%define ENERGY_BUDGET_UNBOUNDED    0xFFFFFFFFFFFFFFFF   ; Pod 1.10.3 — ROOT_CAP and any future unbounded grants
 
 ; --- Pod 1.8.5c Move 7: vm_phase enum ---
 ; Boot sequence steps SEED → FORM → CHANNELS → MIND in V1.0.

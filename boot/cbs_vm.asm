@@ -194,6 +194,11 @@ cbs_run:
     je      .op_outcome_creator
     cmp     al, OP_CAP_PARENT
     je      .op_cap_parent
+    ; Pod 1.10.3 — Cap metabolic accessors
+    cmp     al, OP_CAP_BUDGET
+    je      .op_cap_budget
+    cmp     al, OP_CAP_USED
+    je      .op_cap_used
 
     ; Unknown opcode
     lea     rsi, [rel str_vm_unk]
@@ -1364,11 +1369,17 @@ cbs_run:
 ; =============================================================
 
 ; --- OP_CAP_NEW (0xB0) ---
-; Pop resource_descriptor; construct Cap slot under strict delegation
-; (arena/owner inherited from current_cap; parent_cap_id = current_cap_id).
-; MAC computed after cap_id_self assignment from registry. Push Outcome::Ok
-; wrapping cap_id (Pod 1.9.3 Path A semantics).
+; Pop (resource_descriptor, energy_budget) — Pod 1.10.3 D1.10.3.2
+; signature amendment from Pod 1.10.2b1's 1-arg shape. energy_budget
+; joins MAC-input range (immutable identity); energy_used initialized
+; to 0 (non-MAC, mutable, substrate-managed). Construct Cap slot under
+; strict delegation (arena/owner inherited from current_cap;
+; parent_cap_id = current_cap_id). MAC computed over 7 qwords after
+; cap_id_self assignment from registry. Push Outcome::Ok wrapping
+; cap_id (Pod 1.9.3 Path A semantics).
 .op_cap_new:
+    sub     r13, 8
+    mov     r9, [r13]                       ; energy_budget (top of stack; Pod 1.10.3)
     sub     r13, 8
     mov     r10, [r13]                      ; resource_descriptor
 
@@ -1393,6 +1404,11 @@ cbs_run:
     mov     rax, [rel current_cap_id]
     mov     [rbx + CAP_OFF_PARENT_CAP_ID], rax
     mov     qword [rbx + CAP_OFF_GENERATION_COUNTER], 0
+    ; Pod 1.10.3 metabolic fields — energy_budget in MAC-input range,
+    ; energy_used (non-MAC) initialized to 0; substrate prep only,
+    ; Pod 2 Cop activates incrementing via spatial-merge.
+    mov     [rbx + CAP_OFF_ENERGY_BUDGET], r9
+    mov     qword [rbx + CAP_OFF_ENERGY_USED], 0
 
     ; Register slot to obtain cap_id (registry preserves r12-r15, rbx, rbp, rdi)
     mov     rdi, rbx
@@ -1404,13 +1420,14 @@ cbs_run:
     mov     [rbx + CAP_OFF_CAP_ID_SELF], rax
     inc     qword [rel vm_cap_next]
 
-    ; Compute MAC over 6 input fields (now that cap_id_self is correct)
+    ; Compute MAC over 7 input fields (Pod 1.10.3 — was 6 pre-1.10.3;
+    ; cap_id_self through energy_budget; constant propagates).
     push    rax                             ; preserve cap_id across siphash_compute
     mov     rdi, rbx
     mov     rsi, CAP_MAC_INPUT_QWORDS
     call    siphash_compute                 ; rax = MAC (preserves r12-r15, rbx, rbp, rdi)
     pop     rcx                             ; cap_id back in rcx
-    mov     [rbx + CAP_OFF_MAC], rax        ; stamp MAC
+    mov     [rbx + CAP_OFF_MAC], rax        ; stamp MAC at +0x38 (Pod 1.10.3; constant)
 
     ; Wrap cap_id in Outcome::Ok per Path A
     mov     rdi, rcx                        ; value = cap_id
@@ -1765,6 +1782,28 @@ cbs_run:
     mov     rdi, [r13]                      ; cap_id
     mov     rcx, CAP_OFF_PARENT_CAP_ID      ; 0x20
     mov     rsi, OP_CAP_PARENT
+    call    .cap_accessor_common            ; existing 1.10.2b1 helper
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_CAP_BUDGET (0xB8) Pod 1.10.3 — third consumer of .cap_accessor_common ---
+.op_cap_budget:
+    sub     r13, 8
+    mov     rdi, [r13]                      ; cap_id
+    mov     rcx, CAP_OFF_ENERGY_BUDGET      ; 0x30
+    mov     rsi, OP_CAP_BUDGET
+    call    .cap_accessor_common            ; existing 1.10.2b1 helper
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_CAP_USED (0xB9) Pod 1.10.3 — fourth consumer of .cap_accessor_common ---
+.op_cap_used:
+    sub     r13, 8
+    mov     rdi, [r13]                      ; cap_id
+    mov     rcx, CAP_OFF_ENERGY_USED        ; 0x40
+    mov     rsi, OP_CAP_USED
     call    .cap_accessor_common            ; existing 1.10.2b1 helper
     mov     [r13], rax
     add     r13, 8

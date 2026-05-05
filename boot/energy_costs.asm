@@ -112,8 +112,8 @@ energy_cost_table:
     dq 1, 1                 ; 0xA7–0xA8 — reserved (Sign Pod 3+)
     dq 1, 1, 1, 1, 1       ; 0xA9–0xAD — reserved
     dq 1, 1                 ; 0xAE–0xAF — reserved
-; Row 0xB0–0xBF — Cap opcodes (Pod 1.10.2b1 at 0xB0-0xB6)
-    dq 1                    ; 0xB0 — OP_CAP_NEW (metabolic construction; SipHash MAC compute)
+; Row 0xB0–0xBF — Cap opcodes (Pod 1.10.2b1 at 0xB0-0xB6, Pod 1.10.2b2 at 0xB7, Pod 1.10.3 at 0xB8-0xB9)
+    dq 1                    ; 0xB0 — OP_CAP_NEW (metabolic construction; SipHash MAC compute over 7 qwords post-1.10.3)
     dq 1                    ; 0xB1 — OP_CAP_ENTER (metabolic; MAC verify per A1 — load-bearing forgery detection)
     dq 0                    ; 0xB2 — OP_CAP_EXIT (structural; cap_stack pop + cache restore; restored cap pre-authenticated)
     dq 0                    ; 0xB3 — OP_CAP_CURRENT (structural; pure substrate state read)
@@ -121,7 +121,9 @@ energy_cost_table:
     dq 1                    ; 0xB5 — OP_CAP_OWNER (metabolic; lookup + MAC verify + slot read)
     dq 1                    ; 0xB6 — OP_CAP_RESOURCE (metabolic; lookup + MAC verify + slot read)
     dq 1                    ; 0xB7 — OP_CAP_PARENT (Pod 1.10.2b2; metabolic; lookup + MAC verify + parent_cap_id read)
-    dq 1, 1, 1, 1           ; 0xB8–0xBB — reserved
+    dq 1                    ; 0xB8 — OP_CAP_BUDGET (Pod 1.10.3; metabolic; lookup + MAC verify + energy_budget read)
+    dq 1                    ; 0xB9 — OP_CAP_USED (Pod 1.10.3; metabolic; lookup + MAC verify + energy_used read)
+    dq 1, 1                 ; 0xBA–0xBB — reserved
     dq 1, 1, 1, 1           ; 0xBC–0xBF — reserved
 ; Row 0xC0–0xCF
     times 16 dq 1           ; 0xC0–0xCF — unallocated (Cap 0xC0–0xCF Pod 1.10)

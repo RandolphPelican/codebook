@@ -83,6 +83,16 @@ OP_OUTCOME_ARENA   = 0xE5
 OP_OUTCOME_OWNER   = 0xE6
 OP_OUTCOME_CREATOR = 0xE7
 
+# --- Pod 1.10.3 Cap metabolic accessors ---
+OP_CAP_BUDGET      = 0xB8
+OP_CAP_USED        = 0xB9
+
+# --- Pod 1.10.3 substrate constants (for default arg values) ---
+# Signed two's-complement representation of 0xFFFFFFFFFFFFFFFF for
+# struct.pack('<q', ...) compatibility (emit_i64 uses signed i64 pack).
+# Bytes emitted are byte-identical to the unsigned 0xFFFFFFFFFFFFFFFF.
+ENERGY_BUDGET_UNBOUNDED = -1
+
 # --- Pod 1.9.2a/1.9.2b TYPE_CODE_* enum (D1.9.1.1) ---
 TYPE_CODE_NONE     = 0
 TYPE_CODE_SIGN     = 1
@@ -328,9 +338,14 @@ class AtreyuX86:
             self._expr(n['operand']); e.emit(OP_OUTCOME_UNWRAP_ERR)
         # --- Pod 1.10.2b1 Cap expressions ---
         elif t == 'cap_new':
-            # Pop resource_descriptor; push Outcome<cap_id>. Strict delegation
-            # at handler — arena/owner inherited from current_cap caches.
+            # Pod 1.10.3 D1.10.3.2 signature amendment: pops (resource_descriptor,
+            # energy_budget). Top-of-stack = energy_budget (last pushed) per A3.
+            # Caller can omit energy_budget — defaults to ENERGY_BUDGET_UNBOUNDED.
+            # Strict delegation at handler: arena/owner inherited from current_cap
+            # caches. Slot fields written: arena/owner/resource/parent/generation/
+            # energy_budget (MAC-input) + energy_used=0 (non-MAC). MAC over 7 qwords.
             e.emit(OP_PUSH); e.emit_i64(n.get('resource_descriptor', 0))
+            e.emit(OP_PUSH); e.emit_i64(n.get('energy_budget', ENERGY_BUDGET_UNBOUNDED))
             e.emit(OP_CAP_NEW)
         elif t == 'cap_enter':
             # Pop cap_id; MAC verify + cap_stack push + cache update.
@@ -378,6 +393,16 @@ class AtreyuX86:
             self._expr(n['operand']); e.emit(OP_OUTCOME_CREATOR); e.emit(OP_OUTCOME_UNWRAP_OK)
         elif t == 'cap_parent':
             self._expr(n['operand']); e.emit(OP_CAP_PARENT); e.emit(OP_OUTCOME_UNWRAP_OK)
+        # --- Pod 1.10.3 Cap metabolic accessor expressions ---
+        elif t == 'cap_budget':
+            self._expr(n['operand']); e.emit(OP_CAP_BUDGET); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'cap_used':
+            self._expr(n['operand']); e.emit(OP_CAP_USED); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'cap_budget_raw_id':
+            # Test primitive — push raw cap_id, emit OP_CAP_BUDGET, no UNWRAP_OK
+            # (caller wants the raw outcome_id for invalid-id tests).
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_CAP_BUDGET)
         # --- Raw-id test primitives for invalid-id tests (no UNWRAP_OK) ---
         elif t == 'sign_arena_raw_id':
             e.emit(OP_PUSH); e.emit_i64(n['id'])
@@ -986,6 +1011,88 @@ def demo_invalid_id_each_new_accessor():
         {'type':'print','value':{'type':'str','value':'=== Invalid ID Each New Accessor test complete ==='}},
     ]}
 
+# --- Pod 1.10.3 Cap metabolic test surfaces (T1-T5) ---
+
+def demo_cap_budget_basic():
+    """Pod 1.10.3 T1 — Construct cap with energy_budget=1000; verify
+    OP_CAP_BUDGET round-trips. First observable effect of the metabolic
+    field landing in MAC-input range."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cap Budget Basic Test (Pod 1.10.3 T1) ==='}},
+        {'type':'let','name':'co','value':{'type':'cap_new','resource_descriptor':42,'energy_budget':1000}},
+        {'type':'let','name':'cap_id','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'print','value':{'type':'str','value':'cap_id (expect 2):'}},
+        {'type':'print','value':{'type':'var','name':'cap_id'}},
+        {'type':'print','value':{'type':'str','value':'budget (expect 1000):'}},
+        {'type':'print','value':{'type':'cap_budget','operand':{'type':'var','name':'cap_id'}}},
+        {'type':'print','value':{'type':'str','value':'=== Cap Budget Basic test complete ==='}},
+    ]}
+
+def demo_cap_used_zero_at_construction():
+    """Pod 1.10.3 T2 — Construct cap with energy_budget=500; verify
+    OP_CAP_USED returns 0. Pod 1.10.3 substrate-prep-only stance:
+    energy_used stays 0 in V1.0; Pod 2 Cop activates incrementing."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cap Used Zero At Construction Test (Pod 1.10.3 T2) ==='}},
+        {'type':'let','name':'co','value':{'type':'cap_new','resource_descriptor':17,'energy_budget':500}},
+        {'type':'let','name':'cap_id','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'print','value':{'type':'str','value':'used (expect 0; V1.0 substrate prep only):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'cap_id'}}},
+        {'type':'print','value':{'type':'str','value':'=== Cap Used Zero test complete ==='}},
+    ]}
+
+def demo_root_cap_unbounded():
+    """Pod 1.10.3 T3 — OP_CAP_BUDGET(ROOT_CAP_ID=1) returns
+    0xFFFFFFFFFFFFFFFF (MAX_U64 = ENERGY_BUDGET_UNBOUNDED). Verifies
+    ROOT_CAP construction with unbounded grant per D1.10.3.3."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Root Cap Unbounded Test (Pod 1.10.3 T3) ==='}},
+        {'type':'print','value':{'type':'str','value':'budget_of_ROOT (expect -1 = signed i64 of MAX_U64):'}},
+        {'type':'print','value':{'type':'cap_budget','operand':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'used_of_ROOT (expect 0):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'=== Root Cap Unbounded test complete ==='}},
+    ]}
+
+def demo_cap_budget_invalid_id():
+    """Pod 1.10.3 T4 — OP_CAP_BUDGET(99) returns Err Outcome with
+    err_code=ERR_INVALID_ID (1), source_op=OP_CAP_BUDGET (0xB8=184).
+    Verifies failure semantics for the new accessor family."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cap Budget Invalid ID Test (Pod 1.10.3 T4) ==='}},
+        {'type':'let','name':'o','value':{'type':'cap_budget_raw_id','id':99}},
+        {'type':'print','value':{'type':'str','value':'is_ok:'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 184 = OP_CAP_BUDGET):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 1 = ERR_INVALID_ID):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== Cap Budget Invalid ID test complete ==='}},
+    ]}
+
+def demo_cap_budget_immutable_via_mac():
+    """Pod 1.10.3 T5 — Construct cap with budget X; OP_CAP_BUDGET
+    returns X. Structural confirmation that energy_budget is in MAC-
+    input range (the round-trip can only succeed if construct-side and
+    accessor-side agree on the layout). Pod 2 will add tamper detection;
+    V1.0 has no mechanism to forge tampering, so this test is shape-
+    confirmation rather than negative-test coverage."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cap Budget Immutable Test (Pod 1.10.3 T5) ==='}},
+        {'type':'let','name':'co','value':{'type':'cap_new','resource_descriptor':7,'energy_budget':2024}},
+        {'type':'let','name':'cap_id','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'print','value':{'type':'str','value':'budget read 1 (expect 2024):'}},
+        {'type':'print','value':{'type':'cap_budget','operand':{'type':'var','name':'cap_id'}}},
+        {'type':'print','value':{'type':'str','value':'budget read 2 (expect 2024 — round-trip stable):'}},
+        {'type':'print','value':{'type':'cap_budget','operand':{'type':'var','name':'cap_id'}}},
+        {'type':'print','value':{'type':'str','value':'=== Cap Budget Immutable test complete ==='}},
+    ]}
+
 def demo_energy():
     """Pod 1.8 Energy typed primitive test — hardcoded AST demo"""
     return {'type':'program','body':[
@@ -1252,5 +1359,46 @@ if __name__ == '__main__':
     elif '--invalid-id-each-new-accessor-test' in sys.argv:
         c = AtreyuX86(); bc = c.compile(demo_invalid_id_each_new_accessor())
         print(f"Invalid ID Each New Accessor test: {len(bc)} bytes")
+    # --- Pod 1.10.3 Cap metabolic test surfaces (T1-T5) ---
+    elif '--cap-budget-basic-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_budget_basic())
+        out = sys.argv[sys.argv.index('--cap-budget-basic-build')+1] if len(sys.argv) > sys.argv.index('--cap-budget-basic-build')+1 else 'test_cap_budget_basic.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cap Budget Basic test: compiled {len(bc)} bytes -> {out}")
+    elif '--cap-budget-basic-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_budget_basic())
+        print(f"Cap Budget Basic test: {len(bc)} bytes")
+    elif '--cap-used-zero-at-construction-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_used_zero_at_construction())
+        out = sys.argv[sys.argv.index('--cap-used-zero-at-construction-build')+1] if len(sys.argv) > sys.argv.index('--cap-used-zero-at-construction-build')+1 else 'test_cap_used_zero_at_construction.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cap Used Zero test: compiled {len(bc)} bytes -> {out}")
+    elif '--cap-used-zero-at-construction-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_used_zero_at_construction())
+        print(f"Cap Used Zero test: {len(bc)} bytes")
+    elif '--root-cap-unbounded-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_root_cap_unbounded())
+        out = sys.argv[sys.argv.index('--root-cap-unbounded-build')+1] if len(sys.argv) > sys.argv.index('--root-cap-unbounded-build')+1 else 'test_root_cap_unbounded.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Root Cap Unbounded test: compiled {len(bc)} bytes -> {out}")
+    elif '--root-cap-unbounded-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_root_cap_unbounded())
+        print(f"Root Cap Unbounded test: {len(bc)} bytes")
+    elif '--cap-budget-invalid-id-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_budget_invalid_id())
+        out = sys.argv[sys.argv.index('--cap-budget-invalid-id-build')+1] if len(sys.argv) > sys.argv.index('--cap-budget-invalid-id-build')+1 else 'test_cap_budget_invalid_id.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cap Budget Invalid ID test: compiled {len(bc)} bytes -> {out}")
+    elif '--cap-budget-invalid-id-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_budget_invalid_id())
+        print(f"Cap Budget Invalid ID test: {len(bc)} bytes")
+    elif '--cap-budget-immutable-via-mac-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_budget_immutable_via_mac())
+        out = sys.argv[sys.argv.index('--cap-budget-immutable-via-mac-build')+1] if len(sys.argv) > sys.argv.index('--cap-budget-immutable-via-mac-build')+1 else 'test_cap_budget_immutable_via_mac.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cap Budget Immutable test: compiled {len(bc)} bytes -> {out}")
+    elif '--cap-budget-immutable-via-mac-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_budget_immutable_via_mac())
+        print(f"Cap Budget Immutable test: {len(bc)} bytes")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-resource,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test}")

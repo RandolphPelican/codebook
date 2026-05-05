@@ -124,8 +124,10 @@ siphash_compute:
     ret
 
 ; --- siphash_compute_cap_mac(rdi=slot_ptr) -> rax=mac ---
-; Thin wrapper for Cap MAC over 6 qwords (cap_id_self through
-; generation_counter at slot+0x00 through slot+0x28).
+; Thin wrapper for Cap MAC. Pod 1.10.3 expanded MAC-input range from
+; 6 qwords to 7 (cap_id_self through energy_budget at slot+0x00..+0x30).
+; Field count is symbolic via CAP_MAC_INPUT_QWORDS; no source change
+; needed in this wrapper when constant updates.
 siphash_compute_cap_mac:
     mov     rsi, CAP_MAC_INPUT_QWORDS
     jmp     siphash_compute         ; tail call
@@ -302,8 +304,11 @@ siphash_self_test_run:
 ; --- construct_root_cap ---
 ; Builds ROOT_CAP slot at vm_cap_pool[0]:
 ;   cap_id_self=1, arena_id=0, owner_demod_id=0,
-;   resource_descriptor=0, parent_cap_id=0, generation_counter=0
-; Computes MAC via siphash_compute over the 6 fields, stores at +0x30.
+;   resource_descriptor=0, parent_cap_id=0, generation_counter=0,
+;   energy_budget=ENERGY_BUDGET_UNBOUNDED (Pod 1.10.3 D1.10.3.3),
+;   energy_used=0 (non-MAC, substrate-managed).
+; Computes MAC via siphash_compute over 7 fields (Pod 1.10.3
+; D1.10.3.4 — was 6 pre-1.10.3); stores at +0x38 (was +0x30).
 ; Increments vm_cap_next; registers in cap_registry; sanity-checks
 ; that registry_register_cap returned cap_id=1.
 ; Hard-fail with str_root_cap_id_wrong if sanity check fails.
@@ -315,7 +320,12 @@ construct_root_cap:
     mov     qword [rdi + CAP_OFF_RESOURCE_DESC],      0
     mov     qword [rdi + CAP_OFF_PARENT_CAP_ID],      0
     mov     qword [rdi + CAP_OFF_GENERATION_COUNTER], 0
-    ; Compute MAC over 6 qwords (cap_id_self through generation_counter)
+    ; Pod 1.10.3 — energy_budget MAC-input (immutable); energy_used non-MAC (mutable).
+    ; ENERGY_BUDGET_UNBOUNDED = 0xFFFFFFFFFFFFFFFF (64-bit imm requires register intermediate).
+    mov     rax, ENERGY_BUDGET_UNBOUNDED
+    mov     [rdi + CAP_OFF_ENERGY_BUDGET], rax
+    mov     qword [rdi + CAP_OFF_ENERGY_USED], 0
+    ; Compute MAC over 7 qwords (cap_id_self through energy_budget)
     push    rdi                     ; save slot_ptr across siphash_compute
     mov     rsi, CAP_MAC_INPUT_QWORDS
     call    siphash_compute
@@ -337,16 +347,19 @@ construct_root_cap:
     ret
 
 ; --- verify_root_cap_mac (E3) ---
-; Recomputes ROOT_CAP MAC and compares to stored MAC at +0x30.
+; Recomputes ROOT_CAP MAC and compares to stored MAC at +0x38 (Pod 1.10.3
+; layout — was +0x30 pre-1.10.3; CAP_OFF_MAC constant updated).
 ; Catches: SipHash non-determinism over identical input, MAC stored
-; at wrong offset, MAC computed over wrong field range.
+; at wrong offset, MAC computed over wrong field range. Pod 1.10.3
+; relayout: 7-qword input range; relayout-wiring errors surface here
+; at boot E3 self-test before MIND phase per D1.10.2a.5 doctrine.
 ; Hard-fail with str_root_cap_mac_mismatch on mismatch.
 verify_root_cap_mac:
     lea     rdi, [rel vm_cap_pool]
     ; Save stored MAC
     mov     rax, [rdi + CAP_OFF_MAC]
     mov     [rel root_cap_mac_save], rax
-    ; Recompute MAC over 6 qwords
+    ; Recompute MAC over 7 qwords (Pod 1.10.3 — was 6 pre-1.10.3)
     push    rdi
     mov     rsi, CAP_MAC_INPUT_QWORDS
     call    siphash_compute
