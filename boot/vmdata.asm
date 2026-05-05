@@ -109,6 +109,14 @@ current_cap_id:                    dq 1   ; initialized to ROOT_CAP_ID
 current_cap_arena_id_cache:        dq 0
 current_cap_owner_demod_id_cache:  dq 0
 
+; Pod 2.1 — Babylon spatial-merge cost stash (D2.1 / A1 ratification)
+; Stashed at fetch loop after energy_cost_lookup; read at construction
+; sites by handlers and helpers as the dispatching opcode's cost.
+; Generalizable forward-anchor: any future substrate-internal operation
+; that needs to know the cost of the operation triggering it reads
+; current_dispatch_cost.
+current_dispatch_cost:             dq 0
+
 ; Pod 1.10.2a — substrate crypto state (D1.10.1.6 / D1.10.1.7)
 ;   siphash_key derived at boot via RDSEED → RDRAND → hard-fail per
 ;   D1.10.1.6 / A1 ratification. siphash_key_source flag preserves

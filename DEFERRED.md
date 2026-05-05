@@ -814,7 +814,7 @@ for Pod 2 Cop's spatial-merge activation:
 
 Pod 1.10.3 is the next pod after Pod 1.10.2b2 seals Pod 1.10.
 
-## 64. Pod 2 Cop is born (added Pod 1.10.2b2, forward-looking)
+## ~~64. Pod 2 Cop is born (added Pod 1.10.2b2, forward-looking)~~ (PARTIALLY RESOLVED — Pod 2.1 lands Babylon's metabolic activation; Pod 2.2 lands texture + lifecycle; Pod 2.3 lands Ed25519 V1.1+. Cop renamed to Babylon at Pod 2.1 D2.1.1 canon supersession; service is Babylon throughout this pod and forward.)
 
 Pod 2 inherits a substrate where every primitive carries full
 provenance (Sign/Energy/Outcome × arena/owner/creator) and every
@@ -971,3 +971,109 @@ is becoming tractable — the canary test scripts are pod-agnostic
 by design (just argument-driven), so a unified pod-agnostic runner
 would absorb all 12 into one harness. Pod 2 or Pod 3 candidate for
 absorption.
+
+## 71. Pod 2.2 Babylon texture + lifecycle (added Pod 2.1, forward-looking)
+
+Pod 2.2 lands the texture + lifecycle dimensions of Babylon:
+- **cap_bitmap structured semantics** — replaces placeholder
+  resource_descriptor (currently u64 caller-supplied) with a 64-bit
+  permission grid. Per-bit semantic meaning (read/write/exec/grant/
+  delegate/etc. — exact bit assignments at Pod 2.2 recon).
+  Authority-exercise sites bit-check against current_cap.cap_bitmap
+  to verify "is this kind of operation permitted under this cap."
+- **Nonce field** for cap freshness — prevents replay of revoked or
+  superseded caps. Stamped at construction (MAC-input range);
+  checked at each authority exercise.
+- **Expiry field** — wall-clock-ish expiration timestamp. Cap
+  validation includes "is current_time < expiry". V1.0 may use
+  monotonic counter; real time stamps land at Pod 3+ when clock
+  primitive activates.
+- **Revocation policy** via generation_counter advancement (already
+  present in Cap slot at +0x28 from Pod 1.10.2a; Pod 2.2 activates
+  the consumer side — bump-and-check-against-stored-stamp pattern).
+
+Conceptually distinct from Pod 2.1's metabolic activation (spatial-
+merge + cost ledger); texture + lifecycle is what makes a cap
+*permission-shaped* in addition to *authority-anchored*.
+
+## 72. Pod 2.3 Ed25519 cross-trust V1.1+ (added Pod 2.1, forward-looking)
+
+Pod 2.3 lands Ed25519 cross-trust between sovereign chains. Currently
+all caps within one CodebookOS instance share the substrate's
+SipHash key (per-boot RDSEED-derived per Pod 1.10.2a D1.10.2a.2).
+Cross-instance cap delegation requires asymmetric crypto: one
+instance signs a cap with its private key; another instance verifies
+with the public key.
+
+Substantial NASM Ed25519 implementation (hand-rolled from Bernstein
+reference or eqv ref impl). Pod 2.3 is V1.1+ scope per architectural-
+rethink ratification; ships separately from Pod 2.2 because the
+crypto implementation is itself substantial (signature + verification
++ key serialization formats + per-cap pubkey field — slot expansion
+likely).
+
+## 73. Spatial-merge fractional-bit accumulation (added Pod 2.1, forward-looking)
+
+V1.0 spatial-merge uses floor division (shr 1 per depth level).
+Geometric series converges; total federation accounting load bounded
+by originating cost. Lossy-but-bounded model: deep tail rounds to
+zero; fractional precision lost at each depth.
+
+If precision becomes load-bearing (e.g., Pod 4+ Signal economy needs
+fractional-charge accumulation across many small operations), future
+pods may add fractional-bit accumulation — separate u64 fractional
+register per cap accumulating sub-1j contributions; integer carry
+into energy_used when accumulated fraction crosses 1j threshold.
+
+V1.0 accepts the lossy-bounded model as honest substrate prep. Post-
+V1 economic primitives (Pod 4+) may surface the precision concern.
+
+## 74. Pod 2.1 throwaway test scripts join housekeeping bundle (added Pod 2.1)
+
+Three throwaway QEMU test scripts in working tree (all unstaged
+per DEFERRED #10 + Pod 1.9.4 D1.9.4.1 precedent):
+- tools/pod21_qemu_test.sh — B4+B14 pristine boot harness
+  (copied from pod1103; SCREEN basename swap)
+- tools/pod21_canary_test.sh — generic surface canary harness
+  (copied unchanged from pod1103; pod-agnostic by design)
+- tools/pod21_b5_b6_runner.sh — B5/B6 batch runner with
+  reference paths swapped to pod1103 refs
+
+Bundle accumulating since 1.9.4 cleared; ~15 scripts now (three
+each from 1.10.2a per #59, 1.10.2b1 per #62, 1.10.2b2 per #67,
+1.10.3 per #70, 2.1 here). Six pods of accumulation across the Cap
+arc and Babylon birth. Same disposition options as #33-#34, #48,
+#52, #59, #62, #67, #70: merge-into-test_qemu.sh as parameterized
+harness, or remove. Pod 1.9.4 ratified removal-over-merge for
+fastest path; future bundle dispositions inherit unless architect
+changes direction.
+
+Fifteen-script accumulation across six pods of substrate work is
+the largest since pre-1.9.4 cleanup; merge-into-test_qemu.sh shape
+is increasingly tractable — the canary test scripts are pod-
+agnostic by design (just argument-driven), so a unified pod-
+agnostic runner would absorb all 15 into one harness. Pod 2.2 or
+Pod 2.3 candidate for absorption.
+
+## 75. Future ≥2j helper-routing constructors require audit (added Pod 2.1)
+
+OP_CAP_NEW dispatches fire babylon TWICE per success path (site 5
+Cap stamp + site 6 .construct_ok_outcome wrapping cap_id), both at
+1j. Floor-divide neutralizes the second fire (1/2 = 0); no actual
+ripple. Benign because OP_CAP_NEW costs 1j.
+
+**Forward-anchor:** if a future construction opcode costs ≥2j AND
+wraps result in Outcome via .construct_ok_outcome / .construct_err
+_outcome helper, double-fire would over-charge ancestors. The first
+fire ripples, then the helper fire ripples again — ancestors charged
+twice for one dispatch.
+
+Pod 2.2 / 2.3 / 3+ designers audit when adding helper-routing
+constructors with cost ≥2j. Three remediation options if needed:
+- Track "spatial-merge already fired this dispatch" via a one-shot
+  flag in current_dispatch_cost-adjacent state, helpers no-op if set
+- Make helper-fire optional via per-call-site toggle
+- Restructure helper to not fire spatial-merge; opcode handlers fire
+  spatial-merge once per dispatch (post all sub-construction)
+
+V1.0 audit surface is empty; doctrine landed for future pods.

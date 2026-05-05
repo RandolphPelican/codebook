@@ -1093,6 +1093,155 @@ def demo_cap_budget_immutable_via_mac():
         {'type':'print','value':{'type':'str','value':'=== Cap Budget Immutable test complete ==='}},
     ]}
 
+# --- Pod 2.1 Babylon spatial-merge test surfaces (T1-T6) ---
+
+def demo_babylon_single_level():
+    """Pod 2.1 T1 — Single-level spatial-merge.
+    Construct cap A under ROOT (1j → 0 ripple). ENTER A. Forge Sign (100j).
+    EXIT. Read OP_CAP_USED at A and ROOT.
+    Expected: A=0 (originating; doesn't charge itself), ROOT=50 (100/2 floor)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Babylon Single Level Test (Pod 2.1 T1) ==='}},
+        {'type':'let','name':'co','value':{'type':'cap_new','resource_descriptor':10,'energy_budget':1000}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'let','name':'enter_o','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'let','name':'s','value':{
+            'type':'sign_new',
+            'hash': b'\x42' + b'\x00' * 31, 'label': 'sng', 'energy': 1,
+        }},
+        {'type':'let','name':'exit_o','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'A.used (expect 0; originating):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'print','value':{'type':'str','value':'ROOT.used (expect 50; 100/2 floor):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'=== Babylon Single Level test complete ==='}},
+    ]}
+
+def demo_babylon_multi_level():
+    """Pod 2.1 T2 — THE ARCHITECTURAL MOMENT.
+    Three nested caps: A under ROOT, B under A, C under B. ENTER chain to C.
+    Forge Sign (100j). EXIT chain back to ROOT. Read OP_CAP_USED at each level.
+    Expected geometric decay: C=0 (originating), B=50, A=25, ROOT=12 (12.5 floor)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Babylon Multi Level Test (Pod 2.1 T2) ==='}},
+        {'type':'let','name':'co_a','value':{'type':'cap_new','resource_descriptor':1,'energy_budget':10000}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co_a'}}},
+        {'type':'let','name':'enter_a','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'let','name':'co_b','value':{'type':'cap_new','resource_descriptor':2,'energy_budget':5000}},
+        {'type':'let','name':'cap_b','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co_b'}}},
+        {'type':'let','name':'enter_b','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_b'}}},
+        {'type':'let','name':'co_c','value':{'type':'cap_new','resource_descriptor':3,'energy_budget':2500}},
+        {'type':'let','name':'cap_c','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co_c'}}},
+        {'type':'let','name':'enter_c','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_c'}}},
+        {'type':'let','name':'s','value':{
+            'type':'sign_new',
+            'hash': b'\xc0' + b'\x00' * 31, 'label': 'mlw', 'energy': 1,
+        }},
+        {'type':'let','name':'exit_c','value':{'type':'cap_exit'}},
+        {'type':'let','name':'exit_b','value':{'type':'cap_exit'}},
+        {'type':'let','name':'exit_a','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'C.used (expect 0; originating):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'cap_c'}}},
+        {'type':'print','value':{'type':'str','value':'B.used (expect 50; depth 1):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'cap_b'}}},
+        {'type':'print','value':{'type':'str','value':'A.used (expect 25; depth 2):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'print','value':{'type':'str','value':'ROOT.used (expect 12; depth 3):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'=== Babylon Multi Level test complete ==='}},
+    ]}
+
+def demo_babylon_root_only_invisible():
+    """Pod 2.1 T3 — ROOT-only operations are metabolically invisible.
+    Forge Sign under ROOT directly (no sub-cap). Walk-up immediately
+    terminates because ROOT.parent_cap_id=0.
+    Expected: ROOT.used=0 (federation accounting reflects only sub-cap activity)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Babylon Root Only Invisible Test (Pod 2.1 T3) ==='}},
+        {'type':'let','name':'s','value':{
+            'type':'sign_new',
+            'hash': b'\x33' + b'\x00' * 31, 'label': 'rt', 'energy': 1,
+        }},
+        {'type':'print','value':{'type':'str','value':'ROOT.used (expect 0; ROOT-only ops invisible):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'=== Babylon Root Only Invisible test complete ==='}},
+    ]}
+
+def demo_babylon_federation_total():
+    """Pod 2.1 T4 — Federation total accumulation across multiple operations.
+    Construct A under ROOT, B under A. Sign×3 forged under B (100j each).
+    Energy×2 forged under A (10j each per cost table).
+    Expected:
+      Sign×3 under B: each fires babylon(100, B) → A += 50, ROOT += 25.
+        Total: A += 150, ROOT += 75.
+      Energy×2 under A: each fires babylon(10, A) → ROOT += 5.
+        Total: ROOT += 10.
+      Final: A=150, B=0, ROOT=85."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Babylon Federation Total Test (Pod 2.1 T4) ==='}},
+        # Build A under ROOT, B under A
+        {'type':'let','name':'co_a','value':{'type':'cap_new','resource_descriptor':10,'energy_budget':10000}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co_a'}}},
+        {'type':'let','name':'enter_a','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'let','name':'co_b','value':{'type':'cap_new','resource_descriptor':20,'energy_budget':5000}},
+        {'type':'let','name':'cap_b','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co_b'}}},
+        # Forge Sign x3 under B
+        {'type':'let','name':'enter_b','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_b'}}},
+        {'type':'let','name':'s1','value':{'type':'sign_new','hash': b'\x01' + b'\x00' * 31, 'label': 's1', 'energy': 1}},
+        {'type':'let','name':'s2','value':{'type':'sign_new','hash': b'\x02' + b'\x00' * 31, 'label': 's2', 'energy': 1}},
+        {'type':'let','name':'s3','value':{'type':'sign_new','hash': b'\x03' + b'\x00' * 31, 'label': 's3', 'energy': 1}},
+        {'type':'let','name':'exit_b','value':{'type':'cap_exit'}},
+        # Forge Energy x2 under A (still inside A's context)
+        {'type':'let','name':'e1','value':{'type':'energy_new','joules':100,'source_op':0xA0}},
+        {'type':'let','name':'e2','value':{'type':'energy_new','joules':200,'source_op':0xA0}},
+        {'type':'let','name':'exit_a','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'A.used (expect 150; 3 Sign forges via B contribute 50 each):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'print','value':{'type':'str','value':'B.used (expect 0; originating for Sign forges):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'cap_b'}}},
+        {'type':'print','value':{'type':'str','value':'ROOT.used (expect 85; 75 from Sign + 10 from Energy):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'=== Babylon Federation Total test complete ==='}},
+    ]}
+
+def demo_babylon_canary_subcap():
+    """Pod 2.1 T5 — Sub-cap canary. Sign forge under sub-cap A.
+    Per A4 redesign at recon: minimal-shape test verifying
+    (a) operand-stack cost still 174j (substrate-bookkeeping doctrine
+        extends to spatial-merge per Pre-A6 / D2.1.6),
+    (b) A.used=0 (originating doesn't charge itself),
+    (c) ROOT.used=50 (only OP_SIGN_NEW propagates; 100/2 floor).
+    NOT 87 — architect's '174/2' conflation corrected at recon (D2.1.X /
+    same family as D1.10.2a.10 / D1.10.2b1.8 / D1.10.2b2.9 / D1.10.3.8)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Babylon Canary SubCap Test (Pod 2.1 T5) ==='}},
+        {'type':'let','name':'co','value':{'type':'cap_new','resource_descriptor':99,'energy_budget':1000}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'let','name':'enter_o','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'let','name':'s','value':{
+            'type':'sign_new',
+            'hash': b'\xab' + b'\x00' * 31, 'label': 'hello', 'energy': 42,
+        }},
+        {'type':'let','name':'exit_o','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'A.used (expect 0; originating):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'print','value':{'type':'str','value':'ROOT.used (expect 50; 100/2 floor):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'=== Babylon Canary SubCap test complete ==='}},
+    ]}
+
+def demo_babylon_initial_zero():
+    """Pod 2.1 T6 — Sanity baseline. At program start (no operations
+    performed), read OP_CAP_USED(ROOT_CAP_ID).
+    Expected: ROOT.used=0 (Babylon's accounting starts clean each boot;
+    fresh substrate state at every test boot under canary harness)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Babylon Initial Zero Test (Pod 2.1 T6) ==='}},
+        {'type':'print','value':{'type':'str','value':'ROOT.used at program start (expect 0):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'=== Babylon Initial Zero test complete ==='}},
+    ]}
+
 def demo_energy():
     """Pod 1.8 Energy typed primitive test — hardcoded AST demo"""
     return {'type':'program','body':[
@@ -1400,5 +1549,54 @@ if __name__ == '__main__':
     elif '--cap-budget-immutable-via-mac-test' in sys.argv:
         c = AtreyuX86(); bc = c.compile(demo_cap_budget_immutable_via_mac())
         print(f"Cap Budget Immutable test: {len(bc)} bytes")
+    # --- Pod 2.1 Babylon spatial-merge test surfaces (T1-T6) ---
+    elif '--babylon-single-level-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_babylon_single_level())
+        out = sys.argv[sys.argv.index('--babylon-single-level-build')+1] if len(sys.argv) > sys.argv.index('--babylon-single-level-build')+1 else 'test_babylon_single_level.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Babylon Single Level test: compiled {len(bc)} bytes -> {out}")
+    elif '--babylon-single-level-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_babylon_single_level())
+        print(f"Babylon Single Level test: {len(bc)} bytes")
+    elif '--babylon-multi-level-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_babylon_multi_level())
+        out = sys.argv[sys.argv.index('--babylon-multi-level-build')+1] if len(sys.argv) > sys.argv.index('--babylon-multi-level-build')+1 else 'test_babylon_multi_level.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Babylon Multi Level test: compiled {len(bc)} bytes -> {out}")
+    elif '--babylon-multi-level-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_babylon_multi_level())
+        print(f"Babylon Multi Level test: {len(bc)} bytes")
+    elif '--babylon-root-only-invisible-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_babylon_root_only_invisible())
+        out = sys.argv[sys.argv.index('--babylon-root-only-invisible-build')+1] if len(sys.argv) > sys.argv.index('--babylon-root-only-invisible-build')+1 else 'test_babylon_root_only_invisible.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Babylon Root Only Invisible test: compiled {len(bc)} bytes -> {out}")
+    elif '--babylon-root-only-invisible-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_babylon_root_only_invisible())
+        print(f"Babylon Root Only Invisible test: {len(bc)} bytes")
+    elif '--babylon-federation-total-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_babylon_federation_total())
+        out = sys.argv[sys.argv.index('--babylon-federation-total-build')+1] if len(sys.argv) > sys.argv.index('--babylon-federation-total-build')+1 else 'test_babylon_federation_total.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Babylon Federation Total test: compiled {len(bc)} bytes -> {out}")
+    elif '--babylon-federation-total-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_babylon_federation_total())
+        print(f"Babylon Federation Total test: {len(bc)} bytes")
+    elif '--babylon-canary-subcap-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_babylon_canary_subcap())
+        out = sys.argv[sys.argv.index('--babylon-canary-subcap-build')+1] if len(sys.argv) > sys.argv.index('--babylon-canary-subcap-build')+1 else 'test_babylon_canary_subcap.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Babylon Canary SubCap test: compiled {len(bc)} bytes -> {out}")
+    elif '--babylon-canary-subcap-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_babylon_canary_subcap())
+        print(f"Babylon Canary SubCap test: {len(bc)} bytes")
+    elif '--babylon-initial-zero-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_babylon_initial_zero())
+        out = sys.argv[sys.argv.index('--babylon-initial-zero-build')+1] if len(sys.argv) > sys.argv.index('--babylon-initial-zero-build')+1 else 'test_babylon_initial_zero.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Babylon Initial Zero test: compiled {len(bc)} bytes -> {out}")
+    elif '--babylon-initial-zero-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_babylon_initial_zero())
+        print(f"Babylon Initial Zero test: {len(bc)} bytes")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-resource,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test}")

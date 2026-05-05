@@ -397,6 +397,7 @@ fixup_color:
 %include "boot/provenance.asm" ; Pod 1.8.5c Move 2: ProvEvent struct + prov_append
 %include "boot/outcome.asm"    ; Pod 1.9.2a: canonical-ID registry for Outcome<T>
 %include "boot/cap.asm"        ; Pod 1.10.2a: Cap substrate plumbing (SipHash-2-4 + ROOT_CAP)
+%include "boot/babylon.asm"    ; Pod 2.1: Babylon spatial-merge — metabolic accountant
 %include "boot/bastian.asm"    ; home surface (bastian precedes gmork_main in original)
 %include "boot/gmork_cmds.asm"  ; gmork_main, get_mmap, show_memmap, paint_bars
 %include "drivers/kbd_ps2.asm"  ; PS/2 keyboard driver — native_keyboard_read

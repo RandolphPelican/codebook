@@ -66,6 +66,10 @@ cbs_run:
     ; Debit energy
     sub     r14, rbx
     add     [rel energy_used], rbx
+    ; Pod 2.1 — Babylon cost stash (R3.2: after cost lookup, before dispatch).
+    ; Construction-site spatial-merge reads this to charge ancestors with
+    ; the dispatching opcode's cost.
+    mov     [rel current_dispatch_cost], rbx
 
     cmp     al, OP_HALT
     je      .op_halt
@@ -899,6 +903,12 @@ cbs_run:
     call    registry_register_sign
     test    rax, rax
     jz      .sign_new_fail_pool_full   ; registry full (capacities matched, should not occur in V1.0)
+    ; Pod 2.1 spatial-merge — Babylon charges lineage with OP_SIGN_NEW cost (100j)
+    push    rax                                 ; preserve sign_id
+    mov     rdi, [rel current_dispatch_cost]
+    mov     rsi, [rel current_cap_id]
+    call    babylon_charge_lineage
+    pop     rax                                 ; restore sign_id
     ; Push sign_id (rax) on operand stack
     mov     [r13], rax
     add     r13, 8
@@ -1054,6 +1064,12 @@ cbs_run:
     call    registry_register_energy
     test    rax, rax
     jz      .energy_new_fail        ; registry full (capacities matched, should not occur in V1.0)
+    ; Pod 2.1 spatial-merge — Babylon charges lineage with OP_ENERGY_NEW cost (10j)
+    push    rax                                 ; preserve energy_id
+    mov     rdi, [rel current_dispatch_cost]
+    mov     rsi, [rel current_cap_id]
+    call    babylon_charge_lineage
+    pop     rax                                 ; restore energy_id
     ; Push energy_id (rax) on operand stack
     mov     [r13], rax
     add     r13, 8
@@ -1202,6 +1218,12 @@ cbs_run:
     call    registry_register_outcome
     test    rax, rax
     jz      .outcome_new_ok_fail
+    ; Pod 2.1 spatial-merge — Babylon charges lineage with OP_OUTCOME_NEW_OK cost (1j)
+    push    rax                                 ; preserve outcome_id
+    mov     rdi, [rel current_dispatch_cost]
+    mov     rsi, [rel current_cap_id]
+    call    babylon_charge_lineage
+    pop     rax                                 ; restore outcome_id
     mov     [r13], rax              ; push outcome_id
     add     r13, 8
     jmp     .fetch
@@ -1271,6 +1293,12 @@ cbs_run:
     call    prov_append
     pop     rax                     ; outcome_id
     add     rsp, 16                 ; discard saved args
+    ; Pod 2.1 spatial-merge — Babylon charges lineage with OP_OUTCOME_NEW_ERR cost (1j)
+    push    rax                                 ; preserve outcome_id
+    mov     rdi, [rel current_dispatch_cost]
+    mov     rsi, [rel current_cap_id]
+    call    babylon_charge_lineage
+    pop     rax                                 ; restore outcome_id
     mov     [r13], rax              ; push outcome_id
     add     r13, 8
     jmp     .fetch
@@ -1428,6 +1456,16 @@ cbs_run:
     call    siphash_compute                 ; rax = MAC (preserves r12-r15, rbx, rbp, rdi)
     pop     rcx                             ; cap_id back in rcx
     mov     [rbx + CAP_OFF_MAC], rax        ; stamp MAC at +0x38 (Pod 1.10.3; constant)
+
+    ; Pod 2.1 spatial-merge — Babylon charges lineage with OP_CAP_NEW cost (1j)
+    ; Note R3.1 / D2.1: this fires twice per OP_CAP_NEW success (here at Cap
+    ; slot stamp, then again at .construct_ok_outcome wrapping cap_id).
+    ; Both at 1j; floor-divide neutralizes (1/2=0; no actual ripple).
+    push    rcx                                 ; preserve cap_id
+    mov     rdi, [rel current_dispatch_cost]
+    mov     rsi, [rel current_cap_id]
+    call    babylon_charge_lineage
+    pop     rcx                                 ; restore cap_id
 
     ; Wrap cap_id in Outcome::Ok per Path A
     mov     rdi, rcx                        ; value = cap_id
@@ -1946,6 +1984,15 @@ cbs_run:
     ; Register
     mov     rdi, rbx
     call    registry_register_outcome
+    ; Pod 2.1 spatial-merge — Babylon charges lineage with dispatching opcode's cost.
+    ; Helpers are called from many opcodes (Sign/Energy/Outcome/Cap accessors,
+    ; Cap construction, etc.); current_dispatch_cost stash from fetch loop is
+    ; the source of truth for the dispatching opcode's cost (per A1 / D2.1).
+    push    rax                                 ; preserve outcome_id
+    mov     rdi, [rel current_dispatch_cost]
+    mov     rsi, [rel current_cap_id]
+    call    babylon_charge_lineage
+    pop     rax                                 ; restore outcome_id
     ret
 .construct_ok_outcome_fail:
     add     rsp, 16                 ; discard 2 saved registers
@@ -2006,6 +2053,13 @@ cbs_run:
     ; Register
     mov     rdi, rbx
     call    registry_register_outcome  ; rax = outcome_id (0 if registry full)
+    ; Pod 2.1 spatial-merge — Babylon charges lineage with dispatching opcode's cost.
+    ; Per A1 / D2.1: current_dispatch_cost stash from fetch loop carries cost.
+    push    rax                                 ; preserve outcome_id
+    mov     rdi, [rel current_dispatch_cost]
+    mov     rsi, [rel current_cap_id]
+    call    babylon_charge_lineage
+    pop     rax                                 ; restore outcome_id
     ret
 .construct_err_outcome_fail:
     ; .outcome_alloc returned 0 — Outcome pool full. Restore stack and
