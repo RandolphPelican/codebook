@@ -93,12 +93,20 @@
 %define OP_SIGN_HASH   0xA1
 %define OP_SIGN_LABEL  0xA2
 %define OP_SIGN_ENERGY 0xA3
+; Pod 1.10.2b2 — Sign provenance accessors
+%define OP_SIGN_ARENA    0xA4   ; pop sign_id, push Outcome<arena_id>
+%define OP_SIGN_OWNER    0xA5   ; pop sign_id, push Outcome<owner_demod_id>
+%define OP_SIGN_CREATOR  0xA6   ; pop sign_id, push Outcome<creator_cap_id>
 
 ; --- Energy opcodes (Pod 1.8) ---
 %define OP_ENERGY_NEW       0xD0
 %define OP_ENERGY_JOULES    0xD1
 %define OP_ENERGY_SOURCE_OP 0xD2
 %define OP_ENERGY_FREE      0xD3
+; Pod 1.10.2b2 — Energy provenance accessors
+%define OP_ENERGY_ARENA    0xD6   ; pop energy_id, push Outcome<arena_id>
+%define OP_ENERGY_OWNER    0xD7   ; pop energy_id, push Outcome<owner_demod_id>
+%define OP_ENERGY_CREATOR  0xD8   ; pop energy_id, push Outcome<creator_cap_id>
 
 ; --- Pod 1.8.5c Move 6: OP_ENERGY_RECOVER (V1.0 no-op-with-log) ---
 %define OP_ENERGY_RECOVER   0xD4
@@ -112,6 +120,10 @@
 %define OP_OUTCOME_IS_OK      0xE2
 %define OP_OUTCOME_UNWRAP_OK  0xE3
 %define OP_OUTCOME_UNWRAP_ERR 0xE4
+; Pod 1.10.2b2 — Outcome provenance accessors
+%define OP_OUTCOME_ARENA    0xE5   ; pop outcome_id, push Outcome<arena_id>
+%define OP_OUTCOME_OWNER    0xE6   ; pop outcome_id, push Outcome<owner_demod_id>
+%define OP_OUTCOME_CREATOR  0xE7   ; pop outcome_id, push Outcome<creator_cap_id>
 
 ; --- Pod 1.9.3 — err_code values for typed error paths ---
 ; Code 0 reserved for "no err / uninitialized" (parallels TYPE_CODE_NONE).
@@ -136,6 +148,7 @@
 %define OP_CAP_ARENA     0xB4   ; Pod 1.10.2b1 — pop cap_id, MAC verify, push Outcome<arena_id>
 %define OP_CAP_OWNER     0xB5   ; Pod 1.10.2b1 — pop cap_id, MAC verify, push Outcome<owner_demod_id>
 %define OP_CAP_RESOURCE  0xB6   ; Pod 1.10.2b1 — pop cap_id, MAC verify, push Outcome<resource_descriptor>
+%define OP_CAP_PARENT    0xB7   ; Pod 1.10.2b2 — pop cap_id, MAC verify, push Outcome<parent_cap_id>
 
 ; --- Pod 1.10.2a Cap pool / slot constants (D1.10.1.10) ---
 ; CAP_ID_NULL=0 already defined above in canonical-ID null-sentinel block (Pod 1.8.5b).
@@ -184,16 +197,24 @@
 ; --- Sign struct layout (Pod 1.7; constants added Pod 1.8.5b for Energy parity) ---
 %define SIGN_SLOT_SIZE       0x80   ; 128 bytes
 %define SIGN_POOL_SLOTS      64
+%define SIGN_OFF_CREATOR_CAP_ID    0x68   ; Pod 1.10.2b2 — reclaimed from embedding_handle slot
+                                          ; (V1.0-unused Pod 3+ placeholder); Pod 1.8.5c reclamation
+                                          ; pattern continues (provenance_handle->arena_id, V1.1
+                                          ; sentinel->owner_demod_id, embedding_handle->creator_cap_id);
+                                          ; OP_SIGN_NEW preserves 5-arg ABI (still validates
+                                          ; embedding_handle=0 then silently discards)
 
 ; --- Energy struct layout (Pod 1.8) ---
 %define ENERGY_OFF_JOULES    0x00
 %define ENERGY_OFF_SOURCE_OP 0x08
 %define ENERGY_SLOT_SIZE     0x80   ; 128 bytes
 %define ENERGY_POOL_SLOTS    64
+%define ENERGY_OFF_CREATOR_CAP_ID  0x20   ; Pod 1.10.2b2 — first qword of former reserved zone
 
 ; --- Outcome struct layout (Pod 1.9.2a; D1.9.1.5 inline error context) ---
 %define OUTCOME_SLOT_SIZE    0x80   ; 128 bytes
 %define OUTCOME_POOL_SLOTS   64
+%define OUTCOME_OFF_CREATOR_CAP_ID 0x68   ; Pod 1.10.2b2 — last qword of former Pod 3+ reserved zone
 
 ; --- Canonical ID types (Pod 1.8.5b — Move 4) ---
 ; All canonical IDs are u64. ID 0 is reserved as null/invalid.

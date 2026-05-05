@@ -69,6 +69,20 @@ OP_CAP_ARENA     = 0xB4
 OP_CAP_OWNER     = 0xB5
 OP_CAP_RESOURCE  = 0xB6
 
+# --- Pod 1.10.2b2 substrate-wide accessors + OP_CAP_PARENT ---
+# Sign/Energy/Outcome × {ARENA, OWNER, CREATOR} + OP_CAP_PARENT
+# enable provenance walks from any forged cell back to ROOT.
+OP_SIGN_ARENA      = 0xA4
+OP_SIGN_OWNER      = 0xA5
+OP_SIGN_CREATOR    = 0xA6
+OP_CAP_PARENT      = 0xB7
+OP_ENERGY_ARENA    = 0xD6
+OP_ENERGY_OWNER    = 0xD7
+OP_ENERGY_CREATOR  = 0xD8
+OP_OUTCOME_ARENA   = 0xE5
+OP_OUTCOME_OWNER   = 0xE6
+OP_OUTCOME_CREATOR = 0xE7
+
 # --- Pod 1.9.2a/1.9.2b TYPE_CODE_* enum (D1.9.1.1) ---
 TYPE_CODE_NONE     = 0
 TYPE_CODE_SIGN     = 1
@@ -341,6 +355,42 @@ class AtreyuX86:
             # Caller wants raw outcome_id (for invalid-id tests).
             e.emit(OP_PUSH); e.emit_i64(n['id'])
             e.emit(OP_CAP_ARENA)
+        # --- Pod 1.10.2b2 substrate-wide accessor expressions ---
+        # Each emits accessor + UNWRAP_OK so demos can print the unwrapped value
+        # directly (parallel to Pod 1.9.3 sign_energy / energy_joules pattern).
+        elif t == 'sign_arena':
+            self._expr(n['operand']); e.emit(OP_SIGN_ARENA); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'sign_owner':
+            self._expr(n['operand']); e.emit(OP_SIGN_OWNER); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'sign_creator':
+            self._expr(n['operand']); e.emit(OP_SIGN_CREATOR); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'energy_arena':
+            self._expr(n['operand']); e.emit(OP_ENERGY_ARENA); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'energy_owner':
+            self._expr(n['operand']); e.emit(OP_ENERGY_OWNER); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'energy_creator':
+            self._expr(n['operand']); e.emit(OP_ENERGY_CREATOR); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'outcome_arena':
+            self._expr(n['operand']); e.emit(OP_OUTCOME_ARENA); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'outcome_owner':
+            self._expr(n['operand']); e.emit(OP_OUTCOME_OWNER); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'outcome_creator':
+            self._expr(n['operand']); e.emit(OP_OUTCOME_CREATOR); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'cap_parent':
+            self._expr(n['operand']); e.emit(OP_CAP_PARENT); e.emit(OP_OUTCOME_UNWRAP_OK)
+        # --- Raw-id test primitives for invalid-id tests (no UNWRAP_OK) ---
+        elif t == 'sign_arena_raw_id':
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_SIGN_ARENA)
+        elif t == 'energy_owner_raw_id':
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_ENERGY_OWNER)
+        elif t == 'outcome_creator_raw_id':
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_OUTCOME_CREATOR)
+        elif t == 'cap_parent_raw_id':
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_CAP_PARENT)
 
     def _energy_new(self, n):
         """Emit OP_ENERGY_NEW: push joules, push source_op, emit opcode."""
@@ -757,6 +807,185 @@ def demo_cap_stack_overflow():
         {'type':'print','value':{'type':'str','value':'(this should not appear)'}},
     ]}
 
+# --- Pod 1.10.2b2 substrate-wide provenance test surfaces (T1-T7) ---
+
+def demo_sign_provenance_root():
+    """Pod 1.10.2b2 T1 — Sign forged under ROOT context: arena=0, owner=0, creator=ROOT_CAP_ID=1.
+    First observable effect of the three-allocator retrofit per D1.10.1.8."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Sign Provenance Root Test (Pod 1.10.2b2 T1) ==='}},
+        {'type':'let','name':'s','value':{
+            'type':'sign_new',
+            'hash': b'\x42' + b'\x00' * 31, 'label': 'sigP', 'energy': 7,
+        }},
+        {'type':'print','value':{'type':'str','value':'arena (expect 0):'}},
+        {'type':'print','value':{'type':'sign_arena','operand':{'type':'var','name':'s'}}},
+        {'type':'print','value':{'type':'str','value':'owner (expect 0):'}},
+        {'type':'print','value':{'type':'sign_owner','operand':{'type':'var','name':'s'}}},
+        {'type':'print','value':{'type':'str','value':'creator (expect 1 = ROOT):'}},
+        {'type':'print','value':{'type':'sign_creator','operand':{'type':'var','name':'s'}}},
+        {'type':'print','value':{'type':'str','value':'=== Sign Provenance Root test complete ==='}},
+    ]}
+
+def demo_energy_provenance_root():
+    """Pod 1.10.2b2 T2 — Energy forged under ROOT: arena=0, owner=0, creator=1."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Energy Provenance Root Test (Pod 1.10.2b2 T2) ==='}},
+        {'type':'let','name':'e','value':{'type':'energy_new','joules':500,'source_op':0xA0}},
+        {'type':'print','value':{'type':'str','value':'arena (expect 0):'}},
+        {'type':'print','value':{'type':'energy_arena','operand':{'type':'var','name':'e'}}},
+        {'type':'print','value':{'type':'str','value':'owner (expect 0):'}},
+        {'type':'print','value':{'type':'energy_owner','operand':{'type':'var','name':'e'}}},
+        {'type':'print','value':{'type':'str','value':'creator (expect 1 = ROOT):'}},
+        {'type':'print','value':{'type':'energy_creator','operand':{'type':'var','name':'e'}}},
+        {'type':'print','value':{'type':'str','value':'=== Energy Provenance Root test complete ==='}},
+    ]}
+
+def demo_outcome_provenance_root():
+    """Pod 1.10.2b2 T3 — Outcome forged under ROOT: arena=0, owner=0, creator=1.
+    Verifies retrofit propagates through Outcome construction (NEW_OK path)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Outcome Provenance Root Test (Pod 1.10.2b2 T3) ==='}},
+        {'type':'let','name':'o','value':{
+            'type':'outcome_new_ok',
+            'value_type_id': TYPE_CODE_SIGN, 'value': 99,
+        }},
+        {'type':'print','value':{'type':'str','value':'arena (expect 0):'}},
+        {'type':'print','value':{'type':'outcome_arena','operand':{'type':'var','name':'o'}}},
+        {'type':'print','value':{'type':'str','value':'owner (expect 0):'}},
+        {'type':'print','value':{'type':'outcome_owner','operand':{'type':'var','name':'o'}}},
+        {'type':'print','value':{'type':'str','value':'creator (expect 1 = ROOT):'}},
+        {'type':'print','value':{'type':'outcome_creator','operand':{'type':'var','name':'o'}}},
+        {'type':'print','value':{'type':'str','value':'=== Outcome Provenance Root test complete ==='}},
+    ]}
+
+def demo_provenance_under_subcap():
+    """Pod 1.10.2b2 T4 — forge cap A under ROOT, ENTER A, forge Sign S inside A's
+    authority context, EXIT, verify creator=A's_cap_id (=2). The first time
+    creator_cap_id distinguishes from the arena/owner summary."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Provenance Under SubCap Test (Pod 1.10.2b2 T4) ==='}},
+        {'type':'let','name':'co','value':{'type':'cap_new','resource_descriptor':42}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'print','value':{'type':'str','value':'cap_a (expect 2):'}},
+        {'type':'print','value':{'type':'var','name':'cap_a'}},
+        {'type':'let','name':'enter_o','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'let','name':'s','value':{
+            'type':'sign_new',
+            'hash': b'\xa1' + b'\x00' * 31, 'label': 'subA', 'energy': 11,
+        }},
+        {'type':'let','name':'exit_o','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'sign arena (expect 0; A inherited from ROOT):'}},
+        {'type':'print','value':{'type':'sign_arena','operand':{'type':'var','name':'s'}}},
+        {'type':'print','value':{'type':'str','value':'sign owner (expect 0):'}},
+        {'type':'print','value':{'type':'sign_owner','operand':{'type':'var','name':'s'}}},
+        {'type':'print','value':{'type':'str','value':'sign creator (expect 2 = cap_a):'}},
+        {'type':'print','value':{'type':'sign_creator','operand':{'type':'var','name':'s'}}},
+        {'type':'print','value':{'type':'str','value':'=== Provenance Under SubCap test complete ==='}},
+    ]}
+
+def demo_provenance_walk():
+    """Pod 1.10.2b2 T5 — THE ARCHITECTURAL MOMENT.
+    Forge cap A under ROOT, ENTER A, forge Sign S inside A, EXIT.
+    Walk the lineage chain:
+      OP_SIGN_CREATOR(S) -> A's cap_id (=2)
+      OP_CAP_PARENT(2)   -> ROOT_CAP_ID (=1)
+      OP_CAP_PARENT(1)   -> 0 (anchor)
+    Three accessor calls trace the lineage from forged cell back to substrate
+    anchor. The substrate narrating its own lineage."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Provenance Walk Test (Pod 1.10.2b2 T5) ==='}},
+        {'type':'let','name':'co','value':{'type':'cap_new','resource_descriptor':77}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'let','name':'enter_o','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'let','name':'s','value':{
+            'type':'sign_new',
+            'hash': b'\xc0' + b'\x00' * 31, 'label': 'walk', 'energy': 5,
+        }},
+        {'type':'let','name':'exit_o','value':{'type':'cap_exit'}},
+        # Walk: SIGN_CREATOR(S) -> creator (cap_a)
+        {'type':'print','value':{'type':'str','value':'creator_of_S (expect 2 = cap_a):'}},
+        {'type':'print','value':{'type':'sign_creator','operand':{'type':'var','name':'s'}}},
+        # Walk: CAP_PARENT(cap_a) -> ROOT
+        {'type':'print','value':{'type':'str','value':'parent_of_A (expect 1 = ROOT):'}},
+        {'type':'print','value':{'type':'cap_parent','operand':{'type':'var','name':'cap_a'}}},
+        # Walk: CAP_PARENT(ROOT) -> 0 (anchor)
+        {'type':'print','value':{'type':'str','value':'parent_of_ROOT (expect 0 = anchor):'}},
+        {'type':'print','value':{'type':'cap_parent','operand':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'=== Provenance Walk test complete ==='}},
+    ]}
+
+def demo_cap_parent_root():
+    """Pod 1.10.2b2 T6 — OP_CAP_PARENT(ROOT_CAP_ID=1) returns 0. Verifies anchor
+    semantics: ROOT's parent is 0 by construction (set at construct_root_cap)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cap Parent Root Test (Pod 1.10.2b2 T6) ==='}},
+        {'type':'print','value':{'type':'str','value':'parent_of_ROOT (expect 0):'}},
+        {'type':'print','value':{'type':'cap_parent','operand':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'=== Cap Parent Root test complete ==='}},
+    ]}
+
+def demo_invalid_id_each_new_accessor():
+    """Pod 1.10.2b2 T7 — four invalid-id paths each return Outcome::Err with
+    err_code=ERR_INVALID_ID and source_op=respective opcode. Verifies failure
+    semantics across the new accessor family."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Invalid ID Each New Accessor Test (Pod 1.10.2b2 T7) ==='}},
+        # OP_SIGN_ARENA(99) -> Err (source_op=0xA4=164)
+        {'type':'let','name':'sa','value':{'type':'sign_arena_raw_id','id':99}},
+        {'type':'print','value':{'type':'str','value':'OP_SIGN_ARENA(99) is_ok:'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'sa'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'sa'}},
+        {'type':'print','value':{'type':'str','value':'  fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'  demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'  source_op (expect 164 = OP_SIGN_ARENA):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'  err_code (expect 1 = ERR_INVALID_ID):'}},
+        {'type':'print','value':{'type':'tos'}},
+        # OP_ENERGY_OWNER(99) -> Err (source_op=0xD7=215)
+        {'type':'let','name':'eo','value':{'type':'energy_owner_raw_id','id':99}},
+        {'type':'print','value':{'type':'str','value':'OP_ENERGY_OWNER(99) is_ok:'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'eo'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'eo'}},
+        {'type':'print','value':{'type':'str','value':'  fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'  demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'  source_op (expect 215 = OP_ENERGY_OWNER):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'  err_code:'}},
+        {'type':'print','value':{'type':'tos'}},
+        # OP_OUTCOME_CREATOR(99) -> Err (source_op=0xE7=231)
+        {'type':'let','name':'oc','value':{'type':'outcome_creator_raw_id','id':99}},
+        {'type':'print','value':{'type':'str','value':'OP_OUTCOME_CREATOR(99) is_ok:'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'oc'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'oc'}},
+        {'type':'print','value':{'type':'str','value':'  fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'  demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'  source_op (expect 231 = OP_OUTCOME_CREATOR):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'  err_code:'}},
+        {'type':'print','value':{'type':'tos'}},
+        # OP_CAP_PARENT(99) -> Err (source_op=0xB7=183)
+        {'type':'let','name':'cp','value':{'type':'cap_parent_raw_id','id':99}},
+        {'type':'print','value':{'type':'str','value':'OP_CAP_PARENT(99) is_ok:'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'cp'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'cp'}},
+        {'type':'print','value':{'type':'str','value':'  fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'  demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'  source_op (expect 183 = OP_CAP_PARENT):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'  err_code:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== Invalid ID Each New Accessor test complete ==='}},
+    ]}
+
 def demo_energy():
     """Pod 1.8 Energy typed primitive test — hardcoded AST demo"""
     return {'type':'program','body':[
@@ -966,5 +1195,62 @@ if __name__ == '__main__':
     elif '--cap-stack-overflow-test' in sys.argv:
         c = AtreyuX86(); bc = c.compile(demo_cap_stack_overflow())
         print(f"Cap Stack Overflow test: {len(bc)} bytes")
+    # --- Pod 1.10.2b2 substrate-wide provenance test surfaces (T1-T7) ---
+    elif '--sign-provenance-root-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_sign_provenance_root())
+        out = sys.argv[sys.argv.index('--sign-provenance-root-build')+1] if len(sys.argv) > sys.argv.index('--sign-provenance-root-build')+1 else 'test_sign_provenance_root.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Sign Provenance Root test: compiled {len(bc)} bytes -> {out}")
+    elif '--sign-provenance-root-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_sign_provenance_root())
+        print(f"Sign Provenance Root test: {len(bc)} bytes")
+    elif '--energy-provenance-root-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_energy_provenance_root())
+        out = sys.argv[sys.argv.index('--energy-provenance-root-build')+1] if len(sys.argv) > sys.argv.index('--energy-provenance-root-build')+1 else 'test_energy_provenance_root.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Energy Provenance Root test: compiled {len(bc)} bytes -> {out}")
+    elif '--energy-provenance-root-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_energy_provenance_root())
+        print(f"Energy Provenance Root test: {len(bc)} bytes")
+    elif '--outcome-provenance-root-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_outcome_provenance_root())
+        out = sys.argv[sys.argv.index('--outcome-provenance-root-build')+1] if len(sys.argv) > sys.argv.index('--outcome-provenance-root-build')+1 else 'test_outcome_provenance_root.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Outcome Provenance Root test: compiled {len(bc)} bytes -> {out}")
+    elif '--outcome-provenance-root-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_outcome_provenance_root())
+        print(f"Outcome Provenance Root test: {len(bc)} bytes")
+    elif '--provenance-under-subcap-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_provenance_under_subcap())
+        out = sys.argv[sys.argv.index('--provenance-under-subcap-build')+1] if len(sys.argv) > sys.argv.index('--provenance-under-subcap-build')+1 else 'test_provenance_under_subcap.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Provenance Under SubCap test: compiled {len(bc)} bytes -> {out}")
+    elif '--provenance-under-subcap-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_provenance_under_subcap())
+        print(f"Provenance Under SubCap test: {len(bc)} bytes")
+    elif '--provenance-walk-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_provenance_walk())
+        out = sys.argv[sys.argv.index('--provenance-walk-build')+1] if len(sys.argv) > sys.argv.index('--provenance-walk-build')+1 else 'test_provenance_walk.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Provenance Walk test: compiled {len(bc)} bytes -> {out}")
+    elif '--provenance-walk-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_provenance_walk())
+        print(f"Provenance Walk test: {len(bc)} bytes")
+    elif '--cap-parent-root-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_parent_root())
+        out = sys.argv[sys.argv.index('--cap-parent-root-build')+1] if len(sys.argv) > sys.argv.index('--cap-parent-root-build')+1 else 'test_cap_parent_root.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cap Parent Root test: compiled {len(bc)} bytes -> {out}")
+    elif '--cap-parent-root-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_parent_root())
+        print(f"Cap Parent Root test: {len(bc)} bytes")
+    elif '--invalid-id-each-new-accessor-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_invalid_id_each_new_accessor())
+        out = sys.argv[sys.argv.index('--invalid-id-each-new-accessor-build')+1] if len(sys.argv) > sys.argv.index('--invalid-id-each-new-accessor-build')+1 else 'test_invalid_id_each_new_accessor.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Invalid ID Each New Accessor test: compiled {len(bc)} bytes -> {out}")
+    elif '--invalid-id-each-new-accessor-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_invalid_id_each_new_accessor())
+        print(f"Invalid ID Each New Accessor test: {len(bc)} bytes")
     else:
-        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-resource,current,invalid-id,stack-underflow,stack-overflow}-{build,test}")
+        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-resource,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test}")

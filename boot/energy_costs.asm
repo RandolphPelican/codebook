@@ -101,12 +101,15 @@ energy_cost_table:
     dq 1, 1, 1, 1, 1       ; 0x92–0x96 — unallocated
     dq 1, 1, 1, 1, 1       ; 0x97–0x9B — unallocated
     dq 1, 1, 1, 1           ; 0x9C–0x9F — unallocated
-; Row 0xA0–0xAF — Sign opcodes (Pod 1.7 D1.7.6 values)
+; Row 0xA0–0xAF — Sign opcodes (Pod 1.7 D1.7.6 values; Pod 1.10.2b2 accessors at 0xA4-0xA6)
     dq 100                  ; 0xA0 — OP_SIGN_NEW
     dq 5                    ; 0xA1 — OP_SIGN_HASH
     dq 5                    ; 0xA2 — OP_SIGN_LABEL
     dq 5                    ; 0xA3 — OP_SIGN_ENERGY
-    dq 1, 1, 1, 1, 1       ; 0xA4–0xA8 — reserved (Sign Pod 3+)
+    dq 0                    ; 0xA4 — OP_SIGN_ARENA (structural; no MAC verify per D1.10.2b2.5)
+    dq 0                    ; 0xA5 — OP_SIGN_OWNER (structural)
+    dq 0                    ; 0xA6 — OP_SIGN_CREATOR (structural)
+    dq 1, 1                 ; 0xA7–0xA8 — reserved (Sign Pod 3+)
     dq 1, 1, 1, 1, 1       ; 0xA9–0xAD — reserved
     dq 1, 1                 ; 0xAE–0xAF — reserved
 ; Row 0xB0–0xBF — Cap opcodes (Pod 1.10.2b1 at 0xB0-0xB6)
@@ -117,27 +120,33 @@ energy_cost_table:
     dq 1                    ; 0xB4 — OP_CAP_ARENA (metabolic; lookup + MAC verify + slot read)
     dq 1                    ; 0xB5 — OP_CAP_OWNER (metabolic; lookup + MAC verify + slot read)
     dq 1                    ; 0xB6 — OP_CAP_RESOURCE (metabolic; lookup + MAC verify + slot read)
-    dq 1, 1, 1, 1, 1       ; 0xB7–0xBB — reserved
+    dq 1                    ; 0xB7 — OP_CAP_PARENT (Pod 1.10.2b2; metabolic; lookup + MAC verify + parent_cap_id read)
+    dq 1, 1, 1, 1           ; 0xB8–0xBB — reserved
     dq 1, 1, 1, 1           ; 0xBC–0xBF — reserved
 ; Row 0xC0–0xCF
     times 16 dq 1           ; 0xC0–0xCF — unallocated (Cap 0xC0–0xCF Pod 1.10)
-; Row 0xD0–0xDF — Energy opcodes (Pod 1.8) + Pod 1.8.5c 0xD4/0xD5
+; Row 0xD0–0xDF — Energy opcodes (Pod 1.8) + Pod 1.8.5c 0xD4/0xD5 + Pod 1.10.2b2 accessors at 0xD6-0xD8
     dq 10                   ; 0xD0 — OP_ENERGY_NEW
     dq 1                    ; 0xD1 — OP_ENERGY_JOULES (accessor)
     dq 1                    ; 0xD2 — OP_ENERGY_SOURCE_OP (accessor)
     dq 0                    ; 0xD3 — OP_ENERGY_FREE (V1.0 no-op)
     dq 1                    ; 0xD4 — OP_ENERGY_RECOVER (Pod 1.8.5c Move 6, V1.0 no-op-with-log)
     dq 0                    ; 0xD5 — OP_PHASE_QUERY (Pod 1.8.5c Move 7, structural — 0j like HALT/RESERVE)
-    dq 1, 1, 1             ; 0xD6–0xD8 — reserved (Energy V1.1+)
+    dq 0                    ; 0xD6 — OP_ENERGY_ARENA (Pod 1.10.2b2; structural; no MAC verify per D1.10.2b2.5)
+    dq 0                    ; 0xD7 — OP_ENERGY_OWNER (Pod 1.10.2b2; structural)
+    dq 0                    ; 0xD8 — OP_ENERGY_CREATOR (Pod 1.10.2b2; structural)
     dq 1, 1, 1, 1, 1       ; 0xD9–0xDD — reserved
     dq 1, 1                 ; 0xDE–0xDF — reserved
-; Row 0xE0–0xEF — Outcome opcodes (Pod 1.9.2b at 0xE0-0xE4) + Demod reserved (Pod 1.12 at 0xE5-0xEF)
+; Row 0xE0–0xEF — Outcome opcodes (Pod 1.9.2b at 0xE0-0xE4 + Pod 1.10.2b2 accessors at 0xE5-0xE7) + Demod reserved (Pod 1.12 at 0xE8-0xEF)
     dq 1                    ; 0xE0 — OP_OUTCOME_NEW_OK (metabolic construction; A3 ratification)
     dq 1                    ; 0xE1 — OP_OUTCOME_NEW_ERR (metabolic construction; A3 ratification)
     dq 0                    ; 0xE2 — OP_OUTCOME_IS_OK (structural read; A3 ratification)
     dq 0                    ; 0xE3 — OP_OUTCOME_UNWRAP_OK (structural; diagnostic emit on err is structural side effect)
     dq 0                    ; 0xE4 — OP_OUTCOME_UNWRAP_ERR (structural; diagnostic emit on ok is structural side effect)
-    dq 1, 1, 1, 1, 1       ; 0xE5–0xE9 — reserved (Demod Pod 1.12)
+    dq 0                    ; 0xE5 — OP_OUTCOME_ARENA (Pod 1.10.2b2; structural; no MAC verify per D1.10.2b2.5)
+    dq 0                    ; 0xE6 — OP_OUTCOME_OWNER (Pod 1.10.2b2; structural)
+    dq 0                    ; 0xE7 — OP_OUTCOME_CREATOR (Pod 1.10.2b2; structural)
+    dq 1, 1                 ; 0xE8–0xE9 — reserved (Demod Pod 1.12)
     dq 1, 1, 1, 1, 1       ; 0xEA–0xEE — reserved (Demod Pod 1.12)
     dq 1                    ; 0xEF — reserved (Demod Pod 1.12)
 ; Row 0xF0–0xFF

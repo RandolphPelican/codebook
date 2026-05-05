@@ -173,6 +173,27 @@ cbs_run:
     je      .op_cap_owner
     cmp     al, OP_CAP_RESOURCE
     je      .op_cap_resource
+    ; Pod 1.10.2b2 — substrate-wide accessors + OP_CAP_PARENT
+    cmp     al, OP_SIGN_ARENA
+    je      .op_sign_arena
+    cmp     al, OP_SIGN_OWNER
+    je      .op_sign_owner
+    cmp     al, OP_SIGN_CREATOR
+    je      .op_sign_creator
+    cmp     al, OP_ENERGY_ARENA
+    je      .op_energy_arena
+    cmp     al, OP_ENERGY_OWNER
+    je      .op_energy_owner
+    cmp     al, OP_ENERGY_CREATOR
+    je      .op_energy_creator
+    cmp     al, OP_OUTCOME_ARENA
+    je      .op_outcome_arena
+    cmp     al, OP_OUTCOME_OWNER
+    je      .op_outcome_owner
+    cmp     al, OP_OUTCOME_CREATOR
+    je      .op_outcome_creator
+    cmp     al, OP_CAP_PARENT
+    je      .op_cap_parent
 
     ; Unknown opcode
     lea     rsi, [rel str_vm_unk]
@@ -859,9 +880,15 @@ cbs_run:
     rep     movsb
     ; rdi now at slot+0x60; write remaining fields
     mov     [rdi], r10          ; energy_cost at +0x60
-    mov     qword [rdi + 8], 0  ; embedding_handle at +0x68 (reserved Pod 3+)
-    mov     qword [rdi + 16], 0 ; arena_id at +0x70 (Pod 1.8.5c Move 3; V1.0 = 0)
-    mov     qword [rdi + 24], 0 ; owner_demod_id at +0x78 (Pod 1.8.5c Move 3; V1.0 = 0)
+    ; Pod 1.10.2b2 retrofit — slot at +0x68 reclaimed from embedding_handle
+    ; for creator_cap_id (Pod 1.8.5c reclamation pattern continued).
+    ; arena_id and owner_demod_id read from substrate state per D1.10.1.8.
+    mov     rax, [rel current_cap_id]
+    mov     [rdi + 8], rax      ; creator_cap_id at +0x68 (was embedding_handle, now reclaimed)
+    mov     rax, [rel current_cap_arena_id_cache]
+    mov     [rdi + 16], rax     ; arena_id at +0x70 (D1.10.1.8 retrofit)
+    mov     rax, [rel current_cap_owner_demod_id_cache]
+    mov     [rdi + 24], rax     ; owner_demod_id at +0x78 (D1.10.1.8 retrofit)
     ; Pod 1.8.5b Move 4: register slot in canonical-ID registry.
     pop     rdi                 ; restore slot_ptr as registry input
     call    registry_register_sign
@@ -1003,14 +1030,19 @@ cbs_run:
     ; rax = slot pointer; rdx (bump-index energy_id) discarded under Move 4
     mov     [rax + ENERGY_OFF_JOULES], rcx      ; joules at +0x00
     mov     [rax + ENERGY_OFF_SOURCE_OP], rbx   ; source_op at +0x08
-    ; Pod 1.8.5c Move 3: arena_id at +0x10, owner_demod_id at +0x18
-    mov     qword [rax + 0x10], 0   ; arena_id (V1.0 = 0)
-    mov     qword [rax + 0x18], 0   ; owner_demod_id (V1.0 = 0)
-    ; Zero reserved area (96 bytes at +0x20)
-    push    rax                     ; save slot_ptr across stosq + register
-    lea     rdi, [rax + 0x20]
+    ; Pod 1.10.2b2 retrofit per D1.10.1.8 — arena/owner from substrate caches;
+    ; creator_cap_id at +0x20 (first qword of former reserved zone).
+    mov     rcx, [rel current_cap_arena_id_cache]
+    mov     [rax + 0x10], rcx                   ; arena_id (Move 3 retrofit)
+    mov     rcx, [rel current_cap_owner_demod_id_cache]
+    mov     [rax + 0x18], rcx                   ; owner_demod_id (Move 3 retrofit)
+    mov     rcx, [rel current_cap_id]
+    mov     [rax + ENERGY_OFF_CREATOR_CAP_ID], rcx ; creator_cap_id at +0x20
+    ; Zero remaining reserved area (88 bytes at +0x28; was 96 at +0x20 pre-retrofit)
+    push    rax                                 ; save slot_ptr across stosq + register
+    lea     rdi, [rax + 0x28]
     xor     eax, eax
-    mov     rcx, 12                 ; 12 * 8 = 96 bytes
+    mov     rcx, 11                             ; 11 * 8 = 88 bytes
     rep     stosq
     pop     rdi                     ; restore slot_ptr as registry input
     ; Pod 1.8.5b Move 4: register slot in canonical-ID registry.
@@ -1147,11 +1179,19 @@ cbs_run:
     mov     [rbx + 0x10], r10       ; value
     mov     qword [rbx + 0x18], 0   ; reserved
     ; Zero +0x20 through +0x7F (12 qwords = 96 bytes; covers err fields,
-    ; Pod 3+ reserved, arena_id, owner_demod_id)
+    ; Pod 3+ reserved, arena_id, owner_demod_id, creator_cap_id)
     lea     rdi, [rbx + 0x20]
     xor     eax, eax
     mov     rcx, 12
     rep     stosq
+    ; Pod 1.10.2b2 retrofit per D1.10.1.8 — overwrite three Move-3+creator
+    ; fields with substrate state after stosq zeroed them.
+    mov     rax, [rel current_cap_arena_id_cache]
+    mov     [rbx + 0x70], rax       ; arena_id
+    mov     rax, [rel current_cap_owner_demod_id_cache]
+    mov     [rbx + 0x78], rax       ; owner_demod_id
+    mov     rax, [rel current_cap_id]
+    mov     [rbx + OUTCOME_OFF_CREATOR_CAP_ID], rax  ; creator_cap_id at +0x68
     ; Register
     mov     rdi, rbx
     call    registry_register_outcome
@@ -1199,11 +1239,19 @@ cbs_run:
     ; registry call + prov_append (R3.3 register state preservation).
     push    r10                     ; -> [rsp+8] after one more push
     push    r9                      ; -> [rsp+0]
-    ; Zero Pod 3+ reserved + Move 3 fields (8 qwords at +0x40)
+    ; Zero Pod 3+ reserved + Move 3 fields + creator_cap_id (8 qwords at +0x40)
     lea     rdi, [rbx + 0x40]
     xor     eax, eax
     mov     rcx, 8
     rep     stosq
+    ; Pod 1.10.2b2 retrofit per D1.10.1.8 — overwrite Move-3+creator fields
+    ; with substrate state after stosq zeroed them.
+    mov     rax, [rel current_cap_arena_id_cache]
+    mov     [rbx + 0x70], rax       ; arena_id
+    mov     rax, [rel current_cap_owner_demod_id_cache]
+    mov     [rbx + 0x78], rax       ; owner_demod_id
+    mov     rax, [rel current_cap_id]
+    mov     [rbx + OUTCOME_OFF_CREATOR_CAP_ID], rax  ; creator_cap_id at +0x68
     ; Register
     mov     rdi, rbx
     call    registry_register_outcome
@@ -1602,6 +1650,216 @@ cbs_run:
     call    .construct_err_outcome
     ret
 
+; =============================================================
+; Pod 1.10.2b2 — Witness substrate-wide + provenance anchoring
+; Three per-type accessor helpers (D1.10.2b2.4 — per-type pattern
+; preserved over polymorphic dispatch) plus OP_CAP_PARENT reusing
+; Pod 1.10.2b1's .cap_accessor_common (D1.10.2b2.6).
+;
+; Sign/Energy/Outcome accessors do registry lookup + slot read
+; with NO MAC verify (these primitives don't carry SipHash MACs).
+; Cost 0j structural per D1.10.2b2.5 / D1.9.2b.1 work-matches-cost
+; doctrine. OP_CAP_PARENT does MAC verify per Pod 1.10.2b1 Cap
+; accessor convention; cost 1j metabolic.
+; =============================================================
+
+; --- OP_SIGN_ARENA / OP_SIGN_OWNER / OP_SIGN_CREATOR (0xA4-0xA6) ---
+.op_sign_arena:
+    sub     r13, 8
+    mov     rdi, [r13]                      ; sign_id
+    mov     rcx, 0x70                       ; SIGN arena_id offset
+    mov     rsi, OP_SIGN_ARENA
+    call    .sign_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_sign_owner:
+    sub     r13, 8
+    mov     rdi, [r13]
+    mov     rcx, 0x78                       ; SIGN owner_demod_id offset
+    mov     rsi, OP_SIGN_OWNER
+    call    .sign_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_sign_creator:
+    sub     r13, 8
+    mov     rdi, [r13]
+    mov     rcx, SIGN_OFF_CREATOR_CAP_ID    ; 0x68
+    mov     rsi, OP_SIGN_CREATOR
+    call    .sign_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_ENERGY_ARENA / OP_ENERGY_OWNER / OP_ENERGY_CREATOR (0xD6-0xD8) ---
+.op_energy_arena:
+    sub     r13, 8
+    mov     rdi, [r13]                      ; energy_id
+    mov     rcx, 0x10                       ; ENERGY arena_id offset
+    mov     rsi, OP_ENERGY_ARENA
+    call    .energy_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_energy_owner:
+    sub     r13, 8
+    mov     rdi, [r13]
+    mov     rcx, 0x18                       ; ENERGY owner_demod_id offset
+    mov     rsi, OP_ENERGY_OWNER
+    call    .energy_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_energy_creator:
+    sub     r13, 8
+    mov     rdi, [r13]
+    mov     rcx, ENERGY_OFF_CREATOR_CAP_ID  ; 0x20
+    mov     rsi, OP_ENERGY_CREATOR
+    call    .energy_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_OUTCOME_ARENA / OP_OUTCOME_OWNER / OP_OUTCOME_CREATOR (0xE5-0xE7) ---
+.op_outcome_arena:
+    sub     r13, 8
+    mov     rdi, [r13]                      ; outcome_id
+    mov     rcx, 0x70                       ; OUTCOME arena_id offset
+    mov     rsi, OP_OUTCOME_ARENA
+    call    .outcome_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_outcome_owner:
+    sub     r13, 8
+    mov     rdi, [r13]
+    mov     rcx, 0x78                       ; OUTCOME owner_demod_id offset
+    mov     rsi, OP_OUTCOME_OWNER
+    call    .outcome_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_outcome_creator:
+    sub     r13, 8
+    mov     rdi, [r13]
+    mov     rcx, OUTCOME_OFF_CREATOR_CAP_ID ; 0x68
+    mov     rsi, OP_OUTCOME_CREATOR
+    call    .outcome_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_CAP_PARENT (0xB7) ---
+; Reuses Pod 1.10.2b1 .cap_accessor_common (which already does MAC verify);
+; just passes CAP_OFF_PARENT_CAP_ID = 0x20 as the field offset. Zero new
+; helper code per D1.10.2b2.6 / S5.2 surprise.
+.op_cap_parent:
+    sub     r13, 8
+    mov     rdi, [r13]                      ; cap_id
+    mov     rcx, CAP_OFF_PARENT_CAP_ID      ; 0x20
+    mov     rsi, OP_CAP_PARENT
+    call    .cap_accessor_common            ; existing 1.10.2b1 helper
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- .sign_accessor_common (Pod 1.10.2b2 helper) ---
+; Input:  rdi = sign_id, rcx = field offset, rsi = source_op
+; Output: rax = outcome_id (Ok wrapping field value, or Err)
+; No MAC verify — Sign slots don't carry MACs.
+.sign_accessor_common:
+    push    rsi                             ; preserve source_op
+    push    rcx                             ; preserve offset
+
+    test    rdi, rdi
+    jz      .sign_accessor_invalid          ; sign_id=0 invalid
+
+    call    registry_lookup_sign            ; rax = slot_ptr (0 if not found)
+    test    rax, rax
+    jz      .sign_accessor_invalid
+
+    pop     rcx                             ; restore offset
+    pop     rsi                             ; (source_op unused on success)
+    mov     rdi, [rax + rcx]                ; field value
+    mov     r8, TYPE_CODE_SIGN
+    call    .construct_ok_outcome
+    ret
+
+.sign_accessor_invalid:
+    pop     rcx
+    pop     rsi
+    mov     rdi, ERR_INVALID_ID
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_SIGN
+    call    .construct_err_outcome
+    ret
+
+; --- .energy_accessor_common (Pod 1.10.2b2 helper) ---
+.energy_accessor_common:
+    push    rsi
+    push    rcx
+
+    test    rdi, rdi
+    jz      .energy_accessor_invalid
+
+    call    registry_lookup_energy
+    test    rax, rax
+    jz      .energy_accessor_invalid
+
+    pop     rcx
+    pop     rsi
+    mov     rdi, [rax + rcx]
+    mov     r8, TYPE_CODE_ENERGY
+    call    .construct_ok_outcome
+    ret
+
+.energy_accessor_invalid:
+    pop     rcx
+    pop     rsi
+    mov     rdi, ERR_INVALID_ID
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_ENERGY
+    call    .construct_err_outcome
+    ret
+
+; --- .outcome_accessor_common (Pod 1.10.2b2 helper) ---
+.outcome_accessor_common:
+    push    rsi
+    push    rcx
+
+    test    rdi, rdi
+    jz      .outcome_accessor_invalid
+
+    call    registry_lookup_outcome
+    test    rax, rax
+    jz      .outcome_accessor_invalid
+
+    pop     rcx
+    pop     rsi
+    mov     rdi, [rax + rcx]
+    mov     r8, TYPE_CODE_OUTCOME
+    call    .construct_ok_outcome
+    ret
+
+.outcome_accessor_invalid:
+    pop     rcx
+    pop     rsi
+    mov     rdi, ERR_INVALID_ID
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_OUTCOME
+    call    .construct_err_outcome
+    ret
+
 ; --- Pod 1.9.3: inline Ok Outcome construction helper ---
 ; Constructs an Ok Outcome directly via slot-write + registry-register
 ; (no dispatch roundtrip through OP_OUTCOME_NEW_OK). Used by refitted
@@ -1628,7 +1886,8 @@ cbs_run:
     mov     [rbx + 0x08], r8        ; value_type_id
     mov     [rbx + 0x10], rdi       ; value
     mov     qword [rbx + 0x18], 0   ; reserved
-    ; Zero err context + Pod 3+ reserved + Move 3 fields (12 qwords at +0x20)
+    ; Zero err context + Pod 3+ reserved + Move 3 fields + creator_cap_id
+    ; (12 qwords at +0x20)
     push    r8
     push    rdi
     lea     rdi, [rbx + 0x20]
@@ -1637,6 +1896,14 @@ cbs_run:
     rep     stosq
     pop     rdi
     pop     r8
+    ; Pod 1.10.2b2 retrofit per D1.10.1.8 — overwrite Move-3+creator fields
+    ; with substrate state after stosq zeroed them.
+    mov     rax, [rel current_cap_arena_id_cache]
+    mov     [rbx + 0x70], rax       ; arena_id
+    mov     rax, [rel current_cap_owner_demod_id_cache]
+    mov     [rbx + 0x78], rax       ; owner_demod_id
+    mov     rax, [rel current_cap_id]
+    mov     [rbx + OUTCOME_OFF_CREATOR_CAP_ID], rax  ; creator_cap_id at +0x68
     ; Register
     mov     rdi, rbx
     call    registry_register_outcome
@@ -1689,9 +1956,14 @@ cbs_run:
     mov     qword [rbx + 0x50], 0
     mov     qword [rbx + 0x58], 0
     mov     qword [rbx + 0x60], 0
-    mov     qword [rbx + 0x68], 0
-    mov     qword [rbx + 0x70], 0   ; arena_id (Move 3, V1.0 = 0)
-    mov     qword [rbx + 0x78], 0   ; owner_demod_id (Move 3, V1.0 = 0)
+    ; Pod 1.10.2b2 retrofit per D1.10.1.8 — Move-3+creator fields written from
+    ; substrate state instead of V1.0=0 placeholders.
+    mov     rax, [rel current_cap_id]
+    mov     [rbx + OUTCOME_OFF_CREATOR_CAP_ID], rax  ; creator_cap_id at +0x68
+    mov     rax, [rel current_cap_arena_id_cache]
+    mov     [rbx + 0x70], rax       ; arena_id
+    mov     rax, [rel current_cap_owner_demod_id_cache]
+    mov     [rbx + 0x78], rax       ; owner_demod_id
     ; Register
     mov     rdi, rbx
     call    registry_register_outcome  ; rax = outcome_id (0 if registry full)

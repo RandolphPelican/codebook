@@ -606,7 +606,7 @@ handler-pod time.
 No opcode handlers, no dispatch entries, no allocator retrofit, no
 tools changes. Pod 1.10.2b lands those.
 
-## ~~54. Pod 1.10.2b opcode handlers + retrofit + tests inherits 1.10.2a substrate (added Pod 1.10.1, forward-looking)~~ (PARTIALLY RESOLVED — Pod 1.10.2b1 lands handlers + Cap accessors; Pod 1.10.2b2 lands Sign/Energy/Outcome accessors + three-allocator retrofit + retrofit observability tests per D1.10.2b1.3 split)
+## ~~54. Pod 1.10.2b opcode handlers + retrofit + tests inherits 1.10.2a substrate (added Pod 1.10.1, forward-looking)~~ (RESOLVED — Pod 1.10.2b2 closes Pod 1.10; substrate-wide authority introspection complete; D1.10.1.8 elegance unlock fully landed across Sign/Energy/Outcome via creator_cap_id + accessors)
 
 Pod 1.10.2b lands:
 - 5 opcode handlers (OP_CAP_NEW/ENTER/EXIT/CURRENT/CHECK) in cbs_vm.asm
@@ -733,7 +733,7 @@ comparison. Diagnosed at HALT 2B as harness-reproduction issue
 distinguishable from VM regression by uniform byte-delta + fixed
 bbox offset signature.
 
-## 60. Pod 1.10.2b2 inherits 1.10.2b1 (added Pod 1.10.2b1, forward-looking)
+## ~~60. Pod 1.10.2b2 inherits 1.10.2b1 (added Pod 1.10.2b1, forward-looking)~~ (RESOLVED — Pod 1.10.2b2 inheritance chain complete; substrate state at seal: every primitive carries arena/owner/creator)
 
 Substrate state at 1.10.2b1 seal: ROOT_CAP live + 7 Cap opcodes
 shipped + cap_stack first-consumed by ENTER/EXIT. Pod 1.10.2b2
@@ -793,3 +793,112 @@ merge for fastest path; future bundle dispositions inherit unless
 architect changes direction. Six-script accumulation is the
 largest since pre-1.9.4 cleanup; merge-into-test_qemu.sh shape is
 increasingly attractive. Schedule housekeeping pod when convenient.
+
+## 63. Pod 1.10.3 Cap metabolic wiring (added Pod 1.10.2b2, forward-looking)
+
+Pod 1.10.3 lands the metabolic dimension on Cap slots, setting stage
+for Pod 2 Cop's spatial-merge activation:
+- energy_budget (u64) and energy_used (u64) fields on Cap slots —
+  per-cap metabolic accounting, foundation for delegation tax
+- OP_CAP_NEW signature amended to pop (resource_descriptor,
+  energy_budget) — revisits Pod 1.10.2b1 A2 ratification (strict
+  delegation kept args vestigial then; metabolic accounting
+  introduces non-vestigial caller input now)
+- OP_CAP_BUDGET / OP_CAP_USED accessors (1j metabolic per Cap
+  accessor convention; MAC verify before read)
+- Slot field placement requires audit — current Cap slot has
+  reserved tail at +0x38-0x7F (8 qwords); two more u64 fields fit
+  cleanly without expansion
+- Sets stage for Cop's spatial-merge: every authority-exercise at
+  Pod 2 increments ancestor energy_used by half-cost up the chain
+
+Pod 1.10.3 is the next pod after Pod 1.10.2b2 seals Pod 1.10.
+
+## 64. Pod 2 Cop is born (added Pod 1.10.2b2, forward-looking)
+
+Pod 2 inherits a substrate where every primitive carries full
+provenance (Sign/Energy/Outcome × arena/owner/creator) and every
+cap has metabolic accounting fields ready (energy_budget /
+energy_used per #63). Cop's actual scope:
+- Spatial-merge activation (delegation tax — every authority-
+  exercise increments ancestor energy_used by half-cost up the
+  chain via parent_cap_id walk)
+- cap_bitmap structured semantics — per-cap permission bitmap
+- Nonce + expiry enforcement
+- Ed25519 (V1.1+ cross-trust)
+- Revocation policy via generation_counter advancement
+- ERR_CAP_AUTHORITY_EXCEEDED activation (per #61) when sub-arena
+  delegation lands
+
+Smaller and more focused than v3 manifesto anticipated; substrate
+prep moved into Pod 1.10.3 means Cop becomes behavior-on-prepared-
+substrate rather than behavior + substrate prep. The "Cop is more
+focused at birth than v3 anticipated" architectural read confirmed.
+
+## 65. Sign embedding_handle relocation when Pod 3 (Maid) lands (added Pod 1.10.2b2, forward-looking)
+
+Pod 1.10.2b2 reclaimed Sign slot +0x68 (formerly embedding_handle
+placeholder) for creator_cap_id. The reclamation continues Pod
+1.8.5c's discipline (provenance_handle → arena_id, V1.1 sentinel →
+owner_demod_id, embedding_handle → creator_cap_id). OP_SIGN_NEW
+preserves 5-arg ABI by validating handle=0 then silently
+discarding.
+
+Pod 3 (Maid) lands real lexical embeddings and needs a home for
+embedding_handle. Three options:
+- Slot expansion to 136 bytes (or 256 bytes for alignment) — pool
+  size grows
+- Side-table indexed by sign_id — embedding_handle lives outside
+  the Sign slot, registry-resolved
+- Another reclaimable field if any remain at Pod 3 entry
+
+R3.1 forward-anchor from Pod 1.10.2b2 recon. Pod 3 recon decides
+based on embedding pool sizing and handle semantics.
+
+## 66. Outcome four-path consolidation refactor opportunity (added Pod 1.10.2b2)
+
+Outcome construction lands at four paths in cbs_vm.asm:
+- .op_outcome_new_ok (program-driven NEW_OK opcode)
+- .op_outcome_new_err (program-driven NEW_ERR opcode)
+- .construct_ok_outcome (helper called by accessor success paths)
+- .construct_err_outcome (helper called by accessor failure paths)
+
+Pod 1.10.2b2 R3.4 surfaced this: each retrofit (creator_cap_id
+addition + arena/owner from substrate state) had to land at all
+four sites identically. The audit was load-bearing — silent
+provenance corruption (mismatched Outcome construction paths) is
+the worst failure mode this kind of pod can ship.
+
+Refactor opportunity: NEW_OK / NEW_ERR opcode handlers thinned to
+wrappers around .construct_ok_outcome / .construct_err_outcome
+helpers. Eliminates the four-site retrofit surface; future field
+additions land at two helper sites rather than four parallel paths.
+
+Pod 2 or Pod 3 candidate when convenient. Worth doing before the
+next Outcome slot field addition (e.g., Pod 3+ embedding_handle
+or any future provenance enrichment).
+
+## 67. Pod 1.10.2b2 throwaway test scripts join housekeeping bundle (added Pod 1.10.2b2)
+
+Three throwaway QEMU test scripts in working tree (all unstaged
+per DEFERRED #10 + Pod 1.9.4 D1.9.4.1 precedent):
+- tools/pod1102b2_qemu_test.sh — B4+B14 pristine boot harness
+  (copied from pod1102b1; SCREEN basename swap)
+- tools/pod1102b2_canary_test.sh — generic surface canary harness
+  (copied unchanged from pod1102b1; pod-agnostic by design)
+- tools/pod1102b2_b5_b6_runner.sh — B5/B6 batch runner with
+  reference paths swapped to pod1102b1 refs (since 1.10.2b2
+  file-size-identical-to-1.10.2b1 is the regression-invisibility
+  target)
+
+Bundle accumulating since 1.9.4 cleared; ~9 scripts now (three
+from 1.10.2a per #59, three from 1.10.2b1 per #62, three from
+1.10.2b2 here). Same disposition options as #33-#34, #48, #52,
+#59, #62: merge-into-test_qemu.sh as parameterized harness, or
+remove. Pod 1.9.4 ratified removal-over-merge for fastest path;
+future bundle dispositions inherit unless architect changes
+direction. Nine-script accumulation across three pods of
+substrate work is the largest since pre-1.9.4 cleanup;
+merge-into-test_qemu.sh shape is increasingly tractable.
+Housekeeping pod (Pod 1.10.3 candidate or Pod 2 candidate)
+worth scheduling.
