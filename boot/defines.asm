@@ -121,16 +121,21 @@
 %define ERR_STACK_OVERFLOW           4   ; OP_CALL on full return stack (Pod 1.3 str_call_overflow → typed)
 %define ERR_INVALID_SIGN_ARG         5   ; OP_SIGN_NEW invalid label length / non-zero embedding_handle
 %define ERR_INVALID_ENERGY_ARG       6   ; OP_ENERGY_NEW invalid joules/source_op (defined; unused V1.0 per A3)
-%define ERR_CAP_AUTHORITY_EXCEEDED   7   ; OP_CAP_NEW arena/owner exceeds parent cap's authority (Pod 1.10.2a; D1.10.1.9)
+%define ERR_CAP_AUTHORITY_EXCEEDED   7   ; OP_CAP_NEW arena/owner exceeds parent cap's authority (Pod 1.10.2a; D1.10.1.9; defined-but-unused V1.0 per D1.10.2b1.2)
 
 ; --- Pod 1.10.2a Cap opcode constants (D1.10.1.2 / D1.10.1.3) ---
 ; Cross-asset constants verification per D1.9.2b.10: opcode constants
 ; land at substrate-plumbing pod (here), not handler pod (1.10.2b).
+; Pod 1.10.2b1 supersession: OP_CAP_CHECK retired; three accessors
+; (ARENA, OWNER, RESOURCE) ship instead per D1.10.2b1.1 bouncer-to-
+; fingerprint reframe.
 %define OP_CAP_NEW       0xB0
 %define OP_CAP_ENTER     0xB1
 %define OP_CAP_EXIT      0xB2
 %define OP_CAP_CURRENT   0xB3
-%define OP_CAP_CHECK     0xB4
+%define OP_CAP_ARENA     0xB4   ; Pod 1.10.2b1 — pop cap_id, MAC verify, push Outcome<arena_id>
+%define OP_CAP_OWNER     0xB5   ; Pod 1.10.2b1 — pop cap_id, MAC verify, push Outcome<owner_demod_id>
+%define OP_CAP_RESOURCE  0xB6   ; Pod 1.10.2b1 — pop cap_id, MAC verify, push Outcome<resource_descriptor>
 
 ; --- Pod 1.10.2a Cap pool / slot constants (D1.10.1.10) ---
 ; CAP_ID_NULL=0 already defined above in canonical-ID null-sentinel block (Pod 1.8.5b).

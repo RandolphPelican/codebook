@@ -159,6 +159,20 @@ cbs_run:
     je      .op_outcome_unwrap_ok
     cmp     al, OP_OUTCOME_UNWRAP_ERR
     je      .op_outcome_unwrap_err
+    cmp     al, OP_CAP_NEW
+    je      .op_cap_new
+    cmp     al, OP_CAP_ENTER
+    je      .op_cap_enter
+    cmp     al, OP_CAP_EXIT
+    je      .op_cap_exit
+    cmp     al, OP_CAP_CURRENT
+    je      .op_cap_current
+    cmp     al, OP_CAP_ARENA
+    je      .op_cap_arena
+    cmp     al, OP_CAP_OWNER
+    je      .op_cap_owner
+    cmp     al, OP_CAP_RESOURCE
+    je      .op_cap_resource
 
     ; Unknown opcode
     lea     rsi, [rel str_vm_unk]
@@ -1292,6 +1306,301 @@ cbs_run:
     lea     rsi, [rel str_unwrap_err_on_ok]
     call    auryn_puts
     jmp     .fetch
+
+; =============================================================
+; Pod 1.10.2b1 — Cap operations + Cap accessors
+; D1.10.2b1.1 supersession: OP_CAP_CHECK retired; three accessors
+; (ARENA, OWNER, RESOURCE) ship instead. Substrate is witness, not
+; police. Programs read slot fields with MAC-verified authenticity;
+; substrate does not enforce match-against-expected.
+; =============================================================
+
+; --- OP_CAP_NEW (0xB0) ---
+; Pop resource_descriptor; construct Cap slot under strict delegation
+; (arena/owner inherited from current_cap; parent_cap_id = current_cap_id).
+; MAC computed after cap_id_self assignment from registry. Push Outcome::Ok
+; wrapping cap_id (Pod 1.9.3 Path A semantics).
+.op_cap_new:
+    sub     r13, 8
+    mov     r10, [r13]                      ; resource_descriptor
+
+    ; Pool capacity check
+    mov     rcx, [rel vm_cap_next]
+    cmp     rcx, CAP_POOL_SLOTS
+    jge     .op_cap_new_pool_full
+
+    ; Compute slot pointer for this allocation (vm_cap_pool + index*128)
+    lea     rbx, [rel vm_cap_pool]
+    mov     rax, rcx
+    shl     rax, 7                          ; * CAP_SLOT_SIZE
+    add     rbx, rax
+
+    ; Write Cap slot fields (cap_id_self placeholder=0 until registry assigns id)
+    mov     qword [rbx + CAP_OFF_CAP_ID_SELF], 0
+    mov     rax, [rel current_cap_arena_id_cache]
+    mov     [rbx + CAP_OFF_ARENA_ID], rax
+    mov     rax, [rel current_cap_owner_demod_id_cache]
+    mov     [rbx + CAP_OFF_OWNER_DEMOD_ID], rax
+    mov     [rbx + CAP_OFF_RESOURCE_DESC], r10
+    mov     rax, [rel current_cap_id]
+    mov     [rbx + CAP_OFF_PARENT_CAP_ID], rax
+    mov     qword [rbx + CAP_OFF_GENERATION_COUNTER], 0
+
+    ; Register slot to obtain cap_id (registry preserves r12-r15, rbx, rbp, rdi)
+    mov     rdi, rbx
+    call    registry_register_cap           ; rax = assigned cap_id (0 if registry full)
+    test    rax, rax
+    jz      .op_cap_new_pool_full           ; pool & registry capacities matched → same Err
+
+    ; Stamp cap_id_self with assigned id; bump pool counter
+    mov     [rbx + CAP_OFF_CAP_ID_SELF], rax
+    inc     qword [rel vm_cap_next]
+
+    ; Compute MAC over 6 input fields (now that cap_id_self is correct)
+    push    rax                             ; preserve cap_id across siphash_compute
+    mov     rdi, rbx
+    mov     rsi, CAP_MAC_INPUT_QWORDS
+    call    siphash_compute                 ; rax = MAC (preserves r12-r15, rbx, rbp, rdi)
+    pop     rcx                             ; cap_id back in rcx
+    mov     [rbx + CAP_OFF_MAC], rax        ; stamp MAC
+
+    ; Wrap cap_id in Outcome::Ok per Path A
+    mov     rdi, rcx                        ; value = cap_id
+    mov     r8, TYPE_CODE_CAP
+    call    .construct_ok_outcome
+    mov     [r13], rax                      ; push outcome_id
+    add     r13, 8
+    jmp     .fetch
+
+.op_cap_new_pool_full:
+    mov     rdi, ERR_POOL_FULL
+    mov     rsi, OP_CAP_NEW
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_CAP
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_CAP_ENTER (0xB1) ---
+; Pop cap_id; MAC-verify (forgery detection per A1); push current_cap_id to
+; cap_stack; update current_cap_id and arena/owner caches from new cap's slot.
+; Returns Outcome<NONE> on every path (A2 ratification — Path A consistency
+; for fallible operations; success uses TYPE_CODE_NONE sentinel pattern).
+.op_cap_enter:
+    sub     r13, 8
+    mov     rdi, [r13]                      ; new_cap_id
+
+    test    rdi, rdi
+    jz      .op_cap_enter_invalid
+
+    call    registry_lookup_cap             ; rax = slot_ptr (0 if not found)
+    test    rax, rax
+    jz      .op_cap_enter_invalid
+    mov     rbx, rax                        ; slot_ptr
+
+    ; MAC verify — load-bearing forgery detection (A1)
+    mov     rdi, rbx
+    mov     rsi, CAP_MAC_INPUT_QWORDS
+    call    siphash_compute                 ; rax = recomputed MAC; rbx preserved
+    cmp     rax, [rbx + CAP_OFF_MAC]
+    jne     .op_cap_enter_invalid
+
+    ; cap_stack overflow check
+    mov     rcx, [rel cap_stack_ptr]
+    cmp     rcx, CAP_STACK_DEPTH
+    jge     .op_cap_enter_overflow
+
+    ; Push current_cap_id onto cap_stack
+    ; (RIP-relative + indexed addressing not valid x86-64; lea base then index)
+    lea     rdx, [rel cap_stack]
+    mov     rax, [rel current_cap_id]
+    mov     [rdx + rcx*8], rax
+    inc     qword [rel cap_stack_ptr]
+
+    ; Update current_cap state from new cap's slot
+    mov     rax, [rbx + CAP_OFF_CAP_ID_SELF]
+    mov     [rel current_cap_id], rax
+    mov     rax, [rbx + CAP_OFF_ARENA_ID]
+    mov     [rel current_cap_arena_id_cache], rax
+    mov     rax, [rbx + CAP_OFF_OWNER_DEMOD_ID]
+    mov     [rel current_cap_owner_demod_id_cache], rax
+
+    ; Outcome::Ok with TYPE_CODE_NONE (succeeded, no meaningful value)
+    xor     edi, edi
+    mov     r8, TYPE_CODE_NONE
+    call    .construct_ok_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_cap_enter_invalid:
+    mov     rdi, ERR_INVALID_ID             ; A3: MAC mismatch collapses to ERR_INVALID_ID
+    mov     rsi, OP_CAP_ENTER
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_CAP
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_cap_enter_overflow:
+    ; Pod 1.9.3 D1.9.3.2 tag-the-halt — push Err, emit diagnostic, halt
+    mov     rdi, ERR_STACK_OVERFLOW
+    mov     rsi, OP_CAP_ENTER
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_NONE              ; D1.9.3.3: stack violations have no expected-T
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    lea     rsi, [rel str_call_overflow]    ; reuse Pod 1.3 string per architect spec
+    call    auryn_puts
+    jmp     .done
+
+; --- OP_CAP_EXIT (0xB2) ---
+; Pop cap_stack; restore current_cap_id and caches from prior cap's slot.
+; No MAC verify on exit — restored cap was authenticated at its prior ENTER.
+; Returns Outcome<NONE> on every path (A2). Underflow tags-the-halt.
+.op_cap_exit:
+    mov     rcx, [rel cap_stack_ptr]
+    test    rcx, rcx
+    jz      .op_cap_exit_underflow
+
+    ; Pop cap_stack (lea base then index — RIP-relative + index not valid)
+    dec     rcx
+    mov     [rel cap_stack_ptr], rcx
+    lea     rdx, [rel cap_stack]
+    mov     rdi, [rdx + rcx*8]              ; restored cap_id
+
+    ; Look up restored cap to refresh cache fields (cap was registered at its ENTER)
+    call    registry_lookup_cap
+    test    rax, rax
+    jz      .op_cap_exit_underflow          ; defensive — should not fire if substrate consistent
+    mov     rbx, rax
+
+    ; Restore current_cap state from slot
+    mov     rax, [rbx + CAP_OFF_CAP_ID_SELF]
+    mov     [rel current_cap_id], rax
+    mov     rax, [rbx + CAP_OFF_ARENA_ID]
+    mov     [rel current_cap_arena_id_cache], rax
+    mov     rax, [rbx + CAP_OFF_OWNER_DEMOD_ID]
+    mov     [rel current_cap_owner_demod_id_cache], rax
+
+    ; Outcome::Ok with TYPE_CODE_NONE
+    xor     edi, edi
+    mov     r8, TYPE_CODE_NONE
+    call    .construct_ok_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_cap_exit_underflow:
+    mov     rdi, ERR_STACK_UNDERFLOW
+    mov     rsi, OP_CAP_EXIT
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_NONE              ; D1.9.3.3
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    lea     rsi, [rel str_ret_underflow]    ; reuse Pod 1.3 string per architect spec
+    call    auryn_puts
+    jmp     .done
+
+; --- OP_CAP_CURRENT (0xB3) ---
+; Push current_cap_id. No Outcome wrap — substrate state always valid
+; (current_cap_id ≥ ROOT_CAP_ID since boot init). Parallel to OP_PHASE_QUERY.
+.op_cap_current:
+    mov     rax, [rel current_cap_id]
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_CAP_ARENA (0xB4) ---
+; Pop cap_id; MAC-verify; push Outcome::Ok wrapping arena_id (or Err on
+; invalid id / MAC mismatch). Calls .cap_accessor_common with field offset.
+.op_cap_arena:
+    sub     r13, 8
+    mov     rdi, [r13]                      ; cap_id
+    mov     rcx, CAP_OFF_ARENA_ID
+    mov     rsi, OP_CAP_ARENA
+    call    .cap_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_CAP_OWNER (0xB5) ---
+.op_cap_owner:
+    sub     r13, 8
+    mov     rdi, [r13]
+    mov     rcx, CAP_OFF_OWNER_DEMOD_ID
+    mov     rsi, OP_CAP_OWNER
+    call    .cap_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_CAP_RESOURCE (0xB6) ---
+.op_cap_resource:
+    sub     r13, 8
+    mov     rdi, [r13]
+    mov     rcx, CAP_OFF_RESOURCE_DESC
+    mov     rsi, OP_CAP_RESOURCE
+    call    .cap_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- .cap_accessor_common (Pod 1.10.2b1 helper, D1.10.2b1.5) ---
+; Shared lookup-verify-read for the three Cap accessors. Factored to keep
+; the MAC-verification site singular. Helper signatures follow Pod 1.9.3
+; r8=value_type_id convention (architect's R6/R9 outline used rsi; recon
+; corrected against in-tree code per A4 / D1.10.2b1.5 forward-anchor).
+;
+; Internal calling convention:
+;   Input:    rdi = cap_id, rcx = field offset in Cap slot, rsi = source_op
+;   Output:   rax = outcome_id (Ok wrapping field value, or Err)
+;   Clobbers: rax, rbx, rcx, rdx, rsi, rdi, r8
+;   Preserves: r12, r13, r14, r15, rbp (caller-side VM state survives)
+.cap_accessor_common:
+    push    rsi                             ; preserve source_op (for Err path)
+    push    rcx                             ; preserve field offset
+
+    test    rdi, rdi
+    jz      .accessor_invalid               ; cap_id=0 invalid
+
+    call    registry_lookup_cap             ; rax = slot_ptr (0 if not found)
+    test    rax, rax
+    jz      .accessor_invalid
+    mov     rbx, rax                        ; slot_ptr
+
+    ; MAC verify (forgery detection per A1)
+    mov     rdi, rbx
+    mov     rsi, CAP_MAC_INPUT_QWORDS
+    call    siphash_compute                 ; rax = recomputed MAC; rbx preserved
+    cmp     rax, [rbx + CAP_OFF_MAC]
+    jne     .accessor_invalid               ; A3: MAC mismatch collapses to ERR_INVALID_ID
+
+    ; Read requested field, wrap in Outcome::Ok
+    pop     rcx                             ; restore offset
+    pop     rsi                             ; (source_op unused on success)
+    mov     rdi, [rbx + rcx]                ; value = slot field
+    mov     r8, TYPE_CODE_CAP
+    call    .construct_ok_outcome
+    ret
+
+.accessor_invalid:
+    pop     rcx                             ; discard offset
+    pop     rsi                             ; restore source_op
+    mov     rdi, ERR_INVALID_ID
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_CAP
+    call    .construct_err_outcome
+    ret
 
 ; --- Pod 1.9.3: inline Ok Outcome construction helper ---
 ; Constructs an Ok Outcome directly via slot-write + registry-register

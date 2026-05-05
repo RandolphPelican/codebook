@@ -606,7 +606,7 @@ handler-pod time.
 No opcode handlers, no dispatch entries, no allocator retrofit, no
 tools changes. Pod 1.10.2b lands those.
 
-## 54. Pod 1.10.2b opcode handlers + retrofit + tests inherits 1.10.2a substrate (added Pod 1.10.1, forward-looking)
+## ~~54. Pod 1.10.2b opcode handlers + retrofit + tests inherits 1.10.2a substrate (added Pod 1.10.1, forward-looking)~~ (PARTIALLY RESOLVED — Pod 1.10.2b1 lands handlers + Cap accessors; Pod 1.10.2b2 lands Sign/Energy/Outcome accessors + three-allocator retrofit + retrofit observability tests per D1.10.2b1.3 split)
 
 Pod 1.10.2b lands:
 - 5 opcode handlers (OP_CAP_NEW/ENTER/EXIT/CURRENT/CHECK) in cbs_vm.asm
@@ -732,3 +732,64 @@ command) for PNG file-size byte-identity to hold under reference
 comparison. Diagnosed at HALT 2B as harness-reproduction issue
 distinguishable from VM regression by uniform byte-delta + fixed
 bbox offset signature.
+
+## 60. Pod 1.10.2b2 inherits 1.10.2b1 (added Pod 1.10.2b1, forward-looking)
+
+Substrate state at 1.10.2b1 seal: ROOT_CAP live + 7 Cap opcodes
+shipped + cap_stack first-consumed by ENTER/EXIT. Pod 1.10.2b2
+lands the substrate-wide arena/owner introspection and observably
+activates D1.10.1.8's elegance unlock:
+
+- Sign/Energy/Outcome arena/owner accessors (parallel shape to
+  Pod 1.10.2b1's Cap accessors — three accessors per primitive
+  reading slot fields)
+- Three-allocator retrofit per D1.10.1.8: .sign_alloc,
+  .energy_alloc, .outcome_alloc replace zero-writes at the arena/
+  owner offsets with reads from current_cap_arena_id_cache /
+  current_cap_owner_demod_id_cache
+- Retrofit observability tests verifying that primitives
+  constructed under non-ROOT context carry non-zero arena/owner
+- Sign/Energy regeneration regression to confirm 174j/53j canaries
+  still hold under retrofitted allocators (under ROOT context,
+  cache fields = 0 means slots come out byte-identical to pre-
+  retrofit reference; canaries unaffected)
+- Closes DEFERRED #54 fully (handlers + Cap accessors + Sign/Energy/
+  Outcome accessors + three-allocator retrofit all landed)
+
+The architectural moment continues at 1.10.2b2: Sign/Energy/Outcome
+primitives become substrate-self-witnessing too. Combined with
+1.10.2b1's Cap accessors, the substrate-wide elegance unlock per
+D1.10.1.8 is fully realized.
+
+## 61. ERR_CAP_AUTHORITY_EXCEEDED defined-but-unused in V1.0 (added Pod 1.10.2b1, forward-looking)
+
+V1.0 strict delegation (D1.10.1.12 / D1.10.2b1.2) makes OP_CAP_NEW
+inherit parent's arena/owner exactly with no validation gate. The
+ERR_CAP_AUTHORITY_EXCEEDED err_code (=7) stays defined in
+defines.asm but has no consumer in V1.0.
+
+Activates when sub-arena delegation lands at Pod 2 (Cop) or
+wherever sub-cap-of-cap with strict-subset arena/owner becomes
+meaningful. Pod 2's authority-exceeded check at OP_CAP_NEW would
+emit this err_code. Forward-log preserved.
+
+## 62. Pod 1.10.2b1 throwaway test scripts join housekeeping bundle (added Pod 1.10.2b1)
+
+Three throwaway QEMU test scripts in working tree (all unstaged
+per DEFERRED #10 + Pod 1.9.4 D1.9.4.1 precedent):
+- tools/pod1102b1_qemu_test.sh — B4+B13 pristine boot harness
+  (copied from pod1102a_qemu_test.sh; SCREEN basename swap)
+- tools/pod1102b1_canary_test.sh — generic surface canary harness
+  (copied unchanged from pod1102a; pod-agnostic by design)
+- tools/pod1102b1_b5_b6_runner.sh — B5/B6 batch runner with
+  reference paths swapped to pod1102a refs (since 1.10.2b1 file-
+  size-identical-to-1.10.2a is the regression-invisibility target)
+
+Bundle accumulating since 1.9.4 cleared; ~6 scripts now (three
+from 1.10.2a per #59, three from 1.10.2b1 here). Same disposition
+options as #33-#34, #48, #52, #59: merge-into-test_qemu.sh as
+parameterized harness, or remove. Pod 1.9.4 ratified removal-over-
+merge for fastest path; future bundle dispositions inherit unless
+architect changes direction. Six-script accumulation is the
+largest since pre-1.9.4 cleanup; merge-into-test_qemu.sh shape is
+increasingly attractive. Schedule housekeeping pod when convenient.

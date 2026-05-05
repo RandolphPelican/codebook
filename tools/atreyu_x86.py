@@ -58,6 +58,17 @@ OP_OUTCOME_IS_OK      = 0xE2
 OP_OUTCOME_UNWRAP_OK  = 0xE3
 OP_OUTCOME_UNWRAP_ERR = 0xE4
 
+# --- Pod 1.10.2b1 Cap opcodes (D1.10.2b1.1 supersession of D1.10.1.3) ---
+# OP_CAP_CHECK retired; three accessors (ARENA, OWNER, RESOURCE) ship
+# instead. Substrate is witness, not police.
+OP_CAP_NEW       = 0xB0
+OP_CAP_ENTER     = 0xB1
+OP_CAP_EXIT      = 0xB2
+OP_CAP_CURRENT   = 0xB3
+OP_CAP_ARENA     = 0xB4
+OP_CAP_OWNER     = 0xB5
+OP_CAP_RESOURCE  = 0xB6
+
 # --- Pod 1.9.2a/1.9.2b TYPE_CODE_* enum (D1.9.1.1) ---
 TYPE_CODE_NONE     = 0
 TYPE_CODE_SIGN     = 1
@@ -160,6 +171,19 @@ class AtreyuX86:
             for _ in range(n_calls):
                 e.emit(OP_PUSH); e.emit_i64(0)
                 e.emit(OP_CALL)
+        elif t == 'raw_op_cap_exit':
+            # Pod 1.10.2b1 T5 test primitive — emit raw OP_CAP_EXIT to trigger
+            # cap_stack underflow on empty cap_stack.
+            e.emit(OP_CAP_EXIT)
+        elif t == 'raw_cap_enter_overflow_burst':
+            # Pod 1.10.2b1 T6 test primitive — emit N (PUSH cap_id; OP_CAP_ENTER;
+            # OP_DROP) triples to overflow cap_stack (capacity 256).
+            cap_id = n.get('cap_id', 2)
+            n_enters = n.get('count', 257)
+            for _ in range(n_enters):
+                e.emit(OP_PUSH); e.emit_i64(cap_id)
+                e.emit(OP_CAP_ENTER)
+                e.emit(OP_DROP)
 
     def _sign_new(self, n):
         """Emit OP_SIGN_NEW with inline hash and label data."""
@@ -288,6 +312,35 @@ class AtreyuX86:
             self._expr(n['operand']); e.emit(OP_OUTCOME_UNWRAP_OK)
         elif t == 'outcome_unwrap_err':
             self._expr(n['operand']); e.emit(OP_OUTCOME_UNWRAP_ERR)
+        # --- Pod 1.10.2b1 Cap expressions ---
+        elif t == 'cap_new':
+            # Pop resource_descriptor; push Outcome<cap_id>. Strict delegation
+            # at handler — arena/owner inherited from current_cap caches.
+            e.emit(OP_PUSH); e.emit_i64(n.get('resource_descriptor', 0))
+            e.emit(OP_CAP_NEW)
+        elif t == 'cap_enter':
+            # Pop cap_id; MAC verify + cap_stack push + cache update.
+            # Pushes Outcome<NONE> on every path (A2 Path A consistency).
+            self._expr(n['operand']); e.emit(OP_CAP_ENTER)
+        elif t == 'cap_exit':
+            # cap_stack pop + cache restore; pushes Outcome<NONE>.
+            e.emit(OP_CAP_EXIT)
+        elif t == 'cap_current':
+            # Pure substrate state read; pushes current_cap_id (no Outcome wrap).
+            e.emit(OP_CAP_CURRENT)
+        elif t == 'cap_arena':
+            # Pop cap_id; push Outcome<arena_id>. AST handler emits accessor +
+            # UNWRAP_OK so demos can print the unwrapped value directly.
+            self._expr(n['operand']); e.emit(OP_CAP_ARENA); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'cap_owner':
+            self._expr(n['operand']); e.emit(OP_CAP_OWNER); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'cap_resource':
+            self._expr(n['operand']); e.emit(OP_CAP_RESOURCE); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'cap_arena_raw_id':
+            # Test primitive — push raw u64 cap_id, emit OP_CAP_ARENA, no UNWRAP_OK.
+            # Caller wants raw outcome_id (for invalid-id tests).
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_CAP_ARENA)
 
     def _energy_new(self, n):
         """Emit OP_ENERGY_NEW: push joules, push source_op, emit opcode."""
@@ -599,6 +652,111 @@ def demo_outcome_dup_is_ok():
         {'type':'print','value':{'type':'str','value':'=== DUP-IS_OK test complete ==='}},
     ]}
 
+# --- Pod 1.10.2b1 Cap test surfaces (T1-T6) ---
+
+def demo_cap_new_basic():
+    """Pod 1.10.2b1 T1 — construct a cap, UNWRAP_OK, print cap_id (expect 2 since ROOT=1)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cap New Basic Test (Pod 1.10.2b1 T1) ==='}},
+        {'type':'let','name':'o','value':{'type':'cap_new','resource_descriptor':42}},
+        {'type':'print','value':{'type':'str','value':'is_ok:'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'print','value':{'type':'str','value':'cap_id (expect 2):'}},
+        {'type':'print','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'print','value':{'type':'str','value':'=== Cap New Basic test complete ==='}},
+    ]}
+
+def demo_cap_arena_owner_resource():
+    """Pod 1.10.2b1 T2 — substrate witnesses itself for the first time.
+    Construct cap with resource_descriptor=42 (under ROOT context, so arena=0
+    owner=0 inherited via strict delegation). Read all three slot fields via
+    accessor opcodes and print. The architectural moment per D1.10.2b1.8."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cap Accessors Test (Pod 1.10.2b1 T2) ==='}},
+        {'type':'let','name':'o','value':{'type':'cap_new','resource_descriptor':42}},
+        {'type':'let','name':'cap_id','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'print','value':{'type':'str','value':'arena (expect 0):'}},
+        {'type':'print','value':{'type':'cap_arena','operand':{'type':'var','name':'cap_id'}}},
+        {'type':'print','value':{'type':'str','value':'owner (expect 0):'}},
+        {'type':'print','value':{'type':'cap_owner','operand':{'type':'var','name':'cap_id'}}},
+        {'type':'print','value':{'type':'str','value':'resource (expect 42):'}},
+        {'type':'print','value':{'type':'cap_resource','operand':{'type':'var','name':'cap_id'}}},
+        {'type':'print','value':{'type':'str','value':'=== Cap Accessors test complete ==='}},
+    ]}
+
+def demo_cap_current():
+    """Pod 1.10.2b1 T3 — verify cap_stack push/pop semantics and cache field
+    updates. CURRENT before ENTER returns ROOT_CAP_ID=1; after ENTER returns
+    new cap's id; after EXIT returns 1 again."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cap Current Test (Pod 1.10.2b1 T3) ==='}},
+        {'type':'print','value':{'type':'str','value':'current at start (expect 1 = ROOT):'}},
+        {'type':'print','value':{'type':'cap_current'}},
+        {'type':'let','name':'o','value':{'type':'cap_new','resource_descriptor':99}},
+        {'type':'let','name':'cap_id','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'o'}}},
+        # ENTER returns Outcome<NONE>; let-bind to drop from stack, then check is_ok
+        {'type':'let','name':'enter_o','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_id'}}},
+        {'type':'print','value':{'type':'str','value':'enter is_ok:'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'enter_o'}}},
+        {'type':'print','value':{'type':'str','value':'current after ENTER (expect 2):'}},
+        {'type':'print','value':{'type':'cap_current'}},
+        {'type':'let','name':'exit_o','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'exit is_ok:'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'exit_o'}}},
+        {'type':'print','value':{'type':'str','value':'current after EXIT (expect 1):'}},
+        {'type':'print','value':{'type':'cap_current'}},
+        {'type':'print','value':{'type':'str','value':'=== Cap Current test complete ==='}},
+    ]}
+
+def demo_cap_invalid_id():
+    """Pod 1.10.2b1 T4 — OP_CAP_ARENA on cap_id=99 (invalid) returns Err Outcome
+    with err_code=ERR_INVALID_ID (1), source_op=OP_CAP_ARENA (180=0xB4)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cap Invalid ID Test (Pod 1.10.2b1 T4) ==='}},
+        {'type':'let','name':'o','value':{'type':'cap_arena_raw_id','id':99}},
+        {'type':'print','value':{'type':'str','value':'is_ok:'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter (TOS):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 180 = OP_CAP_ARENA):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 1 = ERR_INVALID_ID):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== Cap Invalid ID test complete ==='}},
+    ]}
+
+def demo_cap_stack_underflow():
+    """Pod 1.10.2b1 T5 — OP_CAP_EXIT on empty cap_stack triggers underflow.
+    Diagnostic str_ret_underflow + halt per Pod 1.9.3 D1.9.3.2 tag-the-halt;
+    Err Outcome on operand stack at halt with source_op=OP_CAP_EXIT (178=0xB2)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cap Stack Underflow Test (Pod 1.10.2b1 T5) ==='}},
+        {'type':'print','value':{'type':'str','value':'before underflow'}},
+        {'type':'print','value':{'type':'str','value':'triggering OP_CAP_EXIT on empty cap_stack...'}},
+        {'type':'raw_op_cap_exit'},
+        {'type':'print','value':{'type':'str','value':'(this should not appear)'}},
+    ]}
+
+def demo_cap_stack_overflow():
+    """Pod 1.10.2b1 T6 — 257 OP_CAP_ENTER on a single valid cap_id overflows
+    256-deep cap_stack. Diagnostic str_call_overflow + halt; Err Outcome on
+    operand stack at halt with source_op=OP_CAP_ENTER (177=0xB1)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cap Stack Overflow Test (Pod 1.10.2b1 T6) ==='}},
+        {'type':'let','name':'o','value':{'type':'cap_new','resource_descriptor':77}},
+        {'type':'let','name':'cap_id','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'print','value':{'type':'str','value':'before overflow'}},
+        {'type':'print','value':{'type':'str','value':'entering same cap 257 times until cap_stack overflows...'}},
+        # Use raw burst to emit 257 (PUSH cap_id; OP_CAP_ENTER; OP_DROP) tuples.
+        # But cap_id is a runtime value; we need to inline-push a fixed id.
+        # For T6 we know cap_id will be 2 (first user-created post-ROOT).
+        {'type':'raw_cap_enter_overflow_burst','cap_id':2,'count':257},
+        {'type':'print','value':{'type':'str','value':'(this should not appear)'}},
+    ]}
+
 def demo_energy():
     """Pod 1.8 Energy typed primitive test — hardcoded AST demo"""
     return {'type':'program','body':[
@@ -759,5 +917,54 @@ if __name__ == '__main__':
     elif '--stack-overflow-test' in sys.argv:
         c = AtreyuX86(); bc = c.compile(demo_stack_overflow())
         print(f"Stack Overflow test: {len(bc)} bytes")
+    # --- Pod 1.10.2b1 Cap test surfaces (T1-T6) ---
+    elif '--cap-new-basic-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_new_basic())
+        out = sys.argv[sys.argv.index('--cap-new-basic-build')+1] if len(sys.argv) > sys.argv.index('--cap-new-basic-build')+1 else 'test_cap_new_basic.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cap New Basic test: compiled {len(bc)} bytes -> {out}")
+    elif '--cap-new-basic-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_new_basic())
+        print(f"Cap New Basic test: {len(bc)} bytes")
+    elif '--cap-arena-owner-resource-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_arena_owner_resource())
+        out = sys.argv[sys.argv.index('--cap-arena-owner-resource-build')+1] if len(sys.argv) > sys.argv.index('--cap-arena-owner-resource-build')+1 else 'test_cap_arena_owner_resource.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cap Accessors test: compiled {len(bc)} bytes -> {out}")
+    elif '--cap-arena-owner-resource-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_arena_owner_resource())
+        print(f"Cap Accessors test: {len(bc)} bytes")
+    elif '--cap-current-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_current())
+        out = sys.argv[sys.argv.index('--cap-current-build')+1] if len(sys.argv) > sys.argv.index('--cap-current-build')+1 else 'test_cap_current.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cap Current test: compiled {len(bc)} bytes -> {out}")
+    elif '--cap-current-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_current())
+        print(f"Cap Current test: {len(bc)} bytes")
+    elif '--cap-invalid-id-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_invalid_id())
+        out = sys.argv[sys.argv.index('--cap-invalid-id-build')+1] if len(sys.argv) > sys.argv.index('--cap-invalid-id-build')+1 else 'test_cap_invalid_id.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cap Invalid ID test: compiled {len(bc)} bytes -> {out}")
+    elif '--cap-invalid-id-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_invalid_id())
+        print(f"Cap Invalid ID test: {len(bc)} bytes")
+    elif '--cap-stack-underflow-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_stack_underflow())
+        out = sys.argv[sys.argv.index('--cap-stack-underflow-build')+1] if len(sys.argv) > sys.argv.index('--cap-stack-underflow-build')+1 else 'test_cap_stack_underflow.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cap Stack Underflow test: compiled {len(bc)} bytes -> {out}")
+    elif '--cap-stack-underflow-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_stack_underflow())
+        print(f"Cap Stack Underflow test: {len(bc)} bytes")
+    elif '--cap-stack-overflow-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_stack_overflow())
+        out = sys.argv[sys.argv.index('--cap-stack-overflow-build')+1] if len(sys.argv) > sys.argv.index('--cap-stack-overflow-build')+1 else 'test_cap_stack_overflow.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cap Stack Overflow test: compiled {len(bc)} bytes -> {out}")
+    elif '--cap-stack-overflow-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_stack_overflow())
+        print(f"Cap Stack Overflow test: {len(bc)} bytes")
     else:
-        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test}")
+        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-resource,current,invalid-id,stack-underflow,stack-overflow}-{build,test}")
