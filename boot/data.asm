@@ -289,6 +289,11 @@ str_run_bad:  db '  Usage: run <0-8>',10,0
 str_op_energy_recover_noop: db '  OP_ENERGY_RECOVER no-op V1.0',10,0
 str_unwrap_ok_on_err: db '  UNWRAP_OK on Err — sentinel returned',10,0
 str_unwrap_err_on_ok: db '  UNWRAP_ERR on Ok — sentinels returned',10,0
+str_no_entropy:                db '  FATAL: RDSEED and RDRAND unavailable',10
+                               db '  CodebookOS requires hardware entropy source',10,0
+str_siphash_self_test_fail:    db '  FATAL: SipHash self-test against published vectors failed',10,0
+str_root_cap_mac_mismatch:     db '  FATAL: ROOT_CAP MAC self-verification failed',10,0
+str_root_cap_id_wrong:         db '  FATAL: ROOT_CAP registration did not return id=1',10,0
 
 str_prog_list:
     db '  CBS Demo Programs:',10

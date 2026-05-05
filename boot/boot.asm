@@ -124,6 +124,15 @@ efi_entry:
     mov     rax, [rcx + CONOUT_OUTPUTSTR]
     call    rax
 
+    ; Pod 1.10.2a — Cap substrate boot-time init.
+    ; Four-call sequence per D1.10.2a.1-5; each function hard-fails
+    ; with FATAL diagnostic + cli/hlt/jmp $ on its own failure path.
+    ; Pristine boot means all four passed.
+    call    derive_siphash_key       ; CPUID probe RDSEED → RDRAND → hard-fail (D1.10.1.6)
+    call    siphash_self_test_run    ; E1 — verify SipHash against published vectors (D1.10.2a.3)
+    call    construct_root_cap       ; build ROOT_CAP slot, compute MAC, register; sanity-check cap_id=1
+    call    verify_root_cap_mac      ; E3 — recompute and verify MAC matches (D1.10.2a.5)
+
     ; Pod 1.8.5c Move 7: SEED → FORM (FAT32 + framebuffer located)
     mov     qword [rel vm_phase], VM_PHASE_FORM
 
@@ -387,6 +396,7 @@ fixup_color:
 %include "boot/registry.asm"   ; Pod 1.8.5b: canonical-ID registry for Sign and Energy
 %include "boot/provenance.asm" ; Pod 1.8.5c Move 2: ProvEvent struct + prov_append
 %include "boot/outcome.asm"    ; Pod 1.9.2a: canonical-ID registry for Outcome<T>
+%include "boot/cap.asm"        ; Pod 1.10.2a: Cap substrate plumbing (SipHash-2-4 + ROOT_CAP)
 %include "boot/bastian.asm"    ; home surface (bastian precedes gmork_main in original)
 %include "boot/gmork_cmds.asm"  ; gmork_main, get_mmap, show_memmap, paint_bars
 %include "drivers/kbd_ps2.asm"  ; PS/2 keyboard driver — native_keyboard_read

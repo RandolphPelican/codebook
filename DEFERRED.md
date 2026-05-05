@@ -587,7 +587,7 @@ pressure becomes a real concern per #49).
 
 ## ~~52. tools/pod193_qemu_test.sh joins housekeeping bundle (added Pod 1.9.3)~~ (RESOLVED — Pod 1.9.4)
 
-## 53. Pod 1.10.2a substrate plumbing inherits D1.10.1.1-14 (added Pod 1.10.1, forward-looking)
+## ~~53. Pod 1.10.2a substrate plumbing inherits D1.10.1.1-14 (added Pod 1.10.1, forward-looking)~~ (RESOLVED — Pod 1.10.2a)
 
 Pod 1.10.2a lays the Cap substrate per D1.10.1.13: vm_cap_pool, cap_registry,
 cap_stack + cap_stack_ptr, current_cap_id, current_cap_arena_id_cache,
@@ -665,3 +665,70 @@ housekeeping bundle now spans four source pods (1.8.5b, 1.8.5c,
 fresh-boot harness is increasingly the right shape — each script
 follows the same template (mkfifo / daemonize / sendkey /
 screendump / quit) with only the test surface name varying.
+
+## 57. Pod 1.10.2b inherits 1.10.2a substrate (added Pod 1.10.2a, forward-looking)
+
+Pod 1.10.2b lands the Cap behavior layer on top of the substrate
+plumbing sealed in 1.10.2a:
+- 5 OP_CAP_* opcode handlers (NEW/ENTER/EXIT/CURRENT/CHECK) in
+  cbs_vm.asm + dispatch entries
+- Cost table extension in energy_costs.asm (5 new entries at
+  0xB0-0xB4 per D1.10.1.3) + cleanup of stale comments per #54
+- Allocator retrofit per D1.10.1.8: 3 sites (.sign_alloc,
+  .energy_alloc, .outcome_alloc) replace zero-writes at the arena/
+  owner offsets with reads from current_cap_arena_id_cache /
+  current_cap_owner_demod_id_cache
+- Tools support in tools/atreyu_x86.py (5 opcodes + AST handlers +
+  demos + CLI flags)
+- 6+ Cap test surfaces (test_cap_new, test_cap_enter_exit,
+  test_cap_check, test_cap_delegation, test_cap_invalid_check,
+  test_arena_owner_inheritance verifying D1.10.1.8 retrofit)
+- Sign/Energy regeneration regression to confirm 174j/53j canaries
+  still hold under retrofitted allocators
+- Closes DEFERRED #54
+
+## 58. SipHash signature parameterization superseded D1.10.1.7's V1.0-specific note (added Pod 1.10.2a)
+
+D1.10.1.7 specified a V1.0-specific signature
+`siphash_compute_cap_mac(rdi=slot_ptr) -> rax=mac` with the explicit
+forward-log "generalize when a second use case appears." E1's
+boot-time self-test IS that second use case — the self-test consumes
+SipHash with a 1-qword input where the Cap MAC consumes a 6-qword
+input. Recon at 1.10.2a HALT 1 (R7) surfaced this; A1 ratification
+adopted parameterized signature
+`siphash_compute(rdi=field_ptr, rsi=qword_count) -> rax=mac` with
+`siphash_compute_cap_mac` becoming a thin wrapper passing rsi=6.
+
+D1.10.2a.8 records the supersession formally. The doctrine works
+as designed — recon catches the parameterization need before
+implementation drift. Forward-log preserved here so future pods
+inherit the lesson: when a doctrine specifies "generalize when X
+appears", recon at the next pod where X might appear is the right
+checkpoint.
+
+## 59. Pod 1.10.2a throwaway test scripts join housekeeping bundle (added Pod 1.10.2a)
+
+Three throwaway QEMU test scripts in working tree (all unstaged per
+DEFERRED #10 + Pod 1.9.4 D1.9.4.1 precedent):
+- tools/pod1102a_qemu_test.sh — B4 pristine boot liveness harness
+  (mkfifo / daemonize / 8s wait / monitor screendump / PIL save)
+- tools/pod1102a_canary_test.sh — generic surface canary harness
+  (mcopy surface to FAT32 image, sendkey '2' for Gmork, sendkey
+  preamble Enter, type "load <surface>.cbc", screendump via monitor
+  pipe, PIL save to PNG)
+- tools/pod1102a_b5_b6_runner.sh — B5/B6 batch runner with
+  size-diff verdict against reference PNGs
+
+After Pod 1.9.4 housekeeping cleared the previous bundle (per
+D1.9.4.1 removal-over-merge ratification), this is the first
+accumulation. Same disposition options as #33-#34, #48, #52:
+merge-into-test_qemu.sh as parameterized harness, or remove. Pod
+1.9.4 ratified removal-over-merge for fastest path; future bundle
+dispositions inherit unless architect changes direction.
+
+The B5/B6 runner extends pattern: harness preamble must match
+prior reference harness preamble (one extra Enter before load
+command) for PNG file-size byte-identity to hold under reference
+comparison. Diagnosed at HALT 2B as harness-reproduction issue
+distinguishable from VM regression by uniform byte-delta + fixed
+bbox offset signature.

@@ -19,6 +19,14 @@ energy_used:   dq 0
 vm_fetch_count: dq 0
 vm_ret_ptr:     dq 0
 vm_ret_stack:   times 256 dq 0
+; Pod 1.10.2a — cap_stack (D1.10.1.4 / E2 / D1.10.2a.4)
+;   256-entry parallel to vm_ret_stack. Substrate-stack precedent grouping.
+;   1.10.2a declares; 1.10.2b first-consumes via OP_CAP_ENTER/EXIT.
+;   Doctrine note: future-consumed declared state distinct from
+;   vm_fetch_count gap pattern (declared substrate state with no planned
+;   consumer). cap_stack is structurally part of Cap substrate.
+cap_stack_ptr:  dq 0
+cap_stack:      times CAP_STACK_DEPTH dq 0
 vm_stack:   times 512 dq 0     ; 4KB VM stack
 vm_vars:    times 64 dq 0      ; 512 bytes variables (64-bit, Pod 1.5)
 
@@ -38,6 +46,11 @@ vm_energy_next:  dq 0            ; bump allocator index (next free slot)
     align 16
 vm_outcome_pool: times OUTCOME_POOL_SLOTS * OUTCOME_SLOT_SIZE db 0
 vm_outcome_next: dq 0            ; bump allocator index (next free slot)
+
+; Cap pool (Pod 1.10.2a — D1.10.1.13; 64 slots × 128 bytes = 8KB; bump-allocator)
+    align 16
+vm_cap_pool: times CAP_POOL_SLOTS * CAP_SLOT_SIZE db 0
+vm_cap_next: dq 0                ; bump allocator index (next free slot)
 
 ; Sign registry (Pod 1.8.5b — Move 4)
 ;   Maps sign_id (opaque counter, 1-based) -> slot pointer (u64).
@@ -64,6 +77,14 @@ outcome_registry_count:   dq 0
 outcome_registry_next_id: dq 1
 outcome_registry:         times OUTCOME_POOL_SLOTS * 16 db 0
 
+; Cap registry (Pod 1.10.2a; D1.10.1.13 + Pod 1.8.5b registry pattern)
+;   Maps cap_id -> slot pointer. Capacity matches vm_cap_pool.
+;   ROOT_CAP_ID=1 claims first allocation at boot.
+    align 16
+cap_registry_count:   dq 0
+cap_registry_next_id: dq 1   ; ID 0 reserved as CAP_ID_NULL; ROOT_CAP claims id=1
+cap_registry:         times CAP_POOL_SLOTS * 16 db 0
+
 ; Pod 1.8.5c Move 7 — current VM phase (SEED at boot, advances through MIND)
     align 16
 vm_phase: dq VM_PHASE_SEED
@@ -78,6 +99,27 @@ vm_phase: dq VM_PHASE_SEED
     align 16
 current_demod_cost_table_ptr:  dq 0
 current_demod_prov_enabled:    dq 0
+
+; Pod 1.10.2a — current Cap singleton state (D1.10.1.13)
+;   current_cap_id initialized to ROOT_CAP_ID=1 (substrate bootstrap).
+;   Cache fields mirror current_cap slot's +0x08 / +0x10 for fast access
+;   in Sign/Energy/Outcome allocator retrofit at Pod 1.10.2b.
+    align 16
+current_cap_id:                    dq 1   ; initialized to ROOT_CAP_ID
+current_cap_arena_id_cache:        dq 0
+current_cap_owner_demod_id_cache:  dq 0
+
+; Pod 1.10.2a — substrate crypto state (D1.10.1.6 / D1.10.1.7)
+;   siphash_key derived at boot via RDSEED → RDRAND → hard-fail per
+;   D1.10.1.6 / A1 ratification. siphash_key_source flag preserves
+;   the entropy source for audit (0=rdseed, 1=rdrand). Self-test scratch
+;   space holds the saved key during boot-time verification (E1).
+    align 16
+siphash_key:               dq 0, 0    ; 128-bit key (filled at boot)
+siphash_key_source:        dq 0       ; 0=rdseed, 1=rdrand (qword for alignment)
+siphash_key_save:          dq 0, 0    ; saved during siphash_self_test_run (E1)
+siphash_self_test_input:   dq 0       ; 1-qword test input for self-test
+root_cap_mac_save:         dq 0       ; saved during verify_root_cap_mac (E3)
 
 ; Pod 1.8.5c Move 2 — provenance ring buffer (4KB, 128 entries × 32 bytes)
 ;   Overwrite-on-full. prov_ring_head is the next write index, masked

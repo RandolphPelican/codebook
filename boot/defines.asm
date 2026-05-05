@@ -115,12 +115,41 @@
 
 ; --- Pod 1.9.3 — err_code values for typed error paths ---
 ; Code 0 reserved for "no err / uninitialized" (parallels TYPE_CODE_NONE).
-%define ERR_INVALID_ID         1   ; registry_lookup_* returned 0 (id=0 or not in registry)
-%define ERR_POOL_FULL          2   ; *_alloc returned 0 (pool at capacity)
-%define ERR_STACK_UNDERFLOW    3   ; OP_RET on empty return stack (Pod 1.3 str_ret_underflow → typed)
-%define ERR_STACK_OVERFLOW     4   ; OP_CALL on full return stack (Pod 1.3 str_call_overflow → typed)
-%define ERR_INVALID_SIGN_ARG   5   ; OP_SIGN_NEW invalid label length / non-zero embedding_handle
-%define ERR_INVALID_ENERGY_ARG 6   ; OP_ENERGY_NEW invalid joules/source_op (defined; unused V1.0 per A3)
+%define ERR_INVALID_ID               1   ; registry_lookup_* returned 0 (id=0 or not in registry)
+%define ERR_POOL_FULL                2   ; *_alloc returned 0 (pool at capacity)
+%define ERR_STACK_UNDERFLOW          3   ; OP_RET on empty return stack (Pod 1.3 str_ret_underflow → typed)
+%define ERR_STACK_OVERFLOW           4   ; OP_CALL on full return stack (Pod 1.3 str_call_overflow → typed)
+%define ERR_INVALID_SIGN_ARG         5   ; OP_SIGN_NEW invalid label length / non-zero embedding_handle
+%define ERR_INVALID_ENERGY_ARG       6   ; OP_ENERGY_NEW invalid joules/source_op (defined; unused V1.0 per A3)
+%define ERR_CAP_AUTHORITY_EXCEEDED   7   ; OP_CAP_NEW arena/owner exceeds parent cap's authority (Pod 1.10.2a; D1.10.1.9)
+
+; --- Pod 1.10.2a Cap opcode constants (D1.10.1.2 / D1.10.1.3) ---
+; Cross-asset constants verification per D1.9.2b.10: opcode constants
+; land at substrate-plumbing pod (here), not handler pod (1.10.2b).
+%define OP_CAP_NEW       0xB0
+%define OP_CAP_ENTER     0xB1
+%define OP_CAP_EXIT      0xB2
+%define OP_CAP_CURRENT   0xB3
+%define OP_CAP_CHECK     0xB4
+
+; --- Pod 1.10.2a Cap pool / slot constants (D1.10.1.10) ---
+; CAP_ID_NULL=0 already defined above in canonical-ID null-sentinel block (Pod 1.8.5b).
+%define CAP_POOL_SLOTS   64
+%define CAP_SLOT_SIZE    0x80   ; 128 bytes
+%define ROOT_CAP_ID      1      ; reserved cap_id for substrate-bootstrap ROOT_CAP
+
+; --- Pod 1.10.2a cap_stack constant (D1.10.1.4) ---
+%define CAP_STACK_DEPTH  256    ; parallel to vm_ret_stack capacity
+
+; --- Pod 1.10.2a Cap slot field offsets (D1.10.1.1) ---
+%define CAP_OFF_CAP_ID_SELF        0x00
+%define CAP_OFF_ARENA_ID           0x08
+%define CAP_OFF_OWNER_DEMOD_ID     0x10
+%define CAP_OFF_RESOURCE_DESC      0x18
+%define CAP_OFF_PARENT_CAP_ID      0x20
+%define CAP_OFF_GENERATION_COUNTER 0x28
+%define CAP_OFF_MAC                0x30
+%define CAP_MAC_INPUT_QWORDS       6   ; cap_id_self through generation_counter (48 bytes)
 
 ; --- Pod 1.8.5c Move 7: vm_phase enum ---
 ; Boot sequence steps SEED → FORM → CHANNELS → MIND in V1.0.
