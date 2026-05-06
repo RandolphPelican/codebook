@@ -119,11 +119,12 @@ energy_cost_table:
     dq 0                    ; 0xB3 — OP_CAP_CURRENT (structural; pure substrate state read)
     dq 1                    ; 0xB4 — OP_CAP_ARENA (metabolic; lookup + MAC verify + slot read)
     dq 1                    ; 0xB5 — OP_CAP_OWNER (metabolic; lookup + MAC verify + slot read)
-    dq 1                    ; 0xB6 — OP_CAP_RESOURCE (metabolic; lookup + MAC verify + slot read)
+    dq 1                    ; 0xB6 — retired Pod 2.2 (was OP_CAP_RESOURCE; replaced by OP_CAP_BITMAP at 0xBA per D2.2.4); slot dead (no dispatch)
     dq 1                    ; 0xB7 — OP_CAP_PARENT (Pod 1.10.2b2; metabolic; lookup + MAC verify + parent_cap_id read)
     dq 1                    ; 0xB8 — OP_CAP_BUDGET (Pod 1.10.3; metabolic; lookup + MAC verify + energy_budget read)
     dq 1                    ; 0xB9 — OP_CAP_USED (Pod 1.10.3; metabolic; lookup + MAC verify + energy_used read)
-    dq 1, 1                 ; 0xBA–0xBB — reserved
+    dq 1                    ; 0xBA — OP_CAP_BITMAP (Pod 2.2; metabolic; lookup + MAC verify + cap_bitmap read per D2.2.1)
+    dq 1                    ; 0xBB — reserved
     dq 1, 1, 1, 1           ; 0xBC–0xBF — reserved
 ; Row 0xC0–0xCF
     times 16 dq 1           ; 0xC0–0xCF — unallocated (Cap 0xC0–0xCF Pod 1.10)

@@ -761,18 +761,6 @@ primitives become substrate-self-witnessing too. Combined with
 1.10.2b1's Cap accessors, the substrate-wide elegance unlock per
 D1.10.1.8 is fully realized.
 
-## 61. ERR_CAP_AUTHORITY_EXCEEDED defined-but-unused in V1.0 (added Pod 1.10.2b1, forward-looking)
-
-V1.0 strict delegation (D1.10.1.12 / D1.10.2b1.2) makes OP_CAP_NEW
-inherit parent's arena/owner exactly with no validation gate. The
-ERR_CAP_AUTHORITY_EXCEEDED err_code (=7) stays defined in
-defines.asm but has no consumer in V1.0.
-
-Activates when sub-arena delegation lands at Pod 2 (Cop) or
-wherever sub-cap-of-cap with strict-subset arena/owner becomes
-meaningful. Pod 2's authority-exceeded check at OP_CAP_NEW would
-emit this err_code. Forward-log preserved.
-
 ## 62. Pod 1.10.2b1 throwaway test scripts join housekeeping bundle (added Pod 1.10.2b1)
 
 Three throwaway QEMU test scripts in working tree (all unstaged
@@ -855,7 +843,7 @@ embedding_handle. Three options:
 R3.1 forward-anchor from Pod 1.10.2b2 recon. Pod 3 recon decides
 based on embedding pool sizing and handle semantics.
 
-## 66. Outcome four-path consolidation refactor opportunity (added Pod 1.10.2b2)
+## 66. Outcome four-path consolidation refactor opportunity (added Pod 1.10.2b2; sharpened Pod 2.2)
 
 Outcome construction lands at four paths in cbs_vm.asm:
 - .op_outcome_new_ok (program-driven NEW_OK opcode)
@@ -873,6 +861,27 @@ Refactor opportunity: NEW_OK / NEW_ERR opcode handlers thinned to
 wrappers around .construct_ok_outcome / .construct_err_outcome
 helpers. Eliminates the four-site retrofit surface; future field
 additions land at two helper sites rather than four parallel paths.
+
+**Pod 2.2 sharpening (D2.2.7 / D2.2.10).** Path A retrofit for
+OP_SIGN_NEW / OP_ENERGY_NEW now routes their success paths through
+.construct_ok_outcome (post-D2.2.7 retrofit; handler-explicit
+babylon_charge_lineage calls deleted to establish single-fire axiom).
+The helper is now consumed by all five primitive construction
+success sites — Sign, Energy, Outcome NEW_OK direct, Outcome NEW_ERR
+direct, Cap. OP_OUTCOME_NEW_OK / OP_OUTCOME_NEW_ERR direct paths
+become the structural outliers (only direct construction sites that
+don't route through helper).
+
+Plus a related asymmetry surfaced at Pod 2.2 HALT 2A: Outcome
+handlers' pool-full failures push sentinel-0 to operand stack,
+while Pod 2.2's bit-check failures at .op_outcome_new_ok /
+.op_outcome_new_err route through .construct_err_outcome producing
+typed Outcome::Err. Different failure shape for different failure
+modes — intentional but worth unifying when consolidation lands.
+
+Future consolidation pod has natural fit: thin direct paths into
+helper wrappers, eliminating the four-path-vs-two-path asymmetry
+AND unifying the sentinel-0-vs-Outcome::Err failure shape divergence.
 
 Pod 2 or Pod 3 candidate when convenient. Worth doing before the
 next Outcome slot field addition (e.g., Pod 3+ embedding_handle
@@ -972,30 +981,6 @@ by design (just argument-driven), so a unified pod-agnostic runner
 would absorb all 12 into one harness. Pod 2 or Pod 3 candidate for
 absorption.
 
-## 71. Pod 2.2 Babylon texture + lifecycle (added Pod 2.1, forward-looking)
-
-Pod 2.2 lands the texture + lifecycle dimensions of Babylon:
-- **cap_bitmap structured semantics** — replaces placeholder
-  resource_descriptor (currently u64 caller-supplied) with a 64-bit
-  permission grid. Per-bit semantic meaning (read/write/exec/grant/
-  delegate/etc. — exact bit assignments at Pod 2.2 recon).
-  Authority-exercise sites bit-check against current_cap.cap_bitmap
-  to verify "is this kind of operation permitted under this cap."
-- **Nonce field** for cap freshness — prevents replay of revoked or
-  superseded caps. Stamped at construction (MAC-input range);
-  checked at each authority exercise.
-- **Expiry field** — wall-clock-ish expiration timestamp. Cap
-  validation includes "is current_time < expiry". V1.0 may use
-  monotonic counter; real time stamps land at Pod 3+ when clock
-  primitive activates.
-- **Revocation policy** via generation_counter advancement (already
-  present in Cap slot at +0x28 from Pod 1.10.2a; Pod 2.2 activates
-  the consumer side — bump-and-check-against-stored-stamp pattern).
-
-Conceptually distinct from Pod 2.1's metabolic activation (spatial-
-merge + cost ledger); texture + lifecycle is what makes a cap
-*permission-shaped* in addition to *authority-anchored*.
-
 ## 72. Pod 2.3 Ed25519 cross-trust V1.1+ (added Pod 2.1, forward-looking)
 
 Pod 2.3 lands Ed25519 cross-trust between sovereign chains. Currently
@@ -1076,4 +1061,110 @@ constructors with cost ≥2j. Three remediation options if needed:
 - Restructure helper to not fire spatial-merge; opcode handlers fire
   spatial-merge once per dispatch (post all sub-construction)
 
-V1.0 audit surface is empty; doctrine landed for future pods.
+V1.0 audit surface partially landed at Pod 2.2 — OP_SIGN_NEW (100j)
+and OP_ENERGY_NEW (50j) are ≥2j helper-routing constructors that
+hit this exact pattern. Pod 2.2 chose a fourth remediation
+(beyond the three options above): remove handler-explicit
+babylon_charge_lineage call, let the helper's internal call be the
+single fire site (D2.2.7 / D2.2.10 single-fire substrate axiom).
+B13 sub-cap canary ROOT.used=50 empirically validated the
+resolution (would have been 100j under naive double-fire).
+OP_CAP_NEW's existing benign double-fire (1j; floor-neutralized)
+stays unchanged at Pod 2.2 per in-scope discipline. Future hygiene
+pod can address universal single-fire across all construction sites
+if desired.
+
+## 76. Bit vocabulary expansion (added Pod 2.2, forward-looking)
+
+Pod 2.2 ships V1.0 cap_bitmap forge-bit vocabulary at 4 bits:
+BIT_SIGN_FORGE / BIT_ENERGY_FORGE / BIT_OUTCOME_FORGE / BIT_CAP_FORGE
+(mirrors current authority-exercise opcode set per D2.2.2).
+Bits 4-63 reserved for organic vocabulary growth across future pods.
+
+**Forward-anchor for Pod 3+:** each new bit assignment lands at
+decision-record time when its consumer earns it. Likely consumers:
+- Pod 3 Maid file-op bits — read/write/exec/append/create/delete on
+  semantic codebook substrate
+- Pod 4+ Trinity surface bits — Bastian/Gmork/Auryn/Rockbiter
+  surface-specific gating
+- Pod 5+ driver bits — keyboard/framebuffer/network/storage exercise
+  authority
+- V1.1+ — pub-sub authorization bits, network capability bits
+
+"Decide once with parameterization in mind" doctrine: don't pre-
+allocate bit ranges per future-pod intent. Claim 4 in V1.0; document
+each new bit at decision-record time when it lands.
+
+## 77. Pod 2.3 Babylon revocation (added Pod 2.2, forward-looking)
+
+Pod 2.2 sealed Babylon V1.0 (metabolism + texture). Pod 2.3 lands
+the revocation lifecycle dimension when cap-pool sustainability
+becomes observably load-bearing under Maid workloads.
+
+**Trigger:** 64-slot CAP_POOL_SLOTS (Pod 1.10.2a D1.10.1.10) does
+not currently support reclamation. Long-running Maid sessions that
+forge caps for transient operations exhaust the pool over time.
+revocation reaping (mark cap as revoked → free slot for reallocation)
+is the natural reclamation mechanism.
+
+**Mechanism candidates** (Pod 2.3 recon decides):
+- generation_counter advancement (Cap slot at +0x28 from Pod 1.10.2a)
+  with consumer-side bump-and-check-against-stored-stamp pattern
+- Explicit OP_CAP_REVOKE opcode marking slot as freed
+- Coordinated reaping via Babylon (Babylon already walks lineage —
+  could mark deep-tail caps reaped if their energy_used exceeds
+  threshold and they're observably orphaned)
+
+Activation criterion: when Maid empirically demonstrates pool
+exhaustion under realistic workloads. Pre-mature revocation
+implementation pre-Maid would over-engineer for unobserved problems.
+
+Nonce field (replay protection) and expiry field (wall-clock-ish
+timestamps) stay V1.1+ Ed25519 cross-trust cluster (#72).
+
+## 78. Pod 2.2 throwaway test scripts join housekeeping bundle (added Pod 2.2)
+
+Three throwaway QEMU test scripts in working tree (all unstaged
+per DEFERRED #10 + Pod 1.9.4 D1.9.4.1 precedent):
+- tools/pod22_qemu_test.sh — B4+B14 pristine boot harness
+  (ROOT_CAP MAC content shift at +0x18 sixth empirical run)
+- tools/pod22_canary_test.sh — generic surface canary harness
+  (used for B2/B3 canaries + B7-B12 bitmap surfaces + B13 sub-cap
+   double-fire resolution canary)
+- tools/pod22_b5_b6_runner.sh — B5/B6 batch runner with
+  reference paths swapped to pod21 refs
+
+Bundle accumulating since 1.9.4 cleared; ~18 scripts now (three
+each from 1.10.2a per #59, 1.10.2b1 per #62, 1.10.2b2 per #67,
+1.10.3 per #70, 2.1 per #74, 2.2 here). Seven pods of accumulation
+across the Cap arc, Babylon birth, and Babylon's vocabulary.
+Same disposition options as #33-#34, #48, #52, #59, #62, #67, #70,
+#74: merge-into-test_qemu.sh as parameterized harness, or remove.
+
+Eighteen-script accumulation across seven pods makes the merge
+shape increasingly tractable — canary test scripts are pod-agnostic
+by design (just argument-driven), so a unified pod-agnostic runner
+would absorb all 18 into one harness. Pod 2.3 / Pod 3 candidate for
+absorption alongside the broader housekeeping pass that may also
+land .gitattributes (#79).
+
+## 79. .gitattributes line-ending normalization (added Pod 2.2, forward-looking)
+
+Surfaced at Pod 2.2 HALT 2A — Windows checkout state on un-touched
+boot files (bastian.asm, boot.asm, data.asm, gmork_cmds.asm,
+morla.asm) carries CRLF line endings while HEAD-tracked content is
+LF. Default `git diff` shows massive (cosmetic) modifications;
+`git diff --ignore-cr-at-eol` shows zero substantive changes.
+
+NASM accepts CRLF input, so the build is unaffected. Pre-existing
+state predates Pod 2.2 substrate work.
+
+**Remediation:** add `.gitattributes` at repo root with
+`* text=auto eol=lf` (or `*.asm text eol=lf` for source-only); run
+`git add --renormalize .` to land one-time normalization. Future
+checkouts on Windows preserve LF. Eliminates the line-ending
+diff noise that confuses casual code archaeology.
+
+Convenient pairing with #78 housekeeping pod (test script bundle
+absorption); both are tracked-tree hygiene that benefits from a
+single touch-everywhere pod rather than per-pod fragments.

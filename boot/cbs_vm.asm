@@ -175,8 +175,7 @@ cbs_run:
     je      .op_cap_arena
     cmp     al, OP_CAP_OWNER
     je      .op_cap_owner
-    cmp     al, OP_CAP_RESOURCE
-    je      .op_cap_resource
+    ; Pod 2.2 — OP_CAP_RESOURCE (0xB6) retired; replaced by OP_CAP_BITMAP at 0xBA per D2.2.4
     ; Pod 1.10.2b2 — substrate-wide accessors + OP_CAP_PARENT
     cmp     al, OP_SIGN_ARENA
     je      .op_sign_arena
@@ -203,6 +202,9 @@ cbs_run:
     je      .op_cap_budget
     cmp     al, OP_CAP_USED
     je      .op_cap_used
+    ; Pod 2.2 — Cap texture accessor
+    cmp     al, OP_CAP_BITMAP
+    je      .op_cap_bitmap
 
     ; Unknown opcode
     lea     rsi, [rel str_vm_unk]
@@ -862,6 +864,22 @@ cbs_run:
     mov     r11, [r13]          ; label_addr
     sub     r13, 8
     mov     rbx, [r13]          ; hash_addr
+    ; Pod 2.2 — bit-check: current_cap must carry BIT_SIGN_FORGE per D2.2.6
+    push    rbx
+    push    r11
+    push    r10
+    push    r9
+    push    r8
+    mov     rdi, BIT_SIGN_FORGE
+    mov     rsi, [rel current_cap_id]
+    call    babylon_check_authority
+    test    rax, rax
+    pop     r8
+    pop     r9
+    pop     r10
+    pop     r11
+    pop     rbx
+    jnz     .sign_new_insufficient_authority
     ; Validate label length <= 63 (A4)
     movzx   eax, byte [r11]
     cmp     eax, 63
@@ -903,14 +921,16 @@ cbs_run:
     call    registry_register_sign
     test    rax, rax
     jz      .sign_new_fail_pool_full   ; registry full (capacities matched, should not occur in V1.0)
-    ; Pod 2.1 spatial-merge — Babylon charges lineage with OP_SIGN_NEW cost (100j)
-    push    rax                                 ; preserve sign_id
-    mov     rdi, [rel current_dispatch_cost]
-    mov     rsi, [rel current_cap_id]
-    call    babylon_charge_lineage
-    pop     rax                                 ; restore sign_id
-    ; Push sign_id (rax) on operand stack
-    mov     [r13], rax
+    ; Pod 2.2 Path A retrofit (D2.2.7) — wrap sign_id in Outcome::Ok via helper.
+    ; .construct_ok_outcome internally fires babylon_charge_lineage for spatial-
+    ; merge per D2.1; single fire site for the originating cap's lineage.
+    ; Pod 2.1's handler-explicit babylon fire was removed at this retrofit to
+    ; avoid double-fire; substrate axiom "every successful primitive
+    ; construction fires babylon" relocates to .construct_ok_outcome boundary.
+    mov     rdi, rax                            ; value = sign_id
+    mov     r8, TYPE_CODE_SIGN
+    call    .construct_ok_outcome
+    mov     [r13], rax                          ; push outcome_id
     add     r13, 8
     jmp     .fetch
 ; Pod 1.9.3 A2: split fail labels with distinguished err_codes.
@@ -928,6 +948,17 @@ cbs_run:
 .sign_new_fail_pool_full:
     ; Err(PoolFull, source_op=OP_SIGN_NEW, value_type_id=TYPE_CODE_SIGN)
     mov     rdi, ERR_POOL_FULL
+    mov     rsi, OP_SIGN_NEW
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_SIGN
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+; Pod 2.2 (D2.2.6) — bit-check failure: current_cap lacks BIT_SIGN_FORGE.
+.sign_new_insufficient_authority:
+    mov     rdi, ERR_CAP_INSUFFICIENT_AUTHORITY
     mov     rsi, OP_SIGN_NEW
     xor     rdx, rdx
     xor     rcx, rcx
@@ -1038,6 +1069,14 @@ cbs_run:
     mov     rbx, [r13]              ; source_op
     sub     r13, 8
     mov     rcx, [r13]              ; joules
+    ; Pod 2.2 — bit-check: current_cap must carry BIT_ENERGY_FORGE per D2.2.6
+    push    rcx                                 ; preserve joules (helper clobbers rcx)
+    mov     rdi, BIT_ENERGY_FORGE
+    mov     rsi, [rel current_cap_id]
+    call    babylon_check_authority
+    test    rax, rax
+    pop     rcx
+    jnz     .energy_new_insufficient_authority
     ; Allocate pool slot
     call    .energy_alloc
     test    rax, rax
@@ -1064,20 +1103,30 @@ cbs_run:
     call    registry_register_energy
     test    rax, rax
     jz      .energy_new_fail        ; registry full (capacities matched, should not occur in V1.0)
-    ; Pod 2.1 spatial-merge — Babylon charges lineage with OP_ENERGY_NEW cost (10j)
-    push    rax                                 ; preserve energy_id
-    mov     rdi, [rel current_dispatch_cost]
-    mov     rsi, [rel current_cap_id]
-    call    babylon_charge_lineage
-    pop     rax                                 ; restore energy_id
-    ; Push energy_id (rax) on operand stack
-    mov     [r13], rax
+    ; Pod 2.2 Path A retrofit (D2.2.7) — wrap energy_id in Outcome::Ok via helper.
+    ; .construct_ok_outcome internally fires babylon_charge_lineage; single fire
+    ; site per D2.2.7. Pod 2.1's handler-explicit babylon fire removed.
+    mov     rdi, rax                            ; value = energy_id
+    mov     r8, TYPE_CODE_ENERGY
+    call    .construct_ok_outcome
+    mov     [r13], rax                          ; push outcome_id
     add     r13, 8
     jmp     .fetch
 ; Pod 1.9.3 A3: single fail label, ERR_POOL_FULL only
 ; (joules/source_op not validated yet; ERR_INVALID_ENERGY_ARG defined but unused).
 .energy_new_fail:
     mov     rdi, ERR_POOL_FULL
+    mov     rsi, OP_ENERGY_NEW
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_ENERGY
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+; Pod 2.2 (D2.2.6) — bit-check failure: current_cap lacks BIT_ENERGY_FORGE.
+.energy_new_insufficient_authority:
+    mov     rdi, ERR_CAP_INSUFFICIENT_AUTHORITY
     mov     rsi, OP_ENERGY_NEW
     xor     rdx, rdx
     xor     rcx, rcx
@@ -1190,6 +1239,16 @@ cbs_run:
     mov     r10, [r13]              ; value (TOS)
     sub     r13, 8
     mov     r11, [r13]              ; value_type_id
+    ; Pod 2.2 — bit-check: current_cap must carry BIT_OUTCOME_FORGE per D2.2.6
+    push    r11
+    push    r10
+    mov     rdi, BIT_OUTCOME_FORGE
+    mov     rsi, [rel current_cap_id]
+    call    babylon_check_authority
+    test    rax, rax
+    pop     r10
+    pop     r11
+    jnz     .outcome_new_ok_insufficient_authority
     call    .outcome_alloc
     test    rax, rax
     jz      .outcome_new_ok_fail
@@ -1231,6 +1290,19 @@ cbs_run:
     mov     qword [r13], 0          ; sentinel (A2: pool-full or registry-full)
     add     r13, 8
     jmp     .fetch
+; Pod 2.2 (D2.2.6) — bit-check failure: current_cap lacks BIT_OUTCOME_FORGE.
+; Routes through .construct_err_outcome (NOT sentinel-0) per R5 directive;
+; the failure mode is distinct from pool-full and warrants typed Outcome::Err.
+.outcome_new_ok_insufficient_authority:
+    mov     rdi, ERR_CAP_INSUFFICIENT_AUTHORITY
+    mov     rsi, OP_OUTCOME_NEW_OK
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_OUTCOME
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
 
 ; --- OP_OUTCOME_NEW_ERR (0xE1) ---
 ; Pop 5 args (top-down): err_fetch_counter, err_demod_id, err_source_op,
@@ -1249,6 +1321,22 @@ cbs_run:
     mov     r11, [r13]              ; err_code
     sub     r13, 8
     mov     rcx, [r13]              ; value_type_id
+    ; Pod 2.2 — bit-check: current_cap must carry BIT_OUTCOME_FORGE per D2.2.6
+    push    rcx
+    push    r11
+    push    r10
+    push    r9
+    push    r8
+    mov     rdi, BIT_OUTCOME_FORGE
+    mov     rsi, [rel current_cap_id]
+    call    babylon_check_authority
+    test    rax, rax
+    pop     r8
+    pop     r9
+    pop     r10
+    pop     r11
+    pop     rcx
+    jnz     .outcome_new_err_insufficient_authority
     call    .outcome_alloc
     test    rax, rax
     jz      .outcome_new_err_fail
@@ -1306,6 +1394,18 @@ cbs_run:
     add     rsp, 16                 ; discard saved args
 .outcome_new_err_fail:
     mov     qword [r13], 0          ; sentinel
+    add     r13, 8
+    jmp     .fetch
+; Pod 2.2 (D2.2.6) — bit-check failure: current_cap lacks BIT_OUTCOME_FORGE.
+; Routes through .construct_err_outcome (NOT sentinel-0) per R5 directive.
+.outcome_new_err_insufficient_authority:
+    mov     rdi, ERR_CAP_INSUFFICIENT_AUTHORITY
+    mov     rsi, OP_OUTCOME_NEW_ERR
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_OUTCOME
+    call    .construct_err_outcome
+    mov     [r13], rax
     add     r13, 8
     jmp     .fetch
 
@@ -1394,22 +1494,65 @@ cbs_run:
 ; (ARENA, OWNER, RESOURCE) ship instead. Substrate is witness, not
 ; police. Programs read slot fields with MAC-verified authenticity;
 ; substrate does not enforce match-against-expected.
+; Pod 2.2 supersession (D2.2.4): OP_CAP_RESOURCE retired; accessor at
+; same byte position (+0x18) becomes OP_CAP_BITMAP at 0xBA with
+; structured forge-bit interpretation per D2.2.1. Texture-as-physics
+; replaces resource_descriptor placeholder.
 ; =============================================================
 
 ; --- OP_CAP_NEW (0xB0) ---
-; Pop (resource_descriptor, energy_budget) — Pod 1.10.3 D1.10.3.2
-; signature amendment from Pod 1.10.2b1's 1-arg shape. energy_budget
-; joins MAC-input range (immutable identity); energy_used initialized
-; to 0 (non-MAC, mutable, substrate-managed). Construct Cap slot under
-; strict delegation (arena/owner inherited from current_cap;
+; Pop (granted_bitmap, energy_budget) — Pod 2.2 D2.2.4 semantic amendment.
+; Pod 1.10.3 D1.10.3.2 had resource_descriptor where granted_bitmap now
+; sits; same byte position (+0x18), structured forge-bit semantics now
+; load-bearing per D2.2.1. Signature shape unchanged (still pops two
+; args; bytecode-shape preserved); semantic interpretation shifts.
+;
+; Pod 2.2 D2.2.5 — two pre-construction bit-checks:
+;   (1) parent must carry BIT_CAP_FORGE (exercise-site check; ROOT has
+;       it; users who clear it on grant produce leaf caps that can't
+;       make children)
+;   (2) subset-on-grant: (granted_bitmap & parent_bitmap) == granted_bitmap
+;       (no privilege escalation across delegation; activates DEFERRED
+;       #61 forward-anchor from Pod 1.10.2b1 after four pods)
+;
+; energy_budget joins MAC-input range (immutable identity); energy_used
+; initialized to 0 (non-MAC, mutable, substrate-managed). Construct Cap
+; slot under strict delegation (arena/owner inherited from current_cap;
 ; parent_cap_id = current_cap_id). MAC computed over 7 qwords after
-; cap_id_self assignment from registry. Push Outcome::Ok wrapping
-; cap_id (Pod 1.9.3 Path A semantics).
+; cap_id_self assignment from registry. Push Outcome::Ok wrapping cap_id
+; (Pod 1.9.3 Path A semantics).
 .op_cap_new:
     sub     r13, 8
     mov     r9, [r13]                       ; energy_budget (top of stack; Pod 1.10.3)
     sub     r13, 8
-    mov     r10, [r13]                      ; resource_descriptor
+    mov     r10, [r13]                      ; granted_bitmap (Pod 2.2; was resource_descriptor pre-2.2)
+
+    ; Pod 2.2 — bit-check stage 1: parent has BIT_CAP_FORGE per D2.2.5
+    push    r9
+    push    r10
+    mov     rdi, BIT_CAP_FORGE
+    mov     rsi, [rel current_cap_id]
+    call    babylon_check_authority
+    test    rax, rax
+    pop     r10
+    pop     r9
+    jnz     .cap_new_insufficient_authority
+
+    ; Pod 2.2 — bit-check stage 2: subset-on-grant per D2.2.5
+    ;   (granted_bitmap & parent_bitmap) == granted_bitmap
+    push    r9
+    push    r10
+    mov     rdi, [rel current_cap_id]
+    call    registry_lookup_cap             ; rax = parent slot_ptr
+    pop     r10
+    pop     r9
+    test    rax, rax
+    jz      .cap_new_subset_lookup_fail     ; defensive — current_cap_id should always resolve
+    mov     r11, [rax + CAP_OFF_BITMAP]     ; parent's bitmap
+    mov     rcx, r10
+    and     rcx, r11                        ; granted & parent
+    cmp     rcx, r10                        ; == granted? (subset rule)
+    jne     .cap_new_authority_exceeded
 
     ; Pool capacity check
     mov     rcx, [rel vm_cap_next]
@@ -1428,7 +1571,7 @@ cbs_run:
     mov     [rbx + CAP_OFF_ARENA_ID], rax
     mov     rax, [rel current_cap_owner_demod_id_cache]
     mov     [rbx + CAP_OFF_OWNER_DEMOD_ID], rax
-    mov     [rbx + CAP_OFF_RESOURCE_DESC], r10
+    mov     [rbx + CAP_OFF_BITMAP], r10     ; Pod 2.2 — granted_bitmap (was resource_descriptor pre-2.2)
     mov     rax, [rel current_cap_id]
     mov     [rbx + CAP_OFF_PARENT_CAP_ID], rax
     mov     qword [rbx + CAP_OFF_GENERATION_COUNTER], 0
@@ -1477,6 +1620,46 @@ cbs_run:
 
 .op_cap_new_pool_full:
     mov     rdi, ERR_POOL_FULL
+    mov     rsi, OP_CAP_NEW
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_CAP
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; Pod 2.2 (D2.2.5/D2.2.6) — three OP_CAP_NEW failure paths.
+; Bit-check failure (parent lacks BIT_CAP_FORGE):
+.cap_new_insufficient_authority:
+    mov     rdi, ERR_CAP_INSUFFICIENT_AUTHORITY
+    mov     rsi, OP_CAP_NEW
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_CAP
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; Subset-on-grant violation (granted_bitmap exceeds parent_bitmap):
+; activates DEFERRED #61 forward-anchor from Pod 1.10.2b1 D1.10.2b1.2.
+.cap_new_authority_exceeded:
+    mov     rdi, ERR_CAP_AUTHORITY_EXCEEDED
+    mov     rsi, OP_CAP_NEW
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_CAP
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; Defensive — current_cap_id failed registry_lookup_cap (should never
+; fire since current_cap_id is canonical and validated at OP_CAP_ENTER).
+; Fail-safe to ERR_INVALID_ID per .op_cap_enter_invalid pattern.
+.cap_new_subset_lookup_fail:
+    mov     rdi, ERR_INVALID_ID
     mov     rsi, OP_CAP_NEW
     xor     rdx, rdx
     xor     rcx, rcx
@@ -1646,16 +1829,7 @@ cbs_run:
     add     r13, 8
     jmp     .fetch
 
-; --- OP_CAP_RESOURCE (0xB6) ---
-.op_cap_resource:
-    sub     r13, 8
-    mov     rdi, [r13]
-    mov     rcx, CAP_OFF_RESOURCE_DESC
-    mov     rsi, OP_CAP_RESOURCE
-    call    .cap_accessor_common
-    mov     [r13], rax
-    add     r13, 8
-    jmp     .fetch
+; --- 0xB6 retired Pod 2.2 (was OP_CAP_RESOURCE; replaced by OP_CAP_BITMAP at 0xBA per D2.2.4) ---
 
 ; --- .cap_accessor_common (Pod 1.10.2b1 helper, D1.10.2b1.5) ---
 ; Shared lookup-verify-read for the three Cap accessors. Factored to keep
@@ -1842,6 +2016,20 @@ cbs_run:
     mov     rdi, [r13]                      ; cap_id
     mov     rcx, CAP_OFF_ENERGY_USED        ; 0x40
     mov     rsi, OP_CAP_USED
+    call    .cap_accessor_common            ; existing 1.10.2b1 helper
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_CAP_BITMAP (0xBA) Pod 2.2 — seventh consumer of .cap_accessor_common ---
+; Reads cap_bitmap field (+0x18; structured forge-bit vocabulary per D2.2.1).
+; 1j metabolic per Cap accessor convention. MAC-verified read; refit of
+; the retired OP_CAP_RESOURCE accessor at same byte position.
+.op_cap_bitmap:
+    sub     r13, 8
+    mov     rdi, [r13]                      ; cap_id
+    mov     rcx, CAP_OFF_BITMAP             ; 0x18
+    mov     rsi, OP_CAP_BITMAP
     call    .cap_accessor_common            ; existing 1.10.2b1 helper
     mov     [r13], rax
     add     r13, 8

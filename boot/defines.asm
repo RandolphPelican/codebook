@@ -133,7 +133,8 @@
 %define ERR_STACK_OVERFLOW           4   ; OP_CALL on full return stack (Pod 1.3 str_call_overflow → typed)
 %define ERR_INVALID_SIGN_ARG         5   ; OP_SIGN_NEW invalid label length / non-zero embedding_handle
 %define ERR_INVALID_ENERGY_ARG       6   ; OP_ENERGY_NEW invalid joules/source_op (defined; unused V1.0 per A3)
-%define ERR_CAP_AUTHORITY_EXCEEDED   7   ; OP_CAP_NEW arena/owner exceeds parent cap's authority (Pod 1.10.2a; D1.10.1.9; defined-but-unused V1.0 per D1.10.2b1.2)
+%define ERR_CAP_AUTHORITY_EXCEEDED      7   ; OP_CAP_NEW subset-on-grant violation: granted_bitmap exceeds parent cap's bitmap (Pod 1.10.2a forward-anchor; activated Pod 2.2 per D2.2.5)
+%define ERR_CAP_INSUFFICIENT_AUTHORITY  8   ; Bit-check failure at primitive-forge dispatch site: current_cap's bitmap lacks required BIT_*_FORGE (Pod 2.2 per D2.2.6)
 
 ; --- Pod 1.10.2a Cap opcode constants (D1.10.1.2 / D1.10.1.3) ---
 ; Cross-asset constants verification per D1.9.2b.10: opcode constants
@@ -141,17 +142,23 @@
 ; Pod 1.10.2b1 supersession: OP_CAP_CHECK retired; three accessors
 ; (ARENA, OWNER, RESOURCE) ship instead per D1.10.2b1.1 bouncer-to-
 ; fingerprint reframe.
+; Pod 2.2 supersession: OP_CAP_RESOURCE retires (D2.2.4); cap_bitmap
+; structured semantics replace resource_descriptor placeholder.
+; OP_CAP_BITMAP at 0xBA reads the same byte position with structured
+; bit-vocabulary interpretation per D2.2.1.
 %define OP_CAP_NEW       0xB0
 %define OP_CAP_ENTER     0xB1
 %define OP_CAP_EXIT      0xB2
 %define OP_CAP_CURRENT   0xB3
 %define OP_CAP_ARENA     0xB4   ; Pod 1.10.2b1 — pop cap_id, MAC verify, push Outcome<arena_id>
 %define OP_CAP_OWNER     0xB5   ; Pod 1.10.2b1 — pop cap_id, MAC verify, push Outcome<owner_demod_id>
-%define OP_CAP_RESOURCE  0xB6   ; Pod 1.10.2b1 — pop cap_id, MAC verify, push Outcome<resource_descriptor>
+; 0xB6 retired (was OP_CAP_RESOURCE; replaced by OP_CAP_BITMAP at 0xBA per D2.2.4)
 %define OP_CAP_PARENT    0xB7   ; Pod 1.10.2b2 — pop cap_id, MAC verify, push Outcome<parent_cap_id>
 ; Pod 1.10.3 — Cap metabolic accessors
 %define OP_CAP_BUDGET    0xB8   ; pop cap_id, MAC verify, push Outcome<energy_budget>
 %define OP_CAP_USED      0xB9   ; pop cap_id, MAC verify, push Outcome<energy_used>
+; Pod 2.2 — Cap texture accessor
+%define OP_CAP_BITMAP    0xBA   ; pop cap_id, MAC verify, push Outcome<cap_bitmap> per D2.2.1
 
 ; --- Pod 1.10.2a Cap pool / slot constants (D1.10.1.10) ---
 ; CAP_ID_NULL=0 already defined above in canonical-ID null-sentinel block (Pod 1.8.5b).
@@ -166,7 +173,7 @@
 %define CAP_OFF_CAP_ID_SELF        0x00
 %define CAP_OFF_ARENA_ID           0x08
 %define CAP_OFF_OWNER_DEMOD_ID     0x10
-%define CAP_OFF_RESOURCE_DESC      0x18
+%define CAP_OFF_BITMAP             0x18   ; Pod 2.2 — was CAP_OFF_RESOURCE_DESC pre-2.2; same byte position, structured bit-vocabulary semantic per D2.2.1
 %define CAP_OFF_PARENT_CAP_ID      0x20
 %define CAP_OFF_GENERATION_COUNTER 0x28
 ; Pod 1.10.3 layout shift: energy_budget joins MAC-input range at +0x30;
@@ -176,6 +183,17 @@
 %define CAP_OFF_ENERGY_USED        0x40   ; Pod 1.10.3 — non-MAC, substrate-managed mutable state
 %define CAP_MAC_INPUT_QWORDS       7   ; was 6 pre-1.10.3 — cap_id_self through energy_budget (56 bytes)
 %define ENERGY_BUDGET_UNBOUNDED    0xFFFFFFFFFFFFFFFF   ; Pod 1.10.3 — ROOT_CAP and any future unbounded grants
+%define CAP_BITMAP_UNBOUNDED       0xFFFFFFFFFFFFFFFF   ; Pod 2.2 — ROOT_CAP texture pole (parallel to ENERGY_BUDGET_UNBOUNDED metabolic pole; D2.2.3)
+
+; --- Pod 2.2 cap_bitmap V1.0 forge-bit vocabulary (D2.2.2) ---
+; Four forge bits mirroring authority-exercise opcode set. Bits 4-63
+; reserved for organic vocabulary growth across future pods (surface
+; bits, driver bits, network bits, etc.). Each new bit lands at decision-
+; record time when its consumer earns it.
+%define BIT_SIGN_FORGE     (1 << 0)   ; 0x01 — gates OP_SIGN_NEW dispatch
+%define BIT_ENERGY_FORGE   (1 << 1)   ; 0x02 — gates OP_ENERGY_NEW dispatch
+%define BIT_OUTCOME_FORGE  (1 << 2)   ; 0x04 — gates OP_OUTCOME_NEW_OK / OP_OUTCOME_NEW_ERR dispatch
+%define BIT_CAP_FORGE      (1 << 3)   ; 0x08 — gates OP_CAP_NEW dispatch + delegation (clear on grant = leaf cap)
 
 ; --- Pod 1.8.5c Move 7: vm_phase enum ---
 ; Boot sequence steps SEED → FORM → CHANNELS → MIND in V1.0.

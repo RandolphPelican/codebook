@@ -94,3 +94,48 @@ babylon_charge_lineage:
 
 .babylon_done:
     ret
+
+; --- babylon_check_authority(rdi=required_bit_mask, rsi=cap_id) ---
+; Pod 2.2 — Babylon's second helper. Substrate-private bit-check at
+; primitive-forge dispatch sites. Verifies that the named cap's slot
+; carries all bits in required_bit_mask.
+;
+; Per D2.2.X / Pod 1.10.2b1 D2.1.5 substrate-private convention: no MAC
+; verify on the current cap. current_cap_id is canonical (validated at
+; OP_CAP_ENTER); cap_bitmap is in MAC-input range and was protected at
+; construction time by originating cap's MAC.
+;
+; Per D2.2.9 substrate-bookkeeping doctrine extension (sixth empirical
+; landing — D1.9.2b.1 → D1.10.2a.7 → D1.10.2b2.3 → D1.10.3 → D2.1.6 →
+; D2.2.9): 0j cost. Single registry lookup + AND + CMP + JNE; no
+; operand-stack-visible work.
+;
+; Asymmetry with babylon_charge_lineage worth noting at HALT 2C:
+;   - charge_lineage fires at all 7 successful primitive construction
+;     sites (every act of creation has metabolic cost)
+;   - check_authority fires at 5 dispatch sites (every program-driven
+;     authority exercise — the 4 primitive-forge dispatches plus
+;     OP_CAP_NEW; accessor/observation paths bypass per D2.1.2)
+;
+; Input:    rdi = required_bit_mask
+;           rsi = cap_id (typically [rel current_cap_id])
+; Output:   rax = 0 (authority sufficient) or rax = 1 (insufficient/broken)
+; Clobbers: rax, rcx, rsi, rdi (matches babylon_charge_lineage convention)
+; Preserves: r12, r13, r14, r15, rbx, rbp (caller VM state survives)
+
+babylon_check_authority:
+    push    rdi                              ; preserve required_bit_mask across registry call
+    mov     rdi, rsi
+    call    registry_lookup_cap              ; rax = slot_ptr or 0
+    pop     rdi                              ; restore required_bit_mask
+    test    rax, rax
+    jz      .babylon_authority_fail          ; broken cap_id → fail-safe
+    mov     rcx, [rax + CAP_OFF_BITMAP]
+    and     rcx, rdi
+    cmp     rcx, rdi
+    jne     .babylon_authority_fail          ; required bits not all set
+    xor     rax, rax                         ; ok
+    ret
+.babylon_authority_fail:
+    mov     rax, 1
+    ret

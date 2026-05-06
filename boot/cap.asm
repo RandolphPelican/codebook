@@ -304,11 +304,19 @@ siphash_self_test_run:
 ; --- construct_root_cap ---
 ; Builds ROOT_CAP slot at vm_cap_pool[0]:
 ;   cap_id_self=1, arena_id=0, owner_demod_id=0,
-;   resource_descriptor=0, parent_cap_id=0, generation_counter=0,
+;   cap_bitmap=CAP_BITMAP_UNBOUNDED (Pod 2.2 D2.2.3 — was resource_descriptor=0
+;   pre-2.2; same byte position, structured forge-bit semantics with all
+;   bits set for ROOT keystone authority),
+;   parent_cap_id=0, generation_counter=0,
 ;   energy_budget=ENERGY_BUDGET_UNBOUNDED (Pod 1.10.3 D1.10.3.3),
 ;   energy_used=0 (non-MAC, substrate-managed).
 ; Computes MAC via siphash_compute over 7 fields (Pod 1.10.3
 ; D1.10.3.4 — was 6 pre-1.10.3); stores at +0x38 (was +0x30).
+; Pod 2.2 risk surface (D2.2.X): MAC content shifts at +0x18 from 0
+; (placeholder) to MAX_U64 (CAP_BITMAP_UNBOUNDED), so ROOT_CAP MAC value
+; differs from Pod 2.1's. construct/verify must agree on new content;
+; mismatch fires verify_root_cap_mac FATAL before MIND phase per E3
+; self-test pattern.
 ; Increments vm_cap_next; registers in cap_registry; sanity-checks
 ; that registry_register_cap returned cap_id=1.
 ; Hard-fail with str_root_cap_id_wrong if sanity check fails.
@@ -317,7 +325,9 @@ construct_root_cap:
     mov     qword [rdi + CAP_OFF_CAP_ID_SELF],        ROOT_CAP_ID
     mov     qword [rdi + CAP_OFF_ARENA_ID],           0
     mov     qword [rdi + CAP_OFF_OWNER_DEMOD_ID],     0
-    mov     qword [rdi + CAP_OFF_RESOURCE_DESC],      0
+    ; Pod 2.2 — CAP_BITMAP_UNBOUNDED = 0xFFFFFFFFFFFFFFFF (64-bit imm requires register intermediate).
+    mov     rax, CAP_BITMAP_UNBOUNDED
+    mov     [rdi + CAP_OFF_BITMAP], rax
     mov     qword [rdi + CAP_OFF_PARENT_CAP_ID],      0
     mov     qword [rdi + CAP_OFF_GENERATION_COUNTER], 0
     ; Pod 1.10.3 — energy_budget MAC-input (immutable); energy_used non-MAC (mutable).

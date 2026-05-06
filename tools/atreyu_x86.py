@@ -61,13 +61,16 @@ OP_OUTCOME_UNWRAP_ERR = 0xE4
 # --- Pod 1.10.2b1 Cap opcodes (D1.10.2b1.1 supersession of D1.10.1.3) ---
 # OP_CAP_CHECK retired; three accessors (ARENA, OWNER, RESOURCE) ship
 # instead. Substrate is witness, not police.
+# Pod 2.2 supersession (D2.2.4): OP_CAP_RESOURCE retired; OP_CAP_BITMAP
+# at 0xBA reads the same byte position with structured forge-bit
+# semantics per D2.2.1.
 OP_CAP_NEW       = 0xB0
 OP_CAP_ENTER     = 0xB1
 OP_CAP_EXIT      = 0xB2
 OP_CAP_CURRENT   = 0xB3
 OP_CAP_ARENA     = 0xB4
 OP_CAP_OWNER     = 0xB5
-OP_CAP_RESOURCE  = 0xB6
+# 0xB6 retired Pod 2.2 (was OP_CAP_RESOURCE)
 
 # --- Pod 1.10.2b2 substrate-wide accessors + OP_CAP_PARENT ---
 # Sign/Energy/Outcome × {ARENA, OWNER, CREATOR} + OP_CAP_PARENT
@@ -87,11 +90,25 @@ OP_OUTCOME_CREATOR = 0xE7
 OP_CAP_BUDGET      = 0xB8
 OP_CAP_USED        = 0xB9
 
+# --- Pod 2.2 Cap texture accessor (D2.2.1) ---
+OP_CAP_BITMAP      = 0xBA
+
 # --- Pod 1.10.3 substrate constants (for default arg values) ---
 # Signed two's-complement representation of 0xFFFFFFFFFFFFFFFF for
 # struct.pack('<q', ...) compatibility (emit_i64 uses signed i64 pack).
 # Bytes emitted are byte-identical to the unsigned 0xFFFFFFFFFFFFFFFF.
 ENERGY_BUDGET_UNBOUNDED = -1
+
+# --- Pod 2.2 cap_bitmap unbounded (D2.2.3) ---
+# Same byte pattern as ENERGY_BUDGET_UNBOUNDED — both poles of ROOT's
+# authority unbounded; both honestly named via truth-in-naming convention.
+CAP_BITMAP_UNBOUNDED = -1
+
+# --- Pod 2.2 forge-bit V1.0 vocabulary (D2.2.2) ---
+BIT_SIGN_FORGE     = 1 << 0   # 0x01
+BIT_ENERGY_FORGE   = 1 << 1   # 0x02
+BIT_OUTCOME_FORGE  = 1 << 2   # 0x04
+BIT_CAP_FORGE      = 1 << 3   # 0x08
 
 # --- Pod 1.9.2a/1.9.2b TYPE_CODE_* enum (D1.9.1.1) ---
 TYPE_CODE_NONE     = 0
@@ -101,6 +118,16 @@ TYPE_CODE_CAP      = 3
 TYPE_CODE_DEMOD    = 4
 TYPE_CODE_SIGNAL   = 5
 TYPE_CODE_OUTCOME  = 6
+
+# --- Pod 1.9.3 ERR codes (for typed error inspection in tests) ---
+ERR_INVALID_ID                  = 1
+ERR_POOL_FULL                   = 2
+ERR_STACK_UNDERFLOW             = 3
+ERR_STACK_OVERFLOW              = 4
+ERR_INVALID_SIGN_ARG            = 5
+ERR_INVALID_ENERGY_ARG          = 6
+ERR_CAP_AUTHORITY_EXCEEDED      = 7   # Pod 1.10.2a forward-anchor; activated Pod 2.2
+ERR_CAP_INSUFFICIENT_AUTHORITY  = 8   # Pod 2.2 (D2.2.6) — bit-check failure
 
 class Emitter:
     def __init__(self):
@@ -210,7 +237,15 @@ class AtreyuX86:
                 e.emit(OP_DROP)
 
     def _sign_new(self, n):
-        """Emit OP_SIGN_NEW with inline hash and label data."""
+        """Emit OP_SIGN_NEW with inline hash and label data.
+
+        Pod 2.2 Path A retrofit (D2.2.7): success path returns Outcome::Ok(sign_id);
+        bit-check / pool-full / invalid-arg failures return Outcome::Err. Emitter
+        appends OP_OUTCOME_UNWRAP_OK to consume the typed_id directly (matches
+        prior-pod test semantics — `let s = sign_new(...)` binds sign_id).
+        Caller can pass `'wrap': True` to skip the unwrap when raw Outcome
+        inspection is needed (Pod 2.2 bit-check failure tests).
+        """
         e = self.e
         # Push hash_addr: embed 32 bytes inline via PUSH_STR, drop len
         hash_data = n.get('hash', b'\x00' * 32)
@@ -230,6 +265,9 @@ class AtreyuX86:
         e.emit(OP_PUSH); e.emit_i64(0)     # embedding_handle (V1.0: always 0)
         e.emit(OP_PUSH); e.emit_i64(0)     # provenance_handle (V1.0: always 0)
         e.emit(OP_SIGN_NEW)
+        # Pod 2.2 Path A retrofit — auto-unwrap to bare sign_id unless caller opts out.
+        if not n.get('wrap', False):
+            e.emit(OP_OUTCOME_UNWRAP_OK)
 
     def _push_str(self, s):
         e = self.e; raw = s.encode('utf-8')
@@ -338,13 +376,17 @@ class AtreyuX86:
             self._expr(n['operand']); e.emit(OP_OUTCOME_UNWRAP_ERR)
         # --- Pod 1.10.2b1 Cap expressions ---
         elif t == 'cap_new':
-            # Pod 1.10.3 D1.10.3.2 signature amendment: pops (resource_descriptor,
-            # energy_budget). Top-of-stack = energy_budget (last pushed) per A3.
-            # Caller can omit energy_budget — defaults to ENERGY_BUDGET_UNBOUNDED.
-            # Strict delegation at handler: arena/owner inherited from current_cap
-            # caches. Slot fields written: arena/owner/resource/parent/generation/
-            # energy_budget (MAC-input) + energy_used=0 (non-MAC). MAC over 7 qwords.
-            e.emit(OP_PUSH); e.emit_i64(n.get('resource_descriptor', 0))
+            # Pod 2.2 D2.2.4 semantic amendment of Pod 1.10.3's signature: pops
+            # (granted_bitmap, energy_budget). Same byte position (+0x18);
+            # structured forge-bit semantics now load-bearing per D2.2.1.
+            # Top-of-stack = energy_budget (last pushed). Caller defaults:
+            # granted_bitmap = CAP_BITMAP_UNBOUNDED (all forge bits set, like
+            # ROOT's keystone authority — used by tests not exercising bit
+            # semantics); energy_budget = ENERGY_BUDGET_UNBOUNDED.
+            # Pod 1.10.3 'resource_descriptor' key accepted as deprecated alias
+            # — backward-compat for prior-pod ASTs during the rebuild ripple.
+            bitmap = n.get('granted_bitmap', n.get('resource_descriptor', CAP_BITMAP_UNBOUNDED))
+            e.emit(OP_PUSH); e.emit_i64(bitmap)
             e.emit(OP_PUSH); e.emit_i64(n.get('energy_budget', ENERGY_BUDGET_UNBOUNDED))
             e.emit(OP_CAP_NEW)
         elif t == 'cap_enter':
@@ -363,8 +405,16 @@ class AtreyuX86:
             self._expr(n['operand']); e.emit(OP_CAP_ARENA); e.emit(OP_OUTCOME_UNWRAP_OK)
         elif t == 'cap_owner':
             self._expr(n['operand']); e.emit(OP_CAP_OWNER); e.emit(OP_OUTCOME_UNWRAP_OK)
-        elif t == 'cap_resource':
-            self._expr(n['operand']); e.emit(OP_CAP_RESOURCE); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'cap_bitmap':
+            # Pod 2.2 (D2.2.1) — read cap_bitmap field (+0x18); structured
+            # forge-bit interpretation. Refit of the retired cap_resource
+            # accessor at same byte position.
+            self._expr(n['operand']); e.emit(OP_CAP_BITMAP); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'cap_bitmap_raw_id':
+            # Pod 2.2 — test primitive: push raw cap_id, emit OP_CAP_BITMAP, no UNWRAP_OK
+            # (caller wants raw outcome_id for invalid-id / Outcome inspection tests).
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_CAP_BITMAP)
         elif t == 'cap_arena_raw_id':
             # Test primitive — push raw u64 cap_id, emit OP_CAP_ARENA, no UNWRAP_OK.
             # Caller wants raw outcome_id (for invalid-id tests).
@@ -418,11 +468,20 @@ class AtreyuX86:
             e.emit(OP_CAP_PARENT)
 
     def _energy_new(self, n):
-        """Emit OP_ENERGY_NEW: push joules, push source_op, emit opcode."""
+        """Emit OP_ENERGY_NEW: push joules, push source_op, emit opcode.
+
+        Pod 2.2 Path A retrofit (D2.2.7): success path returns
+        Outcome::Ok(energy_id); failures return Outcome::Err. Emitter appends
+        OP_OUTCOME_UNWRAP_OK to consume the typed_id directly. `'wrap': True`
+        opts out of auto-unwrap for Outcome-inspection tests.
+        """
         e = self.e
         e.emit(OP_PUSH); e.emit_i64(n.get('joules', 0))
         e.emit(OP_PUSH); e.emit_i64(n.get('source_op', 0))
         e.emit(OP_ENERGY_NEW)
+        # Pod 2.2 Path A retrofit — auto-unwrap to bare energy_id unless caller opts out.
+        if not n.get('wrap', False):
+            e.emit(OP_OUTCOME_UNWRAP_OK)
 
 # === Demo Programs ===
 def demo_full():
@@ -733,7 +792,7 @@ def demo_cap_new_basic():
     """Pod 1.10.2b1 T1 — construct a cap, UNWRAP_OK, print cap_id (expect 2 since ROOT=1)."""
     return {'type':'program','body':[
         {'type':'print','value':{'type':'str','value':'=== Cap New Basic Test (Pod 1.10.2b1 T1) ==='}},
-        {'type':'let','name':'o','value':{'type':'cap_new','resource_descriptor':42}},
+        {'type':'let','name':'o','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED}},
         {'type':'print','value':{'type':'str','value':'is_ok:'}},
         {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
         {'type':'print','value':{'type':'str','value':'cap_id (expect 2):'}},
@@ -741,21 +800,24 @@ def demo_cap_new_basic():
         {'type':'print','value':{'type':'str','value':'=== Cap New Basic test complete ==='}},
     ]}
 
-def demo_cap_arena_owner_resource():
-    """Pod 1.10.2b1 T2 — substrate witnesses itself for the first time.
-    Construct cap with resource_descriptor=42 (under ROOT context, so arena=0
-    owner=0 inherited via strict delegation). Read all three slot fields via
-    accessor opcodes and print. The architectural moment per D1.10.2b1.8."""
+def demo_cap_arena_owner_bitmap():
+    """Pod 1.10.2b1 T2 — substrate witnesses itself; rebuilt Pod 2.2 (D2.2.4)
+    under cap_bitmap accessor (was cap_resource pre-2.2).
+    Construct cap with granted_bitmap=CAP_BITMAP_UNBOUNDED (under ROOT context,
+    so arena=0 owner=0 inherited via strict delegation; bitmap unbounded means
+    any forge under this cap passes bit-check). Read all three slot fields via
+    accessor opcodes and print. The architectural moment per D1.10.2b1.8;
+    bitmap accessor reads same byte position as the retired cap_resource."""
     return {'type':'program','body':[
-        {'type':'print','value':{'type':'str','value':'=== Cap Accessors Test (Pod 1.10.2b1 T2) ==='}},
-        {'type':'let','name':'o','value':{'type':'cap_new','resource_descriptor':42}},
+        {'type':'print','value':{'type':'str','value':'=== Cap Accessors Test (Pod 2.2 rebuild of 1.10.2b1 T2) ==='}},
+        {'type':'let','name':'o','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED}},
         {'type':'let','name':'cap_id','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'o'}}},
         {'type':'print','value':{'type':'str','value':'arena (expect 0):'}},
         {'type':'print','value':{'type':'cap_arena','operand':{'type':'var','name':'cap_id'}}},
         {'type':'print','value':{'type':'str','value':'owner (expect 0):'}},
         {'type':'print','value':{'type':'cap_owner','operand':{'type':'var','name':'cap_id'}}},
-        {'type':'print','value':{'type':'str','value':'resource (expect 42):'}},
-        {'type':'print','value':{'type':'cap_resource','operand':{'type':'var','name':'cap_id'}}},
+        {'type':'print','value':{'type':'str','value':'bitmap (expect -1 = CAP_BITMAP_UNBOUNDED):'}},
+        {'type':'print','value':{'type':'cap_bitmap','operand':{'type':'var','name':'cap_id'}}},
         {'type':'print','value':{'type':'str','value':'=== Cap Accessors test complete ==='}},
     ]}
 
@@ -767,7 +829,7 @@ def demo_cap_current():
         {'type':'print','value':{'type':'str','value':'=== Cap Current Test (Pod 1.10.2b1 T3) ==='}},
         {'type':'print','value':{'type':'str','value':'current at start (expect 1 = ROOT):'}},
         {'type':'print','value':{'type':'cap_current'}},
-        {'type':'let','name':'o','value':{'type':'cap_new','resource_descriptor':99}},
+        {'type':'let','name':'o','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED}},
         {'type':'let','name':'cap_id','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'o'}}},
         # ENTER returns Outcome<NONE>; let-bind to drop from stack, then check is_ok
         {'type':'let','name':'enter_o','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_id'}}},
@@ -821,7 +883,7 @@ def demo_cap_stack_overflow():
     operand stack at halt with source_op=OP_CAP_ENTER (177=0xB1)."""
     return {'type':'program','body':[
         {'type':'print','value':{'type':'str','value':'=== Cap Stack Overflow Test (Pod 1.10.2b1 T6) ==='}},
-        {'type':'let','name':'o','value':{'type':'cap_new','resource_descriptor':77}},
+        {'type':'let','name':'o','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED}},
         {'type':'let','name':'cap_id','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'o'}}},
         {'type':'print','value':{'type':'str','value':'before overflow'}},
         {'type':'print','value':{'type':'str','value':'entering same cap 257 times until cap_stack overflows...'}},
@@ -890,7 +952,7 @@ def demo_provenance_under_subcap():
     creator_cap_id distinguishes from the arena/owner summary."""
     return {'type':'program','body':[
         {'type':'print','value':{'type':'str','value':'=== Provenance Under SubCap Test (Pod 1.10.2b2 T4) ==='}},
-        {'type':'let','name':'co','value':{'type':'cap_new','resource_descriptor':42}},
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED}},
         {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
         {'type':'print','value':{'type':'str','value':'cap_a (expect 2):'}},
         {'type':'print','value':{'type':'var','name':'cap_a'}},
@@ -920,7 +982,7 @@ def demo_provenance_walk():
     anchor. The substrate narrating its own lineage."""
     return {'type':'program','body':[
         {'type':'print','value':{'type':'str','value':'=== Provenance Walk Test (Pod 1.10.2b2 T5) ==='}},
-        {'type':'let','name':'co','value':{'type':'cap_new','resource_descriptor':77}},
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED}},
         {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
         {'type':'let','name':'enter_o','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
         {'type':'let','name':'s','value':{
@@ -1019,7 +1081,7 @@ def demo_cap_budget_basic():
     field landing in MAC-input range."""
     return {'type':'program','body':[
         {'type':'print','value':{'type':'str','value':'=== Cap Budget Basic Test (Pod 1.10.3 T1) ==='}},
-        {'type':'let','name':'co','value':{'type':'cap_new','resource_descriptor':42,'energy_budget':1000}},
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED,'energy_budget':1000}},
         {'type':'let','name':'cap_id','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
         {'type':'print','value':{'type':'str','value':'cap_id (expect 2):'}},
         {'type':'print','value':{'type':'var','name':'cap_id'}},
@@ -1034,7 +1096,7 @@ def demo_cap_used_zero_at_construction():
     energy_used stays 0 in V1.0; Pod 2 Cop activates incrementing."""
     return {'type':'program','body':[
         {'type':'print','value':{'type':'str','value':'=== Cap Used Zero At Construction Test (Pod 1.10.3 T2) ==='}},
-        {'type':'let','name':'co','value':{'type':'cap_new','resource_descriptor':17,'energy_budget':500}},
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED,'energy_budget':500}},
         {'type':'let','name':'cap_id','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
         {'type':'print','value':{'type':'str','value':'used (expect 0; V1.0 substrate prep only):'}},
         {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'cap_id'}}},
@@ -1084,7 +1146,7 @@ def demo_cap_budget_immutable_via_mac():
     confirmation rather than negative-test coverage."""
     return {'type':'program','body':[
         {'type':'print','value':{'type':'str','value':'=== Cap Budget Immutable Test (Pod 1.10.3 T5) ==='}},
-        {'type':'let','name':'co','value':{'type':'cap_new','resource_descriptor':7,'energy_budget':2024}},
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED,'energy_budget':2024}},
         {'type':'let','name':'cap_id','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
         {'type':'print','value':{'type':'str','value':'budget read 1 (expect 2024):'}},
         {'type':'print','value':{'type':'cap_budget','operand':{'type':'var','name':'cap_id'}}},
@@ -1102,7 +1164,7 @@ def demo_babylon_single_level():
     Expected: A=0 (originating; doesn't charge itself), ROOT=50 (100/2 floor)."""
     return {'type':'program','body':[
         {'type':'print','value':{'type':'str','value':'=== Babylon Single Level Test (Pod 2.1 T1) ==='}},
-        {'type':'let','name':'co','value':{'type':'cap_new','resource_descriptor':10,'energy_budget':1000}},
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED,'energy_budget':1000}},
         {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
         {'type':'let','name':'enter_o','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
         {'type':'let','name':'s','value':{
@@ -1124,13 +1186,13 @@ def demo_babylon_multi_level():
     Expected geometric decay: C=0 (originating), B=50, A=25, ROOT=12 (12.5 floor)."""
     return {'type':'program','body':[
         {'type':'print','value':{'type':'str','value':'=== Babylon Multi Level Test (Pod 2.1 T2) ==='}},
-        {'type':'let','name':'co_a','value':{'type':'cap_new','resource_descriptor':1,'energy_budget':10000}},
+        {'type':'let','name':'co_a','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED,'energy_budget':10000}},
         {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co_a'}}},
         {'type':'let','name':'enter_a','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
-        {'type':'let','name':'co_b','value':{'type':'cap_new','resource_descriptor':2,'energy_budget':5000}},
+        {'type':'let','name':'co_b','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED,'energy_budget':5000}},
         {'type':'let','name':'cap_b','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co_b'}}},
         {'type':'let','name':'enter_b','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_b'}}},
-        {'type':'let','name':'co_c','value':{'type':'cap_new','resource_descriptor':3,'energy_budget':2500}},
+        {'type':'let','name':'co_c','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED,'energy_budget':2500}},
         {'type':'let','name':'cap_c','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co_c'}}},
         {'type':'let','name':'enter_c','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_c'}}},
         {'type':'let','name':'s','value':{
@@ -1180,10 +1242,10 @@ def demo_babylon_federation_total():
     return {'type':'program','body':[
         {'type':'print','value':{'type':'str','value':'=== Babylon Federation Total Test (Pod 2.1 T4) ==='}},
         # Build A under ROOT, B under A
-        {'type':'let','name':'co_a','value':{'type':'cap_new','resource_descriptor':10,'energy_budget':10000}},
+        {'type':'let','name':'co_a','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED,'energy_budget':10000}},
         {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co_a'}}},
         {'type':'let','name':'enter_a','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
-        {'type':'let','name':'co_b','value':{'type':'cap_new','resource_descriptor':20,'energy_budget':5000}},
+        {'type':'let','name':'co_b','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED,'energy_budget':5000}},
         {'type':'let','name':'cap_b','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co_b'}}},
         # Forge Sign x3 under B
         {'type':'let','name':'enter_b','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_b'}}},
@@ -1215,7 +1277,7 @@ def demo_babylon_canary_subcap():
     same family as D1.10.2a.10 / D1.10.2b1.8 / D1.10.2b2.9 / D1.10.3.8)."""
     return {'type':'program','body':[
         {'type':'print','value':{'type':'str','value':'=== Babylon Canary SubCap Test (Pod 2.1 T5) ==='}},
-        {'type':'let','name':'co','value':{'type':'cap_new','resource_descriptor':99,'energy_budget':1000}},
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap':CAP_BITMAP_UNBOUNDED,'energy_budget':1000}},
         {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
         {'type':'let','name':'enter_o','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
         {'type':'let','name':'s','value':{
@@ -1240,6 +1302,140 @@ def demo_babylon_initial_zero():
         {'type':'print','value':{'type':'str','value':'ROOT.used at program start (expect 0):'}},
         {'type':'print','value':{'type':'cap_used','operand':{'type':'int','value':1}}},
         {'type':'print','value':{'type':'str','value':'=== Babylon Initial Zero test complete ==='}},
+    ]}
+
+# === Pod 2.2 — Babylon's vocabulary tests (T1–T6) ===
+
+def demo_bitmap_root_unbounded():
+    """Pod 2.2 T1 — Sanity baseline. Read ROOT_CAP's bitmap field via
+    OP_CAP_BITMAP accessor; expect CAP_BITMAP_UNBOUNDED (presents as -1
+    signed i64 per D2.2.3 / D1.10.3.3 cross-pole truth-in-naming pattern)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Bitmap Root Unbounded Test (Pod 2.2 T1) ==='}},
+        {'type':'print','value':{'type':'str','value':'ROOT.bitmap (expect -1 = CAP_BITMAP_UNBOUNDED):'}},
+        {'type':'print','value':{'type':'cap_bitmap','operand':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'=== Bitmap Root Unbounded test complete ==='}},
+    ]}
+
+def demo_bitmap_subset_grant_succeeds():
+    """Pod 2.2 T2 — Construct cap A under ROOT with granted_bitmap =
+    BIT_SIGN_FORGE | BIT_CAP_FORGE (subset of ROOT's UNBOUNDED).
+    Construction succeeds (parent has CAP_FORGE, granted is subset of
+    parent); read A.bitmap, expect 9 (0x09)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Bitmap Subset Grant Succeeds Test (Pod 2.2 T2) ==='}},
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap': BIT_SIGN_FORGE | BIT_CAP_FORGE}},
+        {'type':'let','name':'cap_id','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'print','value':{'type':'str','value':'cap_id (expect 2):'}},
+        {'type':'print','value':{'type':'var','name':'cap_id'}},
+        {'type':'print','value':{'type':'str','value':'A.bitmap (expect 9 = SIGN_FORGE|CAP_FORGE):'}},
+        {'type':'print','value':{'type':'cap_bitmap','operand':{'type':'var','name':'cap_id'}}},
+        {'type':'print','value':{'type':'str','value':'=== Bitmap Subset Grant Succeeds test complete ==='}},
+    ]}
+
+def demo_bitmap_superset_grant_fails():
+    """Pod 2.2 T3 — SUBSET RULE ARCHITECTURAL MOMENT (D2.2.5).
+    Construct cap A under ROOT with BIT_SIGN_FORGE|BIT_CAP_FORGE.
+    ENTER A. Attempt construct cap B under A with
+    BIT_SIGN_FORGE|BIT_OUTCOME_FORGE — A lacks BIT_OUTCOME_FORGE, so
+    subset rule fires. Result: Outcome::Err(source_op=OP_CAP_NEW=176,
+    err_code=ERR_CAP_AUTHORITY_EXCEEDED=7). Activates DEFERRED #61
+    forward-anchor from Pod 1.10.2b1 D1.10.2b1.2 after four pods."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Bitmap Superset Grant Fails Test (Pod 2.2 T3) ==='}},
+        {'type':'let','name':'co_a','value':{'type':'cap_new','granted_bitmap': BIT_SIGN_FORGE | BIT_CAP_FORGE}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co_a'}}},
+        {'type':'let','name':'enter_a','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        # Under A, attempt to construct B with bitmap exceeding A's grant.
+        {'type':'let','name':'co_b','value':{'type':'cap_new','granted_bitmap': BIT_SIGN_FORGE | BIT_OUTCOME_FORGE}},
+        {'type':'print','value':{'type':'str','value':'B is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'co_b'}}},
+        # Inspect err fields via unwrap_err (4 values pushed; TOS-first).
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'co_b'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 176 = OP_CAP_NEW):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 7 = ERR_CAP_AUTHORITY_EXCEEDED):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'let','name':'exit_a','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'=== Bitmap Superset Grant Fails test complete ==='}},
+    ]}
+
+def demo_bitmap_authority_check_passes():
+    """Pod 2.2 T4 — Bit-check passes (positive case for D2.2.6).
+    Construct cap A under ROOT with BIT_SIGN_FORGE|BIT_CAP_FORGE.
+    ENTER A. Forge Sign — A's bitmap carries BIT_SIGN_FORGE so
+    bit-check passes; Sign forge succeeds. Demonstrates that
+    authority-shape-as-physics permits authorized operations."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Bitmap Authority Check Passes Test (Pod 2.2 T4) ==='}},
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap': BIT_SIGN_FORGE | BIT_CAP_FORGE}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'let','name':'enter_a','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        # Forge Sign under A — auto-unwrap binds bare sign_id.
+        {'type':'let','name':'s','value':{
+            'type':'sign_new',
+            'hash': b'\xab' + b'\x00' * 31, 'label': 'authzd', 'energy': 42,
+        }},
+        {'type':'print','value':{'type':'str','value':'sign_id (expect 1):'}},
+        {'type':'print','value':{'type':'var','name':'s'}},
+        {'type':'let','name':'exit_a','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'=== Bitmap Authority Check Passes test complete ==='}},
+    ]}
+
+def demo_bitmap_authority_check_fails():
+    """Pod 2.2 T5 — BIT-CHECK ARCHITECTURAL MOMENT (D2.2.6).
+    Construct cap A under ROOT with BIT_SIGN_FORGE|BIT_CAP_FORGE
+    (deliberately omits BIT_ENERGY_FORGE). ENTER A. Attempt Energy
+    forge — A's bitmap lacks ENERGY_FORGE, so bit-check fails. Result:
+    Outcome::Err(source_op=OP_ENERGY_NEW=208, err_code=ERR_CAP_INSUFFICIENT_AUTHORITY=8).
+    The substrate distinguishes operations by authority bit pattern at
+    the dispatch path; authority shape is load-bearing physics. Uses
+    'wrap': True to skip auto-unwrap and keep raw Outcome for inspection."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Bitmap Authority Check Fails Test (Pod 2.2 T5) ==='}},
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap': BIT_SIGN_FORGE | BIT_CAP_FORGE}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'let','name':'enter_a','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        # Attempt Energy forge — A lacks BIT_ENERGY_FORGE.
+        # 'wrap': True opts out of Path A auto-unwrap so we can inspect the Err Outcome.
+        {'type':'let','name':'eo','value':{
+            'type':'energy_new',
+            'joules': 500, 'source_op': 0xA0, 'wrap': True,
+        }},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'eo'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'eo'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 208 = OP_ENERGY_NEW):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 8 = ERR_CAP_INSUFFICIENT_AUTHORITY):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'let','name':'exit_a','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'=== Bitmap Authority Check Fails test complete ==='}},
+    ]}
+
+def demo_bitmap_accessor_round_trip():
+    """Pod 2.2 T6 — Round-trip bitmap through MAC-input range.
+    Construct cap A with specific bitmap = all four forge bits set
+    (0x0F = 15). Read back via OP_CAP_BITMAP; expect 15. Confirms
+    bitmap field at +0x18 survives MAC stamp / verify cycle and
+    accessor returns granted value verbatim."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Bitmap Accessor Round Trip Test (Pod 2.2 T6) ==='}},
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap': BIT_SIGN_FORGE | BIT_ENERGY_FORGE | BIT_OUTCOME_FORGE | BIT_CAP_FORGE}},
+        {'type':'let','name':'cap_id','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'print','value':{'type':'str','value':'cap_id (expect 2):'}},
+        {'type':'print','value':{'type':'var','name':'cap_id'}},
+        {'type':'print','value':{'type':'str','value':'A.bitmap (expect 15 = 0x0F = all four FORGE bits):'}},
+        {'type':'print','value':{'type':'cap_bitmap','operand':{'type':'var','name':'cap_id'}}},
+        {'type':'print','value':{'type':'str','value':'=== Bitmap Accessor Round Trip test complete ==='}},
     ]}
 
 def demo_energy():
@@ -1411,13 +1607,13 @@ if __name__ == '__main__':
     elif '--cap-new-basic-test' in sys.argv:
         c = AtreyuX86(); bc = c.compile(demo_cap_new_basic())
         print(f"Cap New Basic test: {len(bc)} bytes")
-    elif '--cap-arena-owner-resource-build' in sys.argv:
-        c = AtreyuX86(); bc = c.compile(demo_cap_arena_owner_resource())
-        out = sys.argv[sys.argv.index('--cap-arena-owner-resource-build')+1] if len(sys.argv) > sys.argv.index('--cap-arena-owner-resource-build')+1 else 'test_cap_arena_owner_resource.cbc'
+    elif '--cap-arena-owner-bitmap-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_arena_owner_bitmap())
+        out = sys.argv[sys.argv.index('--cap-arena-owner-bitmap-build')+1] if len(sys.argv) > sys.argv.index('--cap-arena-owner-bitmap-build')+1 else 'test_cap_arena_owner_bitmap.cbc'
         with open(out,'wb') as f: f.write(bc)
         print(f"Cap Accessors test: compiled {len(bc)} bytes -> {out}")
-    elif '--cap-arena-owner-resource-test' in sys.argv:
-        c = AtreyuX86(); bc = c.compile(demo_cap_arena_owner_resource())
+    elif '--cap-arena-owner-bitmap-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cap_arena_owner_bitmap())
         print(f"Cap Accessors test: {len(bc)} bytes")
     elif '--cap-current-build' in sys.argv:
         c = AtreyuX86(); bc = c.compile(demo_cap_current())
@@ -1598,5 +1794,54 @@ if __name__ == '__main__':
     elif '--babylon-initial-zero-test' in sys.argv:
         c = AtreyuX86(); bc = c.compile(demo_babylon_initial_zero())
         print(f"Babylon Initial Zero test: {len(bc)} bytes")
+    # --- Pod 2.2 cap_bitmap test surfaces (T1-T6) ---
+    elif '--bitmap-root-unbounded-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_bitmap_root_unbounded())
+        out = sys.argv[sys.argv.index('--bitmap-root-unbounded-build')+1] if len(sys.argv) > sys.argv.index('--bitmap-root-unbounded-build')+1 else 'test_bitmap_root_unbounded.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Bitmap Root Unbounded test: compiled {len(bc)} bytes -> {out}")
+    elif '--bitmap-root-unbounded-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_bitmap_root_unbounded())
+        print(f"Bitmap Root Unbounded test: {len(bc)} bytes")
+    elif '--bitmap-subset-grant-succeeds-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_bitmap_subset_grant_succeeds())
+        out = sys.argv[sys.argv.index('--bitmap-subset-grant-succeeds-build')+1] if len(sys.argv) > sys.argv.index('--bitmap-subset-grant-succeeds-build')+1 else 'test_bitmap_subset_grant_succeeds.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Bitmap Subset Grant Succeeds test: compiled {len(bc)} bytes -> {out}")
+    elif '--bitmap-subset-grant-succeeds-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_bitmap_subset_grant_succeeds())
+        print(f"Bitmap Subset Grant Succeeds test: {len(bc)} bytes")
+    elif '--bitmap-superset-grant-fails-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_bitmap_superset_grant_fails())
+        out = sys.argv[sys.argv.index('--bitmap-superset-grant-fails-build')+1] if len(sys.argv) > sys.argv.index('--bitmap-superset-grant-fails-build')+1 else 'test_bitmap_superset_grant_fails.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Bitmap Superset Grant Fails test: compiled {len(bc)} bytes -> {out}")
+    elif '--bitmap-superset-grant-fails-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_bitmap_superset_grant_fails())
+        print(f"Bitmap Superset Grant Fails test: {len(bc)} bytes")
+    elif '--bitmap-authority-check-passes-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_bitmap_authority_check_passes())
+        out = sys.argv[sys.argv.index('--bitmap-authority-check-passes-build')+1] if len(sys.argv) > sys.argv.index('--bitmap-authority-check-passes-build')+1 else 'test_bitmap_authority_check_passes.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Bitmap Authority Check Passes test: compiled {len(bc)} bytes -> {out}")
+    elif '--bitmap-authority-check-passes-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_bitmap_authority_check_passes())
+        print(f"Bitmap Authority Check Passes test: {len(bc)} bytes")
+    elif '--bitmap-authority-check-fails-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_bitmap_authority_check_fails())
+        out = sys.argv[sys.argv.index('--bitmap-authority-check-fails-build')+1] if len(sys.argv) > sys.argv.index('--bitmap-authority-check-fails-build')+1 else 'test_bitmap_authority_check_fails.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Bitmap Authority Check Fails test: compiled {len(bc)} bytes -> {out}")
+    elif '--bitmap-authority-check-fails-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_bitmap_authority_check_fails())
+        print(f"Bitmap Authority Check Fails test: {len(bc)} bytes")
+    elif '--bitmap-accessor-round-trip-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_bitmap_accessor_round_trip())
+        out = sys.argv[sys.argv.index('--bitmap-accessor-round-trip-build')+1] if len(sys.argv) > sys.argv.index('--bitmap-accessor-round-trip-build')+1 else 'test_bitmap_accessor_round_trip.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Bitmap Accessor Round Trip test: compiled {len(bc)} bytes -> {out}")
+    elif '--bitmap-accessor-round-trip-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_bitmap_accessor_round_trip())
+        print(f"Bitmap Accessor Round Trip test: {len(bc)} bytes")
     else:
-        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-resource,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test}")
+        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-bitmap,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test} | --bitmap-{root-unbounded,subset-grant-succeeds,superset-grant-fails,authority-check-{passes,fails},accessor-round-trip}-{build,test}")
