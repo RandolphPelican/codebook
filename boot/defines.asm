@@ -97,6 +97,7 @@
 %define OP_SIGN_ARENA    0xA4   ; pop sign_id, push Outcome<arena_id>
 %define OP_SIGN_OWNER    0xA5   ; pop sign_id, push Outcome<owner_demod_id>
 %define OP_SIGN_CREATOR  0xA6   ; pop sign_id, push Outcome<creator_cap_id>
+%define OP_SIGN_EMBEDDING_HANDLE 0xA7   ; Pod 3 — pop sign_id, validate, push Outcome<embedding_handle> from side-table per D3.4
 
 ; --- Energy opcodes (Pod 1.8) ---
 %define OP_ENERGY_NEW       0xD0
@@ -135,6 +136,7 @@
 %define ERR_INVALID_ENERGY_ARG       6   ; OP_ENERGY_NEW invalid joules/source_op (defined; unused V1.0 per A3)
 %define ERR_CAP_AUTHORITY_EXCEEDED      7   ; OP_CAP_NEW subset-on-grant violation: granted_bitmap exceeds parent cap's bitmap (Pod 1.10.2a forward-anchor; activated Pod 2.2 per D2.2.5)
 %define ERR_CAP_INSUFFICIENT_AUTHORITY  8   ; Bit-check failure at primitive-forge dispatch site: current_cap's bitmap lacks required BIT_*_FORGE (Pod 2.2 per D2.2.6)
+%define ERR_INVALID_EMBEDDING_ARG       9   ; Pod 3 — OP_EMBEDDING_NEW invalid vector_addr / OP_EMBEDDING_GET_DIM dim_index out-of-bounds (>=384)
 
 ; --- Pod 1.10.2a Cap opcode constants (D1.10.1.2 / D1.10.1.3) ---
 ; Cross-asset constants verification per D1.9.2b.10: opcode constants
@@ -159,6 +161,17 @@
 %define OP_CAP_USED      0xB9   ; pop cap_id, MAC verify, push Outcome<energy_used>
 ; Pod 2.2 — Cap texture accessor
 %define OP_CAP_BITMAP    0xBA   ; pop cap_id, MAC verify, push Outcome<cap_bitmap> per D2.2.1
+
+; --- Pod 3 Embedding opcodes (D3.1; range 0xC0-0xCF allocated) ---
+; Fifth typed primitive joins Sign/Energy/Outcome/Cap. Substrate-prep mode:
+; ship the typed pool + accessors + forge bit; semantic operations
+; (similarity, lookup-by-meaning, codebook ingestion) deferred to Pod 3.5+.
+; 0xC5-0xCF reserved for Pod 3.5+ semantic ops.
+%define OP_EMBEDDING_NEW       0xC0   ; pop vector_addr, push Outcome<embedding_id>
+%define OP_EMBEDDING_ARENA     0xC1   ; pop embedding_id, MAC verify, push Outcome<arena_id>
+%define OP_EMBEDDING_OWNER     0xC2   ; pop embedding_id, MAC verify, push Outcome<owner_demod_id>
+%define OP_EMBEDDING_CREATOR   0xC3   ; pop embedding_id, MAC verify, push Outcome<creator_cap_id>
+%define OP_EMBEDDING_GET_DIM   0xC4   ; pop embedding_id + dim_index, MAC verify, bounds-check, push Outcome<f32-bit-cast-as-i64>
 
 ; --- Pod 1.10.2a Cap pool / slot constants (D1.10.1.10) ---
 ; CAP_ID_NULL=0 already defined above in canonical-ID null-sentinel block (Pod 1.8.5b).
@@ -190,10 +203,11 @@
 ; reserved for organic vocabulary growth across future pods (surface
 ; bits, driver bits, network bits, etc.). Each new bit lands at decision-
 ; record time when its consumer earns it.
-%define BIT_SIGN_FORGE     (1 << 0)   ; 0x01 — gates OP_SIGN_NEW dispatch
-%define BIT_ENERGY_FORGE   (1 << 1)   ; 0x02 — gates OP_ENERGY_NEW dispatch
-%define BIT_OUTCOME_FORGE  (1 << 2)   ; 0x04 — gates OP_OUTCOME_NEW_OK / OP_OUTCOME_NEW_ERR dispatch
-%define BIT_CAP_FORGE      (1 << 3)   ; 0x08 — gates OP_CAP_NEW dispatch + delegation (clear on grant = leaf cap)
+%define BIT_SIGN_FORGE       (1 << 0)   ; 0x01 — gates OP_SIGN_NEW dispatch
+%define BIT_ENERGY_FORGE     (1 << 1)   ; 0x02 — gates OP_ENERGY_NEW dispatch
+%define BIT_OUTCOME_FORGE    (1 << 2)   ; 0x04 — gates OP_OUTCOME_NEW_OK / OP_OUTCOME_NEW_ERR dispatch
+%define BIT_CAP_FORGE        (1 << 3)   ; 0x08 — gates OP_CAP_NEW dispatch + delegation (clear on grant = leaf cap)
+%define BIT_EMBEDDING_FORGE  (1 << 4)   ; 0x10 — Pod 3 — gates OP_EMBEDDING_NEW dispatch; first reserved-bit consumer per D2.2.2 / D3.X
 
 ; --- Pod 1.8.5c Move 7: vm_phase enum ---
 ; Boot sequence steps SEED → FORM → CHANNELS → MIND in V1.0.
@@ -242,6 +256,33 @@
 %define OUTCOME_POOL_SLOTS   64
 %define OUTCOME_OFF_CREATOR_CAP_ID 0x68   ; Pod 1.10.2b2 — last qword of former Pod 3+ reserved zone
 
+; --- Pod 3 Embedding typed primitive (D3.1; substrate-prep mode) ---
+; f32[384] vector substrate-prep matching Pod 1.7 Sign / Pod 1.8 Energy pacing.
+; Slot is MAC-protected (full vector under SipHash; mutation goes detected).
+;
+; Embedding slot layout (1576 bytes / 197 qwords):
+;   +0x000  embedding_id_self   (registry-assigned u64)
+;   +0x008  arena_id            (strict delegation per Pod 1.10.2b1)
+;   +0x010  owner_demod_id      (strict delegation)
+;   +0x018  creator_cap_id      (provenance per Pod 1.10.2b2)
+;   +0x020  vector[384]         (1536 bytes; offsets 0x020 through 0x61F)
+;   +0x620  MAC                 (siphash over 196 qwords header+vector per D3.3)
+;
+; No mutable fields — embeddings are immutable post-construction (no analog
+; to Cap.energy_used). Full vector under MAC ensures content integrity.
+%define EMBEDDING_DIM               384
+%define EMBEDDING_VECTOR_BYTES      1536    ; 384 * 4
+%define EMBEDDING_SLOT_BYTES        1576    ; 197 qwords (header 4 + vector 192 + MAC 1)
+%define EMBEDDING_SLOT_QWORDS       197
+%define EMBEDDING_POOL_SLOTS        64
+%define EMBEDDING_MAC_INPUT_QWORDS  196     ; header (4) + vector (192); MAC at +0x620
+%define EMBEDDING_OFF_ID_SELF       0x000
+%define EMBEDDING_OFF_ARENA_ID      0x008
+%define EMBEDDING_OFF_OWNER_DEMOD_ID 0x010
+%define EMBEDDING_OFF_CREATOR_CAP_ID 0x018
+%define EMBEDDING_OFF_VECTOR        0x020
+%define EMBEDDING_OFF_MAC           0x620
+
 ; --- Canonical ID types (Pod 1.8.5b — Move 4) ---
 ; All canonical IDs are u64. ID 0 is reserved as null/invalid.
 ; sign_id and energy_id are retrofitted in this pod and now flow
@@ -250,22 +291,24 @@
 ; cap_id, demod_id, signal_id are reserved as types here; their
 ; primitives don't exist yet — Pod 1.10 (Cap), Pod 1.12 (Demod),
 ; Pod 4 (Interpreter) inherit the registry pattern when they land.
-%define SIGN_ID_NULL    0
-%define ENERGY_ID_NULL  0
-%define CAP_ID_NULL     0
-%define DEMOD_ID_NULL   0
-%define SIGNAL_ID_NULL  0
-%define OUTCOME_ID_NULL 0   ; Pod 1.9.2a — Outcome canonical-ID null sentinel
+%define SIGN_ID_NULL      0
+%define ENERGY_ID_NULL    0
+%define CAP_ID_NULL       0
+%define DEMOD_ID_NULL     0
+%define SIGNAL_ID_NULL    0
+%define OUTCOME_ID_NULL   0   ; Pod 1.9.2a — Outcome canonical-ID null sentinel
+%define EMBEDDING_ID_NULL 0   ; Pod 3 — Embedding canonical-ID null sentinel
 
 ; --- Pod 1.9.2a — Outcome value_type_id codes (D1.9.1.1) ---
 ; Discriminant naming which canonical-ID type the success branch of
 ; an Outcome wraps. Code 0 (TYPE_CODE_NONE) is sentinel — an Outcome
 ; with this code is uninitialized and may be flagged by audit.
 ; Codes 1-6 are stable; 7+ reserved for future canonical-ID types.
-%define TYPE_CODE_NONE     0
-%define TYPE_CODE_SIGN     1
-%define TYPE_CODE_ENERGY   2
-%define TYPE_CODE_CAP      3   ; reserved for Pod 1.10
-%define TYPE_CODE_DEMOD    4   ; reserved for Pod 1.12
-%define TYPE_CODE_SIGNAL   5   ; reserved for Pod 4
-%define TYPE_CODE_OUTCOME  6   ; reserved for Outcome wrapping Outcome
+%define TYPE_CODE_NONE       0
+%define TYPE_CODE_SIGN       1
+%define TYPE_CODE_ENERGY     2
+%define TYPE_CODE_CAP        3   ; reserved for Pod 1.10
+%define TYPE_CODE_DEMOD      4   ; reserved for Pod 1.12
+%define TYPE_CODE_SIGNAL     5   ; reserved for Pod 4
+%define TYPE_CODE_OUTCOME    6   ; reserved for Outcome wrapping Outcome
+%define TYPE_CODE_EMBEDDING  7   ; Pod 3 — fifth typed primitive (f32[384] vector substrate)

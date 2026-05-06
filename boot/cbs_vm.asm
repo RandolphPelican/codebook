@@ -183,6 +183,9 @@ cbs_run:
     je      .op_sign_owner
     cmp     al, OP_SIGN_CREATOR
     je      .op_sign_creator
+    ; Pod 3 — Sign embedding-handle accessor (D3.4 side-table read)
+    cmp     al, OP_SIGN_EMBEDDING_HANDLE
+    je      .op_sign_embedding_handle
     cmp     al, OP_ENERGY_ARENA
     je      .op_energy_arena
     cmp     al, OP_ENERGY_OWNER
@@ -205,6 +208,17 @@ cbs_run:
     ; Pod 2.2 — Cap texture accessor
     cmp     al, OP_CAP_BITMAP
     je      .op_cap_bitmap
+    ; Pod 3 — Embedding typed primitive (fifth typed pool; substrate-prep mode)
+    cmp     al, OP_EMBEDDING_NEW
+    je      .op_embedding_new
+    cmp     al, OP_EMBEDDING_ARENA
+    je      .op_embedding_arena
+    cmp     al, OP_EMBEDDING_OWNER
+    je      .op_embedding_owner
+    cmp     al, OP_EMBEDDING_CREATOR
+    je      .op_embedding_creator
+    cmp     al, OP_EMBEDDING_GET_DIM
+    je      .op_embedding_get_dim
 
     ; Unknown opcode
     lea     rsi, [rel str_vm_unk]
@@ -884,9 +898,27 @@ cbs_run:
     movzx   eax, byte [r11]
     cmp     eax, 63
     ja      .sign_new_fail_invalid_arg
-    ; Validate embedding_handle: must be 0 in V1.0 (handle pools land Pod 3+)
+    ; Pod 3 — embedding_handle validation (D3.4 / DEFERRED #65 resolution).
+    ; Pre-Pod-3: rejected non-zero (handle pools didn't exist).
+    ; Pod 3: zero = no embedding linked (backward-compat); non-zero = typed
+    ; embedding_id reference, validated via registry_lookup_embedding.
     test    r9, r9
-    jnz     .sign_new_fail_invalid_arg
+    jz      .sign_new_embedding_check_done   ; 0: skip validation
+    push    rbx
+    push    r11
+    push    r10
+    push    r9
+    push    r8
+    mov     rdi, r9
+    call    registry_lookup_embedding
+    pop     r8
+    pop     r9
+    pop     r10
+    pop     r11
+    pop     rbx
+    test    rax, rax
+    jz      .sign_new_invalid_embedding      ; non-zero but unresolvable → ERR_INVALID_ID
+.sign_new_embedding_check_done:
     ; (provenance_handle check removed Pod 1.8.5c; field reclaimed for arena_id)
     ; Allocate pool slot
     call    .sign_alloc
@@ -921,6 +953,16 @@ cbs_run:
     call    registry_register_sign
     test    rax, rax
     jz      .sign_new_fail_pool_full   ; registry full (capacities matched, should not occur in V1.0)
+    ; Pod 3 — write embedding_handle to side-table at index (sign_id - 1) per D3.4.
+    ; r9 holds embedding_handle (preserved through .sign_alloc + rep movsb +
+    ; registry_register_sign — none of those touch r9). Side-table indexing:
+    ; vm_sign_embedding_handle[sign_id - 1]; sign_ids are 1-based per registry.
+    push    rax                                 ; preserve sign_id across calc
+    mov     rcx, rax
+    dec     rcx                                 ; rcx = sign_id - 1
+    lea     rdx, [rel vm_sign_embedding_handle]
+    mov     [rdx + rcx*8], r9                   ; write embedding_handle to side-table
+    pop     rax                                 ; restore sign_id
     ; Pod 2.2 Path A retrofit (D2.2.7) — wrap sign_id in Outcome::Ok via helper.
     ; .construct_ok_outcome internally fires babylon_charge_lineage for spatial-
     ; merge per D2.1; single fire site for the originating cap's lineage.
@@ -959,6 +1001,17 @@ cbs_run:
 ; Pod 2.2 (D2.2.6) — bit-check failure: current_cap lacks BIT_SIGN_FORGE.
 .sign_new_insufficient_authority:
     mov     rdi, ERR_CAP_INSUFFICIENT_AUTHORITY
+    mov     rsi, OP_SIGN_NEW
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_SIGN
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+; Pod 3 (D3.4) — embedding_handle non-zero but unresolvable via registry.
+.sign_new_invalid_embedding:
+    mov     rdi, ERR_INVALID_ID
     mov     rsi, OP_SIGN_NEW
     xor     rdx, rdx
     xor     rcx, rcx
@@ -1923,6 +1976,43 @@ cbs_run:
     add     r13, 8
     jmp     .fetch
 
+; --- OP_SIGN_EMBEDDING_HANDLE (0xA7) Pod 3 — D3.4 side-table read ---
+; Pop sign_id; validate resolves via registry_lookup_sign; read embedding_handle
+; from vm_sign_embedding_handle[sign_id - 1]; push Outcome::Ok wrapping value.
+; Reads from parallel BSS structure, not slot field (the slot field at +0x68
+; was reclaimed at Pod 1.10.2b2 for creator_cap_id; embedding linkage lives
+; in side-table per DEFERRED #65 resolution).
+.op_sign_embedding_handle:
+    sub     r13, 8
+    mov     rdi, [r13]                      ; sign_id
+    test    rdi, rdi
+    jz      .op_sign_embedding_handle_invalid
+    push    rdi                             ; preserve sign_id across registry call
+    call    registry_lookup_sign            ; rax = slot_ptr (0 if not found)
+    pop     rdi
+    test    rax, rax
+    jz      .op_sign_embedding_handle_invalid
+    ; Read side-table at index (sign_id - 1)
+    mov     rcx, rdi
+    dec     rcx                             ; rcx = sign_id - 1
+    lea     rdx, [rel vm_sign_embedding_handle]
+    mov     rdi, [rdx + rcx*8]              ; rdi = embedding_handle (value to wrap)
+    mov     r8, TYPE_CODE_SIGN
+    call    .construct_ok_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+.op_sign_embedding_handle_invalid:
+    mov     rdi, ERR_INVALID_ID
+    mov     rsi, OP_SIGN_EMBEDDING_HANDLE
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_SIGN
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
 ; --- OP_ENERGY_ARENA / OP_ENERGY_OWNER / OP_ENERGY_CREATOR (0xD6-0xD8) ---
 .op_energy_arena:
     sub     r13, 8
@@ -2034,6 +2124,254 @@ cbs_run:
     mov     [r13], rax
     add     r13, 8
     jmp     .fetch
+
+; =============================================================
+; Pod 3 — Embedding typed primitive (D3.1; substrate-prep mode)
+; Fifth typed primitive: f32[384] vector substrate-prep matching
+; Pod 1.7 Sign / Pod 1.8 Energy pacing. Slot is MAC-protected
+; (full vector under SipHash per D3.3). Single-fire substrate
+; axiom inherited at greenfield (D3.9): success path uses
+; .construct_ok_outcome from start; no Path A retrofit needed.
+; =============================================================
+
+; --- OP_EMBEDDING_NEW (0xC0) Pod 3 — D3.1 ---
+; Pop vector_addr; bit-check BIT_EMBEDDING_FORGE; allocate slot;
+; copy 1536-byte vector; SipHash MAC over 196 qwords; register;
+; wrap in Outcome::Ok via .construct_ok_outcome. Step ordering
+; mirrors .op_cap_new (placeholder id 0 → content writes →
+; registry → stamp assigned id → siphash) per R7-corrected.
+.op_embedding_new:
+    sub     r13, 8
+    mov     rbx, [r13]                              ; vector_addr (rbx callee-saved)
+
+    ; Pod 3 — bit-check: current_cap must carry BIT_EMBEDDING_FORGE
+    push    rbx
+    mov     rdi, BIT_EMBEDDING_FORGE
+    mov     rsi, [rel current_cap_id]
+    call    babylon_check_authority
+    test    rax, rax
+    pop     rbx
+    jnz     .embedding_new_insufficient_authority
+
+    ; Pool capacity check
+    mov     rcx, [rel vm_embedding_next]
+    cmp     rcx, EMBEDDING_POOL_SLOTS
+    jge     .embedding_new_pool_full
+
+    ; Allocate slot
+    push    rbx                                     ; preserve vector_addr
+    call    .embedding_alloc                        ; rax = slot_ptr (0 if full; defensive)
+    pop     rbx
+    test    rax, rax
+    jz      .embedding_new_pool_full
+
+    ; Write placeholder id (0) + arena/owner/creator from substrate state
+    mov     qword [rax + EMBEDDING_OFF_ID_SELF], 0  ; placeholder until registry assigns
+    mov     rdx, [rel current_cap_arena_id_cache]
+    mov     [rax + EMBEDDING_OFF_ARENA_ID], rdx
+    mov     rdx, [rel current_cap_owner_demod_id_cache]
+    mov     [rax + EMBEDDING_OFF_OWNER_DEMOD_ID], rdx
+    mov     rdx, [rel current_cap_id]
+    mov     [rax + EMBEDDING_OFF_CREATOR_CAP_ID], rdx
+
+    ; Copy 1536-byte vector from [vector_addr] to slot+EMBEDDING_OFF_VECTOR
+    push    rax                                     ; preserve slot_ptr across rep movsb
+    lea     rdi, [rax + EMBEDDING_OFF_VECTOR]
+    mov     rsi, rbx                                ; rsi = vector_addr
+    mov     rcx, EMBEDDING_VECTOR_BYTES             ; 1536
+    cld
+    rep     movsb
+
+    ; Register slot to obtain embedding_id
+    pop     rdi                                     ; restore slot_ptr as registry input
+    push    rdi                                     ; preserve slot_ptr across registry call
+    call    registry_register_embedding             ; rax = embedding_id (0 if registry full)
+    pop     rbx                                     ; rbx = slot_ptr
+    test    rax, rax
+    jz      .embedding_new_pool_full
+
+    ; Stamp embedding_id_self with assigned id (post-registry per R7-corrected ordering)
+    mov     [rbx + EMBEDDING_OFF_ID_SELF], rax
+
+    ; SipHash MAC over 196 qwords (header 4 + vector 192) per D3.3
+    push    rax                                     ; preserve embedding_id
+    mov     rdi, rbx                                ; siphash input = slot_ptr
+    mov     rsi, EMBEDDING_MAC_INPUT_QWORDS         ; 196
+    call    siphash_compute                         ; rax = MAC; rbx preserved (callee-saved)
+    mov     [rbx + EMBEDDING_OFF_MAC], rax          ; stamp MAC at +0x620
+    pop     rax                                     ; restore embedding_id
+
+    ; Path A — single-fire babylon via .construct_ok_outcome (D3.9 greenfield axiom)
+    mov     rdi, rax                                ; value = embedding_id
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_ok_outcome
+    mov     [r13], rax                              ; push outcome_id
+    add     r13, 8
+    jmp     .fetch
+
+.embedding_new_pool_full:
+    mov     rdi, ERR_POOL_FULL
+    mov     rsi, OP_EMBEDDING_NEW
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.embedding_new_insufficient_authority:
+    mov     rdi, ERR_CAP_INSUFFICIENT_AUTHORITY
+    mov     rsi, OP_EMBEDDING_NEW
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_EMBEDDING_ARENA (0xC1) ---
+.op_embedding_arena:
+    sub     r13, 8
+    mov     rdi, [r13]                              ; embedding_id
+    mov     rcx, EMBEDDING_OFF_ARENA_ID             ; 0x008
+    mov     rsi, OP_EMBEDDING_ARENA
+    call    .embedding_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_EMBEDDING_OWNER (0xC2) ---
+.op_embedding_owner:
+    sub     r13, 8
+    mov     rdi, [r13]
+    mov     rcx, EMBEDDING_OFF_OWNER_DEMOD_ID       ; 0x010
+    mov     rsi, OP_EMBEDDING_OWNER
+    call    .embedding_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_EMBEDDING_CREATOR (0xC3) ---
+.op_embedding_creator:
+    sub     r13, 8
+    mov     rdi, [r13]
+    mov     rcx, EMBEDDING_OFF_CREATOR_CAP_ID       ; 0x018
+    mov     rsi, OP_EMBEDDING_CREATOR
+    call    .embedding_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_EMBEDDING_GET_DIM (0xC4) Pod 3 ---
+; Pop dim_index (TOS), embedding_id. Bounds-check dim_index < 384;
+; lookup + MAC verify; load f32 from vector[dim_index]; bit-cast to
+; i64 via zero-extend (preserves IEEE bit pattern); push Outcome.
+.op_embedding_get_dim:
+    sub     r13, 8
+    mov     rcx, [r13]                              ; dim_index (top-of-stack)
+    sub     r13, 8
+    mov     rdi, [r13]                              ; embedding_id
+
+    ; Bounds check: dim_index < EMBEDDING_DIM (unsigned compare catches negatives too)
+    cmp     rcx, EMBEDDING_DIM
+    jae     .embedding_get_dim_oob
+
+    test    rdi, rdi
+    jz      .embedding_get_dim_invalid_id
+    push    rcx                                     ; preserve dim_index across registry call
+    call    registry_lookup_embedding
+    pop     rcx
+    test    rax, rax
+    jz      .embedding_get_dim_invalid_id
+    mov     rbx, rax                                ; slot_ptr
+
+    ; MAC verify
+    push    rcx                                     ; preserve dim_index across siphash
+    mov     rdi, rbx
+    mov     rsi, EMBEDDING_MAC_INPUT_QWORDS
+    call    siphash_compute
+    pop     rcx
+    cmp     rax, [rbx + EMBEDDING_OFF_MAC]
+    jne     .embedding_get_dim_invalid_id           ; MAC mismatch → ERR_INVALID_ID
+
+    ; Load f32 dimension; zero-extend 32→64 via 32-bit mov (IEEE bit pattern preserved)
+    lea     rdx, [rbx + EMBEDDING_OFF_VECTOR]
+    mov     eax, [rdx + rcx*4]                      ; 32-bit load; rax upper 32 zeroed
+    mov     rdi, rax
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_ok_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.embedding_get_dim_oob:
+    mov     rdi, ERR_INVALID_EMBEDDING_ARG
+    mov     rsi, OP_EMBEDDING_GET_DIM
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.embedding_get_dim_invalid_id:
+    mov     rdi, ERR_INVALID_ID
+    mov     rsi, OP_EMBEDDING_GET_DIM
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- .embedding_accessor_common (Pod 3 helper) ---
+; Mirrors .cap_accessor_common pattern (Pod 1.10.2b1 D1.10.2b1.5).
+; Embeddings ARE MAC-protected (full vector under SipHash per D3.3) —
+; matches Cap's MAC verify pattern, distinct from Sign/Energy/Outcome
+; non-MAC accessor patterns.
+;
+; Internal calling convention:
+;   Input:    rdi = embedding_id, rcx = field offset, rsi = source_op
+;   Output:   rax = outcome_id (Ok wrapping field value, or Err)
+.embedding_accessor_common:
+    push    rsi                             ; preserve source_op
+    push    rcx                             ; preserve field offset
+
+    test    rdi, rdi
+    jz      .embedding_accessor_invalid
+
+    call    registry_lookup_embedding       ; rax = slot_ptr or 0
+    test    rax, rax
+    jz      .embedding_accessor_invalid
+    mov     rbx, rax                        ; slot_ptr
+
+    ; MAC verify (forgery detection per D3.3)
+    mov     rdi, rbx
+    mov     rsi, EMBEDDING_MAC_INPUT_QWORDS ; 196
+    call    siphash_compute                 ; rax = recomputed MAC; rbx preserved
+    cmp     rax, [rbx + EMBEDDING_OFF_MAC]
+    jne     .embedding_accessor_invalid     ; MAC mismatch → ERR_INVALID_ID
+
+    pop     rcx                             ; restore offset
+    pop     rsi                             ; (source_op unused on success)
+    mov     rdi, [rbx + rcx]                ; value = slot field
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_ok_outcome
+    ret
+
+.embedding_accessor_invalid:
+    pop     rcx                             ; discard offset
+    pop     rsi                             ; restore source_op
+    mov     rdi, ERR_INVALID_ID
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    ret
 
 ; --- .sign_accessor_common (Pod 1.10.2b2 helper) ---
 ; Input:  rdi = sign_id, rcx = field offset, rsi = source_op
@@ -2312,6 +2650,24 @@ cbs_run:
 .sign_alloc_full:
     xor     rax, rax
     xor     rcx, rcx
+    ret
+
+; vm_embedding_alloc: bump allocator for Embedding pool (Pod 3)
+; Slot is 1576 bytes (197 qwords); not a power of 2 — uses imul.
+; Output: rax = slot pointer (0 if pool full)
+; Clobbers: rcx, rdx
+.embedding_alloc:
+    mov     rcx, [rel vm_embedding_next]
+    cmp     rcx, EMBEDDING_POOL_SLOTS
+    jge     .embedding_alloc_full
+    mov     rax, rcx
+    imul    rax, rax, EMBEDDING_SLOT_BYTES   ; index * 1576
+    lea     rdx, [rel vm_embedding_pool]
+    add     rax, rdx
+    inc     qword [rel vm_embedding_next]
+    ret
+.embedding_alloc_full:
+    xor     rax, rax
     ret
 
 ; --- HALT ---

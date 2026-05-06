@@ -225,18 +225,30 @@ Sign := {
 }
 ```
 
-**V1.0 concrete layout (128 bytes per slot, 8-byte aligned):**
+**V1.0 concrete layout (128 bytes per slot, 8-byte aligned; current as of Pod 3 / D3.4 D3.11):**
 
 ```
 offset  size    field
 0x00    32      content_hash       (sha256 raw bytes)
 0x20    64      label              (length-prefixed ASCII; byte 0 = length, bytes 1–63 = chars)
 0x60    8       energy_cost        (u64 joules; Pod 1.7 typed wrapper)
-0x68    8       embedding_handle   (u64; index into vm_embed_pool, defined Pod 3+)
-0x70    8       provenance_handle  (u64; index into vm_provchain_pool, defined Pod 3+)
-0x78    8       reserved           (V1.1 expansion sentinel)
+0x68    8       creator_cap_id     (u64; Pod 1.10.2b2 reclaimed from former embedding_handle slot)
+0x70    8       arena_id           (u64; Pod 1.8.5c reclaimed from former provenance_handle slot)
+0x78    8       owner_demod_id     (u64; Pod 1.8.5c reclaimed from former V1.1 sentinel)
 total   128
 ```
+
+**Slot evolution archaeology:** the Sign slot layout has evolved through three
+reclamation passes, each preserving SIGN_SLOT_SIZE=128 bytes:
+- **Pod 1.7 (substrate-prep)**: original layout placeholders at +0x68 (embedding_handle), +0x70 (provenance_handle), +0x78 (V1.1 sentinel) — all forward-declared for Pod 3+ activation.
+- **Pod 1.8.5c Move 3**: provenance_handle at +0x70 → arena_id; V1.1 sentinel at +0x78 → owner_demod_id (Move 3 retrofit reclaiming reserved zone for substrate-state caching per D1.8.5c).
+- **Pod 1.10.2b2**: embedding_handle at +0x68 → creator_cap_id (Move 3+creator pattern continuation per D1.10.2b2.X).
+
+**OP_SIGN_NEW operand-stack ABI** preserved at 5 args throughout: `(provenance_handle_ignored, embedding_handle, energy_cost, label_addr, hash_addr)`. The embedding_handle arg, formerly validated to zero and discarded pre-Pod-3, gained activated semantics at Pod 3 per D3.4 (validates non-zero via registry_lookup_embedding; on success writes to parallel side-table `vm_sign_embedding_handle[sign_id - 1]`).
+
+**Sign embedding linkage (Pod 3 D3.4):** the substrate-stamped cross-pool reference between Sign and Embedding lives in a parallel BSS structure (`vm_sign_embedding_handle: times SIGN_POOL_SLOTS dq 0`) indexed by `sign_id - 1`. `OP_SIGN_EMBEDDING_HANDLE = 0xA7` reads this side-table. The reclaimed-slot-via-parallel-structure pattern is canonized as one of two architectural patterns for substrate evolution without slot-layout disruption (D3.6); the other is placeholder-field semantic activation (Pod 2.2 cap_bitmap).
+
+**Sign-non-MAC archaeology asymmetry:** Sign + Energy are non-MAC; Cap + Outcome + Embedding are MAC-protected (SipHash-2-4). Pod 1.7 design predated the Pod 1.10.2a MAC convention; Sign/Energy were never retroactively MAC-retrofitted. The integrity model for non-MAC pools is parallel-structure-tracking (registry indirection + slot-write discipline). DEFERRED #81 forward-logs MAC-retrofit candidate when integrity-attack surface becomes empirical.
 
 **Pool:** `vm_sign_pool`, 64 nodes × 128 bytes = 8 KB. Static allocation
 in `boot/vmdata.asm` (placed by Pod 1.7). Matches cap pool sizing (64 ×
@@ -248,9 +260,12 @@ in `boot/vmdata.asm` (placed by Pod 1.7). Matches cap pool sizing (64 ×
 **Label representation:** Length-prefixed ASCII. Byte 0 holds length
 (0–63); bytes 1–63 hold characters. UTF-8 deferred to V1.1.
 
-**Embedding and ProvChain:** Forward-declared 8-byte handles to pools
-landing in Pod 3 (Maid) and Pod 9 (Maid V2). Handle value 0 = no
-embedding / no provenance, valid in V1.0.
+**Embedding linkage (post-Pod-3):** Sign-Embedding cross-pool typed reference
+via parallel side-table (D3.4). Pre-Pod-3 placeholder in OP_SIGN_NEW's 5-arg
+ABI gained activated semantics at Pod 3 D3.4. Provenance via prov_append
+ring (Pod 1.8.5c, default-OFF; cap-flag-gated activation) rather than per-Sign
+provenance_handle slot (slot reclaimed at Pod 1.8.5c Move 3 for arena_id;
+DEFERRED #82 forward-logs activation candidate if needed in future pods).
 
 **Validation:** Construction-time only (OP_SIGN_NEW). Hash must be 32
 bytes, label length ≤ 63, energy_cost in valid range, handle values
@@ -265,15 +280,25 @@ constant, the chain it points at grows.
 **Opcodes (0xA0–0xAF):**
 
 ```
-OP_SIGN_NEW      0xA0   construct Sign from stack args, return sign_id
-OP_SIGN_HASH     0xA1   sign_id → 4 × u64 (hash[0:8], hash[8:16], hash[16:24], hash[24:32])
-OP_SIGN_LABEL    0xA2   sign_id → label as string
-OP_SIGN_ENERGY   0xA3   sign_id → energy_cost u64
-0xA4–0xAF        reserved (Pod 3+ provenance, embedding ops)
+OP_SIGN_NEW              0xA0   construct Sign from stack args, return Outcome<sign_id>
+OP_SIGN_HASH             0xA1   sign_id → 4 × u64 (hash[0:8], hash[8:16], hash[16:24], hash[24:32])
+OP_SIGN_LABEL            0xA2   sign_id → label as string
+OP_SIGN_ENERGY           0xA3   sign_id → Outcome<energy_cost u64>
+OP_SIGN_ARENA            0xA4   Pod 1.10.2b2 — sign_id → Outcome<arena_id>
+OP_SIGN_OWNER            0xA5   Pod 1.10.2b2 — sign_id → Outcome<owner_demod_id>
+OP_SIGN_CREATOR          0xA6   Pod 1.10.2b2 — sign_id → Outcome<creator_cap_id>
+OP_SIGN_EMBEDDING_HANDLE 0xA7   Pod 3 — sign_id → Outcome<embedding_handle> (side-table read per D3.4)
+0xA8–0xAF                reserved (Pod 3.5+ Sign-related semantic ops)
 ```
 
-OP_SIGN_NEW stack inputs (top-down): provenance_handle, embedding_handle,
-energy_cost, label_addr, hash_addr. Returns sign_id on stack.
+OP_SIGN_NEW stack inputs (top-down): provenance_handle (ignored, silently discarded),
+embedding_handle (Pod 3 D3.4: typed embedding_id ref or 0=none), energy_cost,
+label_addr, hash_addr. Returns Outcome<sign_id> on stack (Pod 2.2 Path A retrofit;
+auto-unwrap via OP_OUTCOME_UNWRAP_OK at emitter level for backward-compat).
+
+Side-table write at OP_SIGN_NEW post-registry per D3.4: `vm_sign_embedding_handle[sign_id - 1] = embedding_handle`.
+Validation: non-zero embedding_handle routes through registry_lookup_embedding;
+unresolvable handle yields Outcome::Err(ERR_INVALID_ID, source_op=OP_SIGN_NEW).
 
 **Implementation (Pod 1.7):** All four Sign opcodes are wired in
 `boot/cbs_vm.asm` with dispatch entries and handlers. `vm_sign_alloc`
@@ -668,6 +693,98 @@ explicitly (Rockbiter, debug paths, future surfaces). The two flows
 coexist in V1.0 and unify in V1.1+.
 
 **Demod<S>.** Unchanged. Arrives in Pod 4 (Interpreter).
+
+#### `Embedding` — concretized in Pod 3 (D3.1)
+
+The fifth typed primitive: lexical embedding substrate-prep for Maid V1.0.
+f32[384] vector under SipHash MAC over 196 qwords (header 4 + vector 192).
+Immutable post-construction; full vector under MAC ensures content integrity
+for Pod 3.5+ Maid similarity computations.
+
+```
+Embedding := {
+  vector:        f32[384],         // canonical V1.0 dimension (D3.2)
+  arena_id:      u64,              // strict delegation per Pod 1.10.2b1
+  owner_demod_id: u64,             // strict delegation
+  creator_cap_id: u64,             // provenance per Pod 1.10.2b2
+  mac:           u64,              // SipHash-2-4 over 196 qwords header+vector
+}
+```
+
+**V1.0 concrete layout (1576 bytes per slot, 8-byte aligned):**
+
+```
+offset  size    field
+0x000   8       embedding_id_self    (registry-assigned u64)
+0x008   8       arena_id             (u64)
+0x010   8       owner_demod_id       (u64)
+0x018   8       creator_cap_id       (u64; Pod 1.10.2b2 provenance pattern)
+0x020   1536    vector[384]          (f32 little-endian; offsets 0x020..0x61F)
+0x620   8       mac                  (siphash over 196 qwords header+vector)
+total   1576 (197 qwords)
+```
+
+**Pool:** `vm_embedding_pool`, 64 nodes × 1576 bytes ≈ 100 KB. Static allocation
+in `boot/vmdata.asm` (Pod 3). BSS-zero initialized; no construct_root_embedding
+(program-driven; no boot-time auto-construction).
+
+**Handles:** Operand stack carries an 8-byte `embedding_id` (registry index).
+`embedding_id` 0 = `EMBEDDING_ID_NULL` reserved/invalid; valid range 1–64.
+
+**Opcodes (0xC0–0xCF):**
+
+```
+OP_EMBEDDING_NEW       0xC0   pop vector_addr, push Outcome<embedding_id>
+OP_EMBEDDING_ARENA     0xC1   pop embedding_id, MAC verify, push Outcome<arena_id>
+OP_EMBEDDING_OWNER     0xC2   pop embedding_id, MAC verify, push Outcome<owner_demod_id>
+OP_EMBEDDING_CREATOR   0xC3   pop embedding_id, MAC verify, push Outcome<creator_cap_id>
+OP_EMBEDDING_GET_DIM   0xC4   pop embedding_id + dim_index, MAC verify, bounds-check,
+                              push Outcome<f32-bit-cast-as-i64>
+0xC5–0xCF              reserved (Pod 3.5+ semantic ops: similarity, lookup, ingestion)
+```
+
+**OP_EMBEDDING_NEW stack inputs (top-down):** vector_addr (pointer to inline 1536
+bytes via OP_PUSH_STR + OP_DROP pattern). Returns Outcome<embedding_id>. Single-fire
+spatial-merge via .construct_ok_outcome's internal babylon_charge_lineage call (D3.9
+greenfield axiom inherited by construction; no Path A retrofit needed).
+
+**OP_EMBEDDING_GET_DIM stack inputs (top-down):** dim_index, embedding_id. Returns
+Outcome<f32-bit-cast-as-i64>. f32 dimension loaded via 32-bit mov (zero-extend to
+i64; IEEE bit pattern preserved exactly per D3.3 round-trip discipline).
+
+**Energy cost (Pod 3 D3.X cost basis):** 100j for OP_EMBEDDING_NEW (matches Sign
+content-bearing primitive convention); 1j metabolic for accessors per existing
+Cap accessor convention.
+
+**Authority:** OP_EMBEDDING_NEW gated by BIT_EMBEDDING_FORGE = (1 << 4) = 0x10
+in cap_bitmap V1.0 vocabulary (D2.2.2 organic earn convention; first reserved-bit
+consumer; 5/64 bits earned post-Pod-3). Bit-check fires at .op_embedding_new
+post-pop / pre-construct per D2.2.6; failure routes to ERR_CAP_INSUFFICIENT_AUTHORITY.
+
+**Maid V1.0 architecture:** the codebook is the *collection* of embeddings in the
+pool (D3.7); Maid layers semantic indexing/lookup logic above the embedding pool
+in Pod 3.5+. No separate Codebook typed primitive in V1.0 — substrate stays
+minimal; semantics stay in Maid.
+
+#### Substrate-archaeology asymmetry (D3.11 verification surface authority hierarchy)
+
+Post-Pod-3 the substrate has a structurally explicit two-tier integrity model:
+- **MAC-protected pools**: Cap (Pod 1.10.2a), Outcome (Pod 1.9.2a), Embedding (Pod 3)
+- **Non-MAC pools**: Sign (Pod 1.7), Energy (Pod 1.8) — pre-Pod-1.10.2a-MAC-convention
+
+Sign + Energy were not retroactively MAC-retrofitted because the operand-stack ABI
+was already locked when MAC was introduced for Cap. Their integrity model is
+parallel-structure-tracking (registry indirection + slot-write discipline). DEFERRED
+#81 forward-logs MAC-retrofit candidate when integrity-attack surface becomes
+empirical.
+
+**D3.11 doctrine: in-tree state (defines.asm, asm files) is canon; narrative
+documents (this RECONSTITUTION.md, design docs in recon/) lag and require periodic
+synchronization.** Architect cross-checks defer to in-tree state. Recon catches
+canon-doc-stale-state drift as a substrate-evolution verification surface (Pod 3
+HALT 1 Pre-A10 caught a three-pod-lag in this document's own Sign slot layout
+spec). Future canon refreshes after every retrofit touching slot layouts; periodic
+full audit pass when accumulated drift becomes load-bearing.
 
 ### Layer 2 — The Trinity (CBS, hosted on Layer 1)
 

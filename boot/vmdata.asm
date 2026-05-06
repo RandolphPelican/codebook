@@ -52,6 +52,24 @@ vm_outcome_next: dq 0            ; bump allocator index (next free slot)
 vm_cap_pool: times CAP_POOL_SLOTS * CAP_SLOT_SIZE db 0
 vm_cap_next: dq 0                ; bump allocator index (next free slot)
 
+; Embedding pool (Pod 3 — D3.1; 64 slots × 1576 bytes = ~100KB; bump-allocator)
+;   Fifth typed pool. Slot is MAC-protected (full vector under SipHash per D3.3).
+;   Substrate-prep mode: pool + accessors land at this pod; semantic operations
+;   (similarity, lookup-by-meaning) deferred to Pod 3.5+.
+    align 16
+vm_embedding_pool: times EMBEDDING_POOL_SLOTS * EMBEDDING_SLOT_BYTES db 0
+vm_embedding_next: dq 0                ; bump allocator index (next free slot)
+
+; Sign embedding-handle side-table (Pod 3 — D3.4; DEFERRED #65 resolution)
+;   Parallel BSS array indexed by (sign_id - 1). Tracks Sign->Embedding linkage
+;   without expanding Sign slot. SIGN_OFF_CREATOR_CAP_ID at +0x68 was reclaimed
+;   from the original embedding_handle slot at Pod 1.10.2b2; this side-table
+;   provides the linkage in a parallel structure matching Sign's existing
+;   non-MAC integrity model. Initial value 0 = no embedding linked
+;   (preserves backward-compat for all pre-Pod-3 Sign demos).
+    align 16
+vm_sign_embedding_handle: times SIGN_POOL_SLOTS dq 0
+
 ; Sign registry (Pod 1.8.5b — Move 4)
 ;   Maps sign_id (opaque counter, 1-based) -> slot pointer (u64).
 ;   Each entry = {id: u64, slot_ptr: u64} = 16 bytes.
@@ -84,6 +102,14 @@ outcome_registry:         times OUTCOME_POOL_SLOTS * 16 db 0
 cap_registry_count:   dq 0
 cap_registry_next_id: dq 1   ; ID 0 reserved as CAP_ID_NULL; ROOT_CAP claims id=1
 cap_registry:         times CAP_POOL_SLOTS * 16 db 0
+
+; Embedding registry (Pod 3; mirrors Pod 1.8.5b registry pattern)
+;   Maps embedding_id -> slot pointer. Capacity matches vm_embedding_pool.
+;   ID 0 = EMBEDDING_ID_NULL reserved.
+    align 16
+embedding_registry_count:   dq 0
+embedding_registry_next_id: dq 1
+embedding_registry:         times EMBEDDING_POOL_SLOTS * 16 db 0
 
 ; Pod 1.8.5c Move 7 — current VM phase (SEED at boot, advances through MIND)
     align 16

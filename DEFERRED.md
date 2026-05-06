@@ -823,26 +823,6 @@ prep moved into Pod 1.10.3 means Cop becomes behavior-on-prepared-
 substrate rather than behavior + substrate prep. The "Cop is more
 focused at birth than v3 anticipated" architectural read confirmed.
 
-## 65. Sign embedding_handle relocation when Pod 3 (Maid) lands (added Pod 1.10.2b2, forward-looking)
-
-Pod 1.10.2b2 reclaimed Sign slot +0x68 (formerly embedding_handle
-placeholder) for creator_cap_id. The reclamation continues Pod
-1.8.5c's discipline (provenance_handle → arena_id, V1.1 sentinel →
-owner_demod_id, embedding_handle → creator_cap_id). OP_SIGN_NEW
-preserves 5-arg ABI by validating handle=0 then silently
-discarding.
-
-Pod 3 (Maid) lands real lexical embeddings and needs a home for
-embedding_handle. Three options:
-- Slot expansion to 136 bytes (or 256 bytes for alignment) — pool
-  size grows
-- Side-table indexed by sign_id — embedding_handle lives outside
-  the Sign slot, registry-resolved
-- Another reclaimable field if any remain at Pod 3 entry
-
-R3.1 forward-anchor from Pod 1.10.2b2 recon. Pod 3 recon decides
-based on embedding pool sizing and handle semantics.
-
 ## 66. Outcome four-path consolidation refactor opportunity (added Pod 1.10.2b2; sharpened Pod 2.2)
 
 Outcome construction lands at four paths in cbs_vm.asm:
@@ -1074,16 +1054,20 @@ stays unchanged at Pod 2.2 per in-scope discipline. Future hygiene
 pod can address universal single-fire across all construction sites
 if desired.
 
-## 76. Bit vocabulary expansion (added Pod 2.2, forward-looking)
+## 76. Bit vocabulary expansion (added Pod 2.2, forward-looking; partially-resolved-further Pod 3)
 
 Pod 2.2 ships V1.0 cap_bitmap forge-bit vocabulary at 4 bits:
 BIT_SIGN_FORGE / BIT_ENERGY_FORGE / BIT_OUTCOME_FORGE / BIT_CAP_FORGE
 (mirrors current authority-exercise opcode set per D2.2.2).
 Bits 4-63 reserved for organic vocabulary growth across future pods.
 
-**Forward-anchor for Pod 3+:** each new bit assignment lands at
+**Pod 3 partial resolution (D3.X):** BIT_EMBEDDING_FORGE earned slot
+4 (1<<4 = 0x10) per D2.2.2 / D3.X organic earn convention. Vocabulary
+now at 5/64 bits; bits 5-63 still reserved for future pod consumers.
+
+**Forward-anchor for Pod 3.5+:** each new bit assignment lands at
 decision-record time when its consumer earns it. Likely consumers:
-- Pod 3 Maid file-op bits — read/write/exec/append/create/delete on
+- Pod 3.5+ Maid file-op bits — read/write/exec/append/create/delete on
   semantic codebook substrate
 - Pod 4+ Trinity surface bits — Bastian/Gmork/Auryn/Rockbiter
   surface-specific gating
@@ -1092,7 +1076,7 @@ decision-record time when its consumer earns it. Likely consumers:
 - V1.1+ — pub-sub authorization bits, network capability bits
 
 "Decide once with parameterization in mind" doctrine: don't pre-
-allocate bit ranges per future-pod intent. Claim 4 in V1.0; document
+allocate bit ranges per future-pod intent. Claim N in V_N; document
 each new bit at decision-record time when it lands.
 
 ## 77. Pod 2.3 Babylon revocation (added Pod 2.2, forward-looking)
@@ -1168,3 +1152,161 @@ diff noise that confuses casual code archaeology.
 Convenient pairing with #78 housekeeping pod (test script bundle
 absorption); both are tracked-tree hygiene that benefits from a
 single touch-everywhere pod rather than per-pod fragments.
+
+## 80. Pod 3.5+ Maid semantic operations (added Pod 3, forward-looking)
+
+Pod 3 sealed lexical embedding substrate-prep: typed Embedding pool +
+accessors + bit + Sign linkage via parallel side-table. Pod 3.5+
+lands the semantic operations layer:
+
+- **Cosine similarity** — pop two embedding_ids, push f32 cosine
+- **Dot product** — pop two embedding_ids, push f32 dot product
+- **Lookup-by-meaning** — given query embedding + threshold, scan
+  embedding pool, return Outcome<embedding_id> or Outcome::Err
+- **Codebook ingestion** — bulk-load embeddings from external source
+  (FAT32 file or programmatic)
+- **L2 norm** — pop embedding_id, push f32 norm
+- **Vector arithmetic** — element-wise add/subtract for embedding
+  algebra ("king - man + woman ≈ queen" patterns)
+
+Returns when Maid V1.0 application surface motivates. Architect-led
+architectural sit before drafting Pod 3.5 recon (parallel to rethink
+moments before Pod 1.10.2b2 / Pod 2.1 / Pod 2.2 / Pod 3). Maid is the
+second Trinity component; substrate-use exercises everything Pods 1-3
+built in ways no further substrate prep would surface.
+
+Bit vocabulary likely claims slots 5+ at Pod 3.5+ for file-op or
+Maid-operation gating; opcode allocation in 0xC5-0xCF range reserved
+for Pod 3.5+ semantic ops at this pod.
+
+## 81. Sign / Energy MAC retrofit candidate (added Pod 3, forward-looking)
+
+Pod 3 makes the substrate's two-tier integrity model structurally
+explicit:
+- **MAC-protected pools** (SipHash over slot fields): Cap (Pod 1.10.2a),
+  Outcome (Pod 1.9.2a via .construct_*_outcome wrap), Embedding
+  (Pod 3 D3.3 full vector under MAC)
+- **Non-MAC pools** (parallel-structure-tracking integrity model):
+  Sign (Pod 1.7), Energy (Pod 1.8)
+
+The asymmetry is Pod-1.7-archaeology — Sign predates the Pod 1.10.2a
+MAC convention; Energy followed Sign's pattern. Neither was
+retroactively MAC-retrofitted because the operand-stack ABI was
+already locked and slot layout was already written into Sign/Energy
+allocator code.
+
+**Forward-anchor:** future MAC-retrofit pod could address Sign/Energy
+integrity. Slot expansion to 136/192 bytes for MAC field; SipHash
+compute at construction sites (.op_sign_new, .op_energy_new); MAC
+verify at every Sign/Energy accessor (sign_arena, sign_owner,
+sign_creator, sign_energy, sign_hash, sign_label, sign_embedding_handle,
+energy_arena, energy_owner, energy_creator, energy_joules,
+energy_source_op).
+
+Not load-bearing for Pod 3.5; activation criterion is when integrity-
+attack surface becomes empirical (e.g., trust boundary expands to
+include programs that mutate Sign/Energy slot bytes directly via
+substrate vulnerability or driver bug, OR Maid V1.0+ surfaces a
+provenance-corruption failure mode).
+
+## 82. Sign.provenance_handle activation candidate (added Pod 3, forward-looking)
+
+Pre-Pod-3 Sign slot at +0x70 was provenance_handle placeholder.
+Pod 1.8.5c reclaimed that slot for arena_id (Move 3 retrofit;
+provenance_handle was the topmost arg in OP_SIGN_NEW's 5-arg ABI,
+silently discarded). Like the embedding_handle slot reclaim at
+Pod 1.10.2b2 (slot +0x68 → creator_cap_id), provenance_handle's
+slot field no longer exists in Sign's layout.
+
+If Pod 3.5+ or Pod 4+ wants to activate substrate-stamped provenance
+chains (per the original Pod 0 design intent linking signed events
+to a provenance graph), the resolution shape mirrors Pod 3's #65:
+add parallel BSS structure indexed by sign_id, OP_SIGN_PROVENANCE_HANDLE
+accessor at next-available Sign opcode (0xA8 reserved per Pod 3 cost
+table). Per D3.6 reclaimed-slot-via-parallel-structure pattern.
+
+Returns when activation pattern becomes load-bearing. Speculative
+forward-log; may be subsumed by Pod 4 Interpreter's prov_append
+mechanism (already wired at Pod 1.8.5c, default-OFF) which provides
+event-level provenance via the prov_ring rather than per-Sign linkage.
+
+## 83. Embedding pool capacity expansion (added Pod 3, forward-looking)
+
+V1.0 conservative at EMBEDDING_POOL_SLOTS=64 (matches Sign/Energy/
+Outcome/Cap convention). Memory footprint: 64 × 1576 = 100,864 bytes.
+
+Pod 3.5+ Maid workloads might want larger codebook substrate. The
+"plastic codebook" framing from ARCHAEOLOGY (Maid as semantic
+housekeeper, graph + vector + log substrate, hundreds-to-thousands
+of embeddings) implies pool sizes in the 1000-10000+ range eventually.
+
+Returns when pool pressure becomes empirical — Maid V1.0 application
+surface either fits in 64 (small codebook demos) or overflows
+(production codebook ingestion). Activation triggers parameterization
+of EMBEDDING_POOL_SLOTS + memory-layout review (BSS section grows).
+
+## 84. Pod 3 throwaway test scripts join housekeeping bundle (added Pod 3)
+
+Three throwaway QEMU test scripts in working tree (all unstaged
+per DEFERRED #10 + Pod 1.9.4 D1.9.4.1 precedent):
+- tools/pod3_qemu_test.sh — B4+B16 pristine boot harness
+  (verifies new typed pool + side-table BSS allocation; seventh
+   empirical run of boot-time substrate-init verification family)
+- tools/pod3_canary_test.sh — generic surface canary harness
+  (used for B2/B3 canaries + B7-B13 Embedding surfaces + B10/B14
+   sub-cap canary preservation moment)
+- tools/pod3_b5_b6_runner.sh — B5/B6 batch runner with
+  reference paths swapped to pod22 refs
+
+Bundle accumulating since 1.9.4 cleared; ~21 scripts now (three
+each from 1.10.2a per #59, 1.10.2b1 per #62, 1.10.2b2 per #67,
+1.10.3 per #70, 2.1 per #74, 2.2 per #78, 3 here). Eight pods of
+accumulation across the Cap arc, Babylon (metabolism + texture),
+and Maid lexical embedding substrate-prep. Same disposition options
+as #33-#34, #48, #52, #59, #62, #67, #70, #74, #78: merge-into-
+test_qemu.sh as parameterized harness, or remove. Pod 1.9.4 ratified
+removal-over-merge for fastest path; future bundle dispositions
+inherit unless architect changes direction.
+
+Twenty-one-script accumulation across eight pods makes the merge
+shape increasingly tractable — canary test scripts are pod-agnostic
+by design (just argument-driven), so a unified pod-agnostic runner
+would absorb all 21 into one harness. Pod 3.5 / Pod 4 candidate for
+absorption alongside the broader housekeeping pass that may also
+land .gitattributes (#79) and RECONSTITUTION.md ongoing-refresh
+discipline (#85).
+
+## 85. RECONSTITUTION.md ongoing canon refresh discipline (added Pod 3, forward-looking)
+
+Surfaced at Pod 3 HALT 1 — Pre-A10 architect prior referenced a Sign
+slot field (embedding_handle at +0x68) that was structurally retired
+at Pod 1.10.2b2 when the slot was reclaimed for creator_cap_id.
+RECONSTITUTION.md line 235 still spec'd the pre-1.10.2b2 layout;
+canon doc lagged the source-of-truth tree state by three pods.
+
+**Doctrine entered as D3.11:** in-tree state (defines.asm, asm files,
+boot/* source) is canon. Narrative documents (RECONSTITUTION.md,
+design docs in recon/, ARCHAEOLOGY.md) lag and require periodic
+synchronization. Architect cross-checks must defer to in-tree state;
+recon catches canon-doc-stale-state drift as a substrate-evolution
+verification surface.
+
+**Forward-log entry codifies the broader principle as ongoing
+maintenance discipline.** Future canon refreshes:
+- After every Pod retrofit that touches slot layouts (Sign, Energy,
+  Outcome, Cap, Embedding, future primitives)
+- After every opcode allocation expansion (cap_bitmap V1.0 vocabulary,
+  any new opcode range claim)
+- After every doctrine promotion (e.g., D3.10 cross-cutting summary
+  promoted from per-pod extension)
+- Periodic full audit pass when accumulated drift becomes load-bearing
+  (~every 3-5 pods)
+
+Pod 3 C4 closes the immediate gap (Sign slot layout + Embedding
+section + Sign-non-MAC-archaeology note + D3.11 footer reminder).
+Future pods inherit the discipline.
+
+Convenient pairing with #78 housekeeping pod (test script bundle) and
+#79 .gitattributes — all three are tracked-tree / canon-doc hygiene
+that benefits from a single touch-everywhere pod rather than per-pod
+fragments. Recommend Pod 4+ housekeeping pod aligns the three.

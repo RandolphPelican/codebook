@@ -109,7 +109,8 @@ energy_cost_table:
     dq 0                    ; 0xA4 — OP_SIGN_ARENA (structural; no MAC verify per D1.10.2b2.5)
     dq 0                    ; 0xA5 — OP_SIGN_OWNER (structural)
     dq 0                    ; 0xA6 — OP_SIGN_CREATOR (structural)
-    dq 1, 1                 ; 0xA7–0xA8 — reserved (Sign Pod 3+)
+    dq 1                    ; 0xA7 — OP_SIGN_EMBEDDING_HANDLE (Pod 3; metabolic; lookup + side-table read per D3.4)
+    dq 1                    ; 0xA8 — reserved (Sign Pod 3.5+)
     dq 1, 1, 1, 1, 1       ; 0xA9–0xAD — reserved
     dq 1, 1                 ; 0xAE–0xAF — reserved
 ; Row 0xB0–0xBF — Cap opcodes (Pod 1.10.2b1 at 0xB0-0xB6, Pod 1.10.2b2 at 0xB7, Pod 1.10.3 at 0xB8-0xB9)
@@ -126,8 +127,13 @@ energy_cost_table:
     dq 1                    ; 0xBA — OP_CAP_BITMAP (Pod 2.2; metabolic; lookup + MAC verify + cap_bitmap read per D2.2.1)
     dq 1                    ; 0xBB — reserved
     dq 1, 1, 1, 1           ; 0xBC–0xBF — reserved
-; Row 0xC0–0xCF
-    times 16 dq 1           ; 0xC0–0xCF — unallocated (Cap 0xC0–0xCF Pod 1.10)
+; Row 0xC0–0xCF — Embedding opcodes (Pod 3 substrate-prep; 0xC5–0xCF reserved for Pod 3.5+ semantic ops)
+    dq 100                  ; 0xC0 — OP_EMBEDDING_NEW (Pod 3; metabolic; pool alloc + 1536-byte vector copy + MAC over 196 qwords + registry register; D3.X cost basis matches Sign content-bearing primitive convention)
+    dq 1                    ; 0xC1 — OP_EMBEDDING_ARENA (Pod 3; metabolic; lookup + MAC verify + slot read)
+    dq 1                    ; 0xC2 — OP_EMBEDDING_OWNER (Pod 3)
+    dq 1                    ; 0xC3 — OP_EMBEDDING_CREATOR (Pod 3)
+    dq 1                    ; 0xC4 — OP_EMBEDDING_GET_DIM (Pod 3; metabolic; lookup + MAC verify + bounds-check + dim read)
+    dq 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1   ; 0xC5–0xCF reserved for Pod 3.5+ semantic ops
 ; Row 0xD0–0xDF — Energy opcodes (Pod 1.8) + Pod 1.8.5c 0xD4/0xD5 + Pod 1.10.2b2 accessors at 0xD6-0xD8
     dq 10                   ; 0xD0 — OP_ENERGY_NEW
     dq 1                    ; 0xD1 — OP_ENERGY_JOULES (accessor)

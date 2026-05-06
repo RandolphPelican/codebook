@@ -93,6 +93,16 @@ OP_CAP_USED        = 0xB9
 # --- Pod 2.2 Cap texture accessor (D2.2.1) ---
 OP_CAP_BITMAP      = 0xBA
 
+# --- Pod 3 Sign embedding-handle side-table accessor (D3.4) ---
+OP_SIGN_EMBEDDING_HANDLE = 0xA7
+
+# --- Pod 3 Embedding typed primitive (D3.1) ---
+OP_EMBEDDING_NEW       = 0xC0
+OP_EMBEDDING_ARENA     = 0xC1
+OP_EMBEDDING_OWNER     = 0xC2
+OP_EMBEDDING_CREATOR   = 0xC3
+OP_EMBEDDING_GET_DIM   = 0xC4
+
 # --- Pod 1.10.3 substrate constants (for default arg values) ---
 # Signed two's-complement representation of 0xFFFFFFFFFFFFFFFF for
 # struct.pack('<q', ...) compatibility (emit_i64 uses signed i64 pack).
@@ -105,19 +115,27 @@ ENERGY_BUDGET_UNBOUNDED = -1
 CAP_BITMAP_UNBOUNDED = -1
 
 # --- Pod 2.2 forge-bit V1.0 vocabulary (D2.2.2) ---
-BIT_SIGN_FORGE     = 1 << 0   # 0x01
-BIT_ENERGY_FORGE   = 1 << 1   # 0x02
-BIT_OUTCOME_FORGE  = 1 << 2   # 0x04
-BIT_CAP_FORGE      = 1 << 3   # 0x08
+BIT_SIGN_FORGE       = 1 << 0   # 0x01
+BIT_ENERGY_FORGE     = 1 << 1   # 0x02
+BIT_OUTCOME_FORGE    = 1 << 2   # 0x04
+BIT_CAP_FORGE        = 1 << 3   # 0x08
+
+# --- Pod 3 forge-bit (first reserved-bit consumer per D2.2.2 / D3.X) ---
+BIT_EMBEDDING_FORGE  = 1 << 4   # 0x10
+
+# --- Pod 3 Embedding constants (D3.2) ---
+EMBEDDING_DIM           = 384
+EMBEDDING_VECTOR_BYTES  = 1536   # 384 * 4
 
 # --- Pod 1.9.2a/1.9.2b TYPE_CODE_* enum (D1.9.1.1) ---
-TYPE_CODE_NONE     = 0
-TYPE_CODE_SIGN     = 1
-TYPE_CODE_ENERGY   = 2
-TYPE_CODE_CAP      = 3
-TYPE_CODE_DEMOD    = 4
-TYPE_CODE_SIGNAL   = 5
-TYPE_CODE_OUTCOME  = 6
+TYPE_CODE_NONE       = 0
+TYPE_CODE_SIGN       = 1
+TYPE_CODE_ENERGY     = 2
+TYPE_CODE_CAP        = 3
+TYPE_CODE_DEMOD      = 4
+TYPE_CODE_SIGNAL     = 5
+TYPE_CODE_OUTCOME    = 6
+TYPE_CODE_EMBEDDING  = 7   # Pod 3 — fifth typed primitive
 
 # --- Pod 1.9.3 ERR codes (for typed error inspection in tests) ---
 ERR_INVALID_ID                  = 1
@@ -128,6 +146,7 @@ ERR_INVALID_SIGN_ARG            = 5
 ERR_INVALID_ENERGY_ARG          = 6
 ERR_CAP_AUTHORITY_EXCEEDED      = 7   # Pod 1.10.2a forward-anchor; activated Pod 2.2
 ERR_CAP_INSUFFICIENT_AUTHORITY  = 8   # Pod 2.2 (D2.2.6) — bit-check failure
+ERR_INVALID_EMBEDDING_ARG       = 9   # Pod 3 — OP_EMBEDDING_GET_DIM dim_index out-of-bounds
 
 class Emitter:
     def __init__(self):
@@ -260,9 +279,9 @@ class AtreyuX86:
         e.emit(OP_PUSH_STR); e.emit_u16(64)
         e.code.extend(label_data)
         e.emit(OP_DROP)         # drop len, keep addr (label_addr)
-        # Push energy_cost, embedding_handle (0), provenance_handle (0)
+        # Push energy_cost, embedding_handle (Pod 3: typed embedding_id ref or 0=none), provenance_handle (0)
         e.emit(OP_PUSH); e.emit_i64(n.get('energy', 0))
-        e.emit(OP_PUSH); e.emit_i64(0)     # embedding_handle (V1.0: always 0)
+        e.emit(OP_PUSH); e.emit_i64(n.get('embedding_handle', 0))   # Pod 3 D3.4 — typed reference; 0 = no link
         e.emit(OP_PUSH); e.emit_i64(0)     # provenance_handle (V1.0: always 0)
         e.emit(OP_SIGN_NEW)
         # Pod 2.2 Path A retrofit — auto-unwrap to bare sign_id unless caller opts out.
@@ -329,6 +348,7 @@ class AtreyuX86:
             self._expr(n['operand']); e.emit(OP_SIGN_HASH)
             e.emit(OP_DROP); e.emit(OP_DROP); e.emit(OP_DROP)  # drop top 3, keep slot0
         elif t == 'energy_new': self._energy_new(n)
+        elif t == 'embedding_new': self._embedding_new(n)
         elif t == 'energy_joules':
             # Pod 1.9.3 (S7): OP_ENERGY_JOULES now returns Outcome<u64>.
             self._expr(n['operand']); e.emit(OP_ENERGY_JOULES); e.emit(OP_OUTCOME_UNWRAP_OK)
@@ -466,6 +486,60 @@ class AtreyuX86:
         elif t == 'cap_parent_raw_id':
             e.emit(OP_PUSH); e.emit_i64(n['id'])
             e.emit(OP_CAP_PARENT)
+        # --- Pod 3 Embedding accessor expressions (D3.1) ---
+        elif t == 'embedding_arena':
+            self._expr(n['operand']); e.emit(OP_EMBEDDING_ARENA); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_owner':
+            self._expr(n['operand']); e.emit(OP_EMBEDDING_OWNER); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_creator':
+            self._expr(n['operand']); e.emit(OP_EMBEDDING_CREATOR); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_get_dim':
+            # Pop dim_index (top-of-stack), embedding_id. Caller pushes
+            # embedding_id first, then dim_index, then opcode pops them.
+            self._expr(n['operand']); e.emit(OP_PUSH); e.emit_i64(n['dim_index'])
+            e.emit(OP_EMBEDDING_GET_DIM); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_arena_raw_id':
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_EMBEDDING_ARENA)
+        elif t == 'embedding_get_dim_raw':
+            # Test primitive — push raw embedding_id + dim_index; emit opcode; no UNWRAP_OK
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_PUSH); e.emit_i64(n['dim_index'])
+            e.emit(OP_EMBEDDING_GET_DIM)
+        # --- Pod 3 Sign embedding-handle accessor (D3.4 side-table read) ---
+        elif t == 'sign_embedding_handle':
+            self._expr(n['operand']); e.emit(OP_SIGN_EMBEDDING_HANDLE); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'sign_embedding_handle_raw_id':
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_SIGN_EMBEDDING_HANDLE)
+
+    def _embedding_new(self, n):
+        """Emit OP_EMBEDDING_NEW with inline 1536-byte f32 vector data.
+
+        Pod 3 (D3.1): pushes vector_addr via OP_PUSH_STR (u16-length prefix
+        accommodates 1536 bytes trivially; max 65535) followed by inline blob,
+        then DROPs the length keeping the address (matches Sign's hash inline
+        emission pattern). Single-fire substrate axiom inherited at greenfield
+        per D3.9 — success path uses .construct_ok_outcome from the start.
+
+        Caller passes `vector` as 1536-byte bytes object (or smaller; padded
+        to 1536 with zeros). Default: 1536 zero-bytes for test convenience.
+        `'wrap': True` opts out of auto-unwrap_ok for Outcome-inspection tests.
+        """
+        e = self.e
+        # Push vector_addr: embed 1536 bytes inline via PUSH_STR, drop len
+        vector_data = n.get('vector', b'\x00' * EMBEDDING_VECTOR_BYTES)
+        if len(vector_data) > EMBEDDING_VECTOR_BYTES:
+            vector_data = vector_data[:EMBEDDING_VECTOR_BYTES]
+        else:
+            vector_data = vector_data.ljust(EMBEDDING_VECTOR_BYTES, b'\x00')
+        e.emit(OP_PUSH_STR); e.emit_u16(EMBEDDING_VECTOR_BYTES)
+        e.code.extend(vector_data)
+        e.emit(OP_DROP)         # drop len, keep addr (vector_addr)
+        e.emit(OP_EMBEDDING_NEW)
+        # Pod 3 Path A — auto-unwrap to bare embedding_id unless caller opts out.
+        if not n.get('wrap', False):
+            e.emit(OP_OUTCOME_UNWRAP_OK)
 
     def _energy_new(self, n):
         """Emit OP_ENERGY_NEW: push joules, push source_op, emit opcode.
@@ -1438,6 +1512,191 @@ def demo_bitmap_accessor_round_trip():
         {'type':'print','value':{'type':'str','value':'=== Bitmap Accessor Round Trip test complete ==='}},
     ]}
 
+# === Pod 3 — Maid is born — Embedding typed primitive (T1–T7) ===
+
+def _structured_vector_bytes():
+    """Helper: construct 1536-byte vector with dimension i = float(i) for round-trip test.
+    Returns bytes such that get_dim(0) = bit pattern of 0.0,
+    get_dim(1) = bit pattern of 1.0, ..., get_dim(383) = bit pattern of 383.0."""
+    import struct
+    return b''.join(struct.pack('<f', float(i)) for i in range(EMBEDDING_DIM))
+
+def demo_embedding_new_basic():
+    """Pod 3 T1 — Forge embedding from inline f32[384] zero-vector under ROOT.
+    Expect embedding_id=1, arena=0, owner=0, creator=1 (ROOT_CAP).
+    Sanity baseline for the new typed primitive."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Embedding New Basic Test (Pod 3 T1) ==='}},
+        {'type':'let','name':'e','value':{'type':'embedding_new'}},  # default zero vector
+        {'type':'print','value':{'type':'str','value':'embedding_id (expect 1):'}},
+        {'type':'print','value':{'type':'var','name':'e'}},
+        {'type':'print','value':{'type':'str','value':'arena (expect 0):'}},
+        {'type':'print','value':{'type':'embedding_arena','operand':{'type':'var','name':'e'}}},
+        {'type':'print','value':{'type':'str','value':'owner (expect 0):'}},
+        {'type':'print','value':{'type':'embedding_owner','operand':{'type':'var','name':'e'}}},
+        {'type':'print','value':{'type':'str','value':'creator (expect 1 = ROOT_CAP):'}},
+        {'type':'print','value':{'type':'embedding_creator','operand':{'type':'var','name':'e'}}},
+        {'type':'print','value':{'type':'str','value':'=== Embedding New Basic test complete ==='}},
+    ]}
+
+def demo_embedding_accessor_round_trip():
+    """Pod 3 T2 — Forge embedding from structured f32[384] vector
+    (dim i = float(i)). Read back via OP_EMBEDDING_GET_DIM at indices
+    0, 100, 383; verify bit-cast i64 values match expected f32 bit
+    patterns. Confirms MAC-input round-trip for full vector content."""
+    import struct
+    bp_0 = struct.unpack('<I', struct.pack('<f', 0.0))[0]
+    bp_100 = struct.unpack('<I', struct.pack('<f', 100.0))[0]
+    bp_383 = struct.unpack('<I', struct.pack('<f', 383.0))[0]
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Embedding Accessor Round Trip Test (Pod 3 T2) ==='}},
+        {'type':'let','name':'e','value':{'type':'embedding_new', 'vector': _structured_vector_bytes()}},
+        {'type':'print','value':{'type':'str','value':f'dim[0] (expect {bp_0} = bit-pattern of 0.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'e'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'dim[100] (expect {bp_100} = bit-pattern of 100.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'e'},'dim_index':100}},
+        {'type':'print','value':{'type':'str','value':f'dim[383] (expect {bp_383} = bit-pattern of 383.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'e'},'dim_index':383}},
+        {'type':'print','value':{'type':'str','value':'=== Embedding Accessor Round Trip test complete ==='}},
+    ]}
+
+def demo_embedding_invalid_id():
+    """Pod 3 T3 — OP_EMBEDDING_ARENA on non-existent embedding_id=999;
+    expect Outcome::Err(ERR_INVALID_ID, source_op=OP_EMBEDDING_ARENA=0xC1=193)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Embedding Invalid ID Test (Pod 3 T3) ==='}},
+        # Construct a real embedding so the pool is non-empty
+        {'type':'let','name':'e','value':{'type':'embedding_new'}},
+        # Now query a non-existent embedding_id via raw_id (skips auto-unwrap)
+        {'type':'let','name':'o','value':{'type':'embedding_arena_raw_id','id':999}},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 193 = OP_EMBEDDING_ARENA):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 1 = ERR_INVALID_ID):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== Embedding Invalid ID test complete ==='}},
+    ]}
+
+def demo_embedding_authority_check_passes():
+    """Pod 3 T4/B10 — Bit-check positive case + B14 sub-cap canary preservation.
+    Construct cap A under ROOT with BIT_EMBEDDING_FORGE | BIT_CAP_FORGE,
+    energy_budget=1000. ENTER A. Forge embedding under A — bit-check
+    passes; embedding_id=1 returned. EXIT A. Read A.used (expect 0;
+    originating doesn't charge itself) and ROOT.used (expect 50;
+    100j Embedding cost / 2 floor; single-fire spatial-merge via
+    .construct_ok_outcome's internal babylon per D3.9 greenfield axiom).
+    Combined: B10 (BIT-CHECK PASS) + B14 (single-fire axiom seventh
+    empirical landing)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Embedding Authority Check Passes / SubCap Canary Test (Pod 3 T4 = B10+B14) ==='}},
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap': BIT_EMBEDDING_FORGE | BIT_CAP_FORGE, 'energy_budget': 1000}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'let','name':'enter_a','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'let','name':'e','value':{'type':'embedding_new'}},
+        {'type':'print','value':{'type':'str','value':'embedding_id (expect 1):'}},
+        {'type':'print','value':{'type':'var','name':'e'}},
+        {'type':'let','name':'exit_a','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'A.used (expect 0; originating):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'print','value':{'type':'str','value':'ROOT.used (expect 50; 100/2 floor):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'=== Embedding Authority Check Passes / SubCap Canary test complete ==='}},
+    ]}
+
+def demo_embedding_authority_check_fails():
+    """Pod 3 T5 — BIT-CHECK MOMENT (FAIL case; D3.X authority-shape physics).
+    Construct cap A under ROOT with BIT_SIGN_FORGE | BIT_CAP_FORGE
+    (deliberately omits BIT_EMBEDDING_FORGE). ENTER A. Attempt embedding
+    forge → bit-check fails → Outcome::Err(source_op=OP_EMBEDDING_NEW=192,
+    err_code=ERR_CAP_INSUFFICIENT_AUTHORITY=8). Authority-shape physics
+    extends to Embedding via Pod 2.2 D2.2.6 mechanism."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Embedding Authority Check Fails Test (Pod 3 T5) ==='}},
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap': BIT_SIGN_FORGE | BIT_CAP_FORGE}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'let','name':'enter_a','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        # Attempt embedding forge with 'wrap': True to keep raw Outcome for inspection
+        {'type':'let','name':'eo','value':{'type':'embedding_new', 'wrap': True}},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'eo'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'eo'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 192 = OP_EMBEDDING_NEW):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 8 = ERR_CAP_INSUFFICIENT_AUTHORITY):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'let','name':'exit_a','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'=== Embedding Authority Check Fails test complete ==='}},
+    ]}
+
+def demo_sign_with_embedding_link():
+    """Pod 3 T6 — SIGN-EMBEDDING LINKAGE MOMENT (DEFERRED #65 cash).
+    Forge embedding (embedding_id=1); forge Sign with embedding_handle=1
+    (real typed reference); read Sign's embedding_handle via OP_SIGN_EMBEDDING_HANDLE
+    accessor; verify reads back as 1. DEFERRED #65 cashes empirically through
+    the side-table linkage at construction + accessor read."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Sign-with-Embedding Link Test (Pod 3 T6) ==='}},
+        # Step 1: forge embedding
+        {'type':'let','name':'e','value':{'type':'embedding_new'}},
+        {'type':'print','value':{'type':'str','value':'embedding_id (expect 1):'}},
+        {'type':'print','value':{'type':'var','name':'e'}},
+        # Step 2: forge Sign with embedding_handle = 1 (real typed reference)
+        {'type':'let','name':'s','value':{
+            'type':'sign_new',
+            'hash': b'\xab' + b'\x00' * 31, 'label': 'linked', 'energy': 42,
+            'embedding_handle': 1,
+        }},
+        {'type':'print','value':{'type':'str','value':'sign_id (expect 1):'}},
+        {'type':'print','value':{'type':'var','name':'s'}},
+        # Step 3: read Sign's embedding_handle via accessor (D3.4 side-table read)
+        {'type':'print','value':{'type':'str','value':'sign.embedding_handle (expect 1; #65 cash):'}},
+        {'type':'print','value':{'type':'sign_embedding_handle','operand':{'type':'var','name':'s'}}},
+        {'type':'print','value':{'type':'str','value':'=== Sign-with-Embedding Link test complete ==='}},
+    ]}
+
+def demo_sign_invalid_embedding_handle():
+    """Pod 3 T7 — SIGN-INVALID-EMBEDDING architectural moment.
+    Forge Sign with embedding_handle=999 (non-existent embedding_id);
+    expect Outcome::Err. Verify source_op=160 (OP_SIGN_NEW=0xA0) +
+    err_code=1 (ERR_INVALID_ID) via unwrap_err_stmt + tos prints, matching
+    Pod 2.2 T5/T3 architectural-moment shape per AUTHORIZED-2A refinement.
+    The substrate refuses unresolvable cross-pool reference and names what
+    it refused; D2.1/D2.2.6/D2.2.8 doctrine extends to Sign-Embedding
+    linkage rejection."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Sign Invalid Embedding Handle Test (Pod 3 T7) ==='}},
+        # Forge a real embedding so the pool is non-empty (id=1)
+        {'type':'let','name':'e','value':{'type':'embedding_new'}},
+        # Attempt Sign with non-existent embedding_handle=999; wrap: True keeps raw Outcome.
+        {'type':'let','name':'so','value':{
+            'type':'sign_new',
+            'hash': b'\xab' + b'\x00' * 31, 'label': 'invalid', 'energy': 42,
+            'embedding_handle': 999, 'wrap': True,
+        }},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'so'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'so'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 160 = OP_SIGN_NEW):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 1 = ERR_INVALID_ID):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== Sign Invalid Embedding Handle test complete ==='}},
+    ]}
+
 def demo_energy():
     """Pod 1.8 Energy typed primitive test — hardcoded AST demo"""
     return {'type':'program','body':[
@@ -1843,5 +2102,62 @@ if __name__ == '__main__':
     elif '--bitmap-accessor-round-trip-test' in sys.argv:
         c = AtreyuX86(); bc = c.compile(demo_bitmap_accessor_round_trip())
         print(f"Bitmap Accessor Round Trip test: {len(bc)} bytes")
+    # --- Pod 3 Embedding test surfaces (T1-T7) ---
+    elif '--embedding-new-basic-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_embedding_new_basic())
+        out = sys.argv[sys.argv.index('--embedding-new-basic-build')+1] if len(sys.argv) > sys.argv.index('--embedding-new-basic-build')+1 else 'test_embedding_new_basic.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Embedding New Basic test: compiled {len(bc)} bytes -> {out}")
+    elif '--embedding-new-basic-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_embedding_new_basic())
+        print(f"Embedding New Basic test: {len(bc)} bytes")
+    elif '--embedding-accessor-round-trip-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_embedding_accessor_round_trip())
+        out = sys.argv[sys.argv.index('--embedding-accessor-round-trip-build')+1] if len(sys.argv) > sys.argv.index('--embedding-accessor-round-trip-build')+1 else 'test_embedding_accessor_round_trip.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Embedding Accessor Round Trip test: compiled {len(bc)} bytes -> {out}")
+    elif '--embedding-accessor-round-trip-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_embedding_accessor_round_trip())
+        print(f"Embedding Accessor Round Trip test: {len(bc)} bytes")
+    elif '--embedding-invalid-id-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_embedding_invalid_id())
+        out = sys.argv[sys.argv.index('--embedding-invalid-id-build')+1] if len(sys.argv) > sys.argv.index('--embedding-invalid-id-build')+1 else 'test_embedding_invalid_id.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Embedding Invalid ID test: compiled {len(bc)} bytes -> {out}")
+    elif '--embedding-invalid-id-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_embedding_invalid_id())
+        print(f"Embedding Invalid ID test: {len(bc)} bytes")
+    elif '--embedding-authority-check-passes-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_embedding_authority_check_passes())
+        out = sys.argv[sys.argv.index('--embedding-authority-check-passes-build')+1] if len(sys.argv) > sys.argv.index('--embedding-authority-check-passes-build')+1 else 'test_embedding_authority_check_passes.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Embedding Authority Check Passes test: compiled {len(bc)} bytes -> {out}")
+    elif '--embedding-authority-check-passes-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_embedding_authority_check_passes())
+        print(f"Embedding Authority Check Passes test: {len(bc)} bytes")
+    elif '--embedding-authority-check-fails-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_embedding_authority_check_fails())
+        out = sys.argv[sys.argv.index('--embedding-authority-check-fails-build')+1] if len(sys.argv) > sys.argv.index('--embedding-authority-check-fails-build')+1 else 'test_embedding_authority_check_fails.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Embedding Authority Check Fails test: compiled {len(bc)} bytes -> {out}")
+    elif '--embedding-authority-check-fails-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_embedding_authority_check_fails())
+        print(f"Embedding Authority Check Fails test: {len(bc)} bytes")
+    elif '--sign-with-embedding-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_sign_with_embedding_link())
+        out = sys.argv[sys.argv.index('--sign-with-embedding-build')+1] if len(sys.argv) > sys.argv.index('--sign-with-embedding-build')+1 else 'test_sign_with_embedding.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Sign-with-Embedding Link test: compiled {len(bc)} bytes -> {out}")
+    elif '--sign-with-embedding-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_sign_with_embedding_link())
+        print(f"Sign-with-Embedding Link test: {len(bc)} bytes")
+    elif '--sign-invalid-embedding-handle-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_sign_invalid_embedding_handle())
+        out = sys.argv[sys.argv.index('--sign-invalid-embedding-handle-build')+1] if len(sys.argv) > sys.argv.index('--sign-invalid-embedding-handle-build')+1 else 'test_sign_invalid_embedding_handle.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Sign Invalid Embedding Handle test: compiled {len(bc)} bytes -> {out}")
+    elif '--sign-invalid-embedding-handle-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_sign_invalid_embedding_handle())
+        print(f"Sign Invalid Embedding Handle test: {len(bc)} bytes")
     else:
-        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-bitmap,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test} | --bitmap-{root-unbounded,subset-grant-succeeds,superset-grant-fails,authority-check-{passes,fails},accessor-round-trip}-{build,test}")
+        print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-bitmap,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test} | --bitmap-{root-unbounded,subset-grant-succeeds,superset-grant-fails,authority-check-{passes,fails},accessor-round-trip}-{build,test} | --embedding-{new-basic,accessor-round-trip,invalid-id,authority-check-{passes,fails}}-{build,test} | --sign-{with-embedding,invalid-embedding-handle}-{build,test}")
