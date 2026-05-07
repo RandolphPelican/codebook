@@ -1153,31 +1153,29 @@ Convenient pairing with #78 housekeeping pod (test script bundle
 absorption); both are tracked-tree hygiene that benefits from a
 single touch-everywhere pod rather than per-pod fragments.
 
-## 80. Pod 3.5+ Maid semantic operations (added Pod 3, forward-looking)
+## 80. Pod 3.5+ Maid semantic operations (added Pod 3, PARTIALLY RESOLVED Pod 3.5)
 
 Pod 3 sealed lexical embedding substrate-prep: typed Embedding pool +
 accessors + bit + Sign linkage via parallel side-table. Pod 3.5+
-lands the semantic operations layer:
+lands the semantic operations layer.
 
-- **Cosine similarity** — pop two embedding_ids, push f32 cosine
-- **Dot product** — pop two embedding_ids, push f32 dot product
-- **Lookup-by-meaning** — given query embedding + threshold, scan
-  embedding pool, return Outcome<embedding_id> or Outcome::Err
-- **Codebook ingestion** — bulk-load embeddings from external source
-  (FAT32 file or programmatic)
-- **L2 norm** — pop embedding_id, push f32 norm
-- **Vector arithmetic** — element-wise add/subtract for embedding
-  algebra ("king - man + woman ≈ queen" patterns)
+**Pod 3.5 resolved**:
+- ✓ **Cosine similarity** — OP_EMBEDDING_COSINE = 0xC6 (Form A bit-exact f32 per D3.14)
+- ✓ **Dot product** — OP_EMBEDDING_DOT_PRODUCT = 0xC7
+- ✓ **L2 distance** — OP_EMBEDDING_L2_DISTANCE = 0xC8 (sqrt(sum((a-b)²)))
+- ✓ **Lookup-by-meaning** — OP_EMBEDDING_LOOKUP_TOP1 = 0xC9 (256-candidate scan, MAC-verify-each-candidate per D3.18, self-exclusion)
+- ✓ **Reverse linkage** — OP_EMBEDDING_SIGN_HANDLE = 0xC5 (D3.20; complements D3.4 forward direction)
 
-Returns when Maid V1.0 application surface motivates. Architect-led
-architectural sit before drafting Pod 3.5 recon (parallel to rethink
-moments before Pod 1.10.2b2 / Pod 2.1 / Pod 2.2 / Pod 3). Maid is the
-second Trinity component; substrate-use exercises everything Pods 1-3
-built in ways no further substrate prep would surface.
+**Pod 3.6+ deferred**:
+- **Codebook ingestion** — bulk-load embeddings from external source (FAT32 file or programmatic)
+- **L2 norm scalar** — pop embedding_id, push f32 norm (l2_distance(v, 0) achieves this; standalone op deferred for ergonomics if needed)
+- **Vector arithmetic** — element-wise add/subtract for embedding algebra ("king - man + woman ≈ queen" patterns); changes Embedding's immutability contract; significant doctrine surface
+- **Top-K lookup** — generalize lookup_top1 to top-K (K>1)
+- **Cosine threshold filter** — return Outcome::Err if best score < threshold (currently always returns best non-self)
 
-Bit vocabulary likely claims slots 5+ at Pod 3.5+ for file-op or
-Maid-operation gating; opcode allocation in 0xC5-0xCF range reserved
-for Pod 3.5+ semantic ops at this pod.
+Bit vocabulary remains at slot 4 (BIT_EMBEDDING_FORGE); compute ops bypass bit-check per D3.13 witness doctrine. Slots 5+ remain reserved for Pod 4+ Interpreter or codebook-ingestion gating.
+
+Opcode allocation 0xCA-0xCF still reserved for Pod 3.6+ extensions.
 
 ## 81. Sign / Energy MAC retrofit candidate (added Pod 3, forward-looking)
 
@@ -1230,18 +1228,24 @@ forward-log; may be subsumed by Pod 4 Interpreter's prov_append
 mechanism (already wired at Pod 1.8.5c, default-OFF) which provides
 event-level provenance via the prov_ring rather than per-Sign linkage.
 
-## 83. Embedding pool capacity expansion (added Pod 3, forward-looking)
+## 83. Embedding pool capacity expansion (added Pod 3, PARTIALLY RESOLVED Pod 3.5)
 
-V1.0 conservative at EMBEDDING_POOL_SLOTS=64 (matches Sign/Energy/
-Outcome/Cap convention). Memory footprint: 64 × 1576 = 100,864 bytes.
+V1.0 entry was EMBEDDING_POOL_SLOTS=64. Pod 3.5 expanded to 256 per
+D3.16 anticipated-empirical-pressure scaling. Memory footprint:
+256 × 1576 = 403,456 bytes (~400KB pool); reverse side-table BSS
+sized to 256 slots × 8 bytes = 2,048 bytes additional.
 
-Pod 3.5+ Maid workloads might want larger codebook substrate. The
-"plastic codebook" framing from ARCHAEOLOGY (Maid as semantic
-housekeeper, graph + vector + log substrate, hundreds-to-thousands
-of embeddings) implies pool sizes in the 1000-10000+ range eventually.
+**Pod 3.5 partial**: 64 → 256 supports modest codebook ingestion
+experiments and lookup_top1's 256-candidate worst-case sizing.
+
+**Still deferred**: Pod 3.6+ may want 1,000-10,000+ slots for
+production codebook substrate per ARCHAEOLOGY's "plastic codebook"
+framing. Activation triggers parameterization (the four-orders-of-magnitude
+range suggests runtime-configurable pool sizing rather than another
+recompile-only expansion).
 
 Returns when pool pressure becomes empirical — Maid V1.0 application
-surface either fits in 64 (small codebook demos) or overflows
+surface either fits in 256 (small codebook demos) or overflows
 (production codebook ingestion). Activation triggers parameterization
 of EMBEDDING_POOL_SLOTS + memory-layout review (BSS section grows).
 
@@ -1310,3 +1314,94 @@ Convenient pairing with #78 housekeeping pod (test script bundle) and
 #79 .gitattributes — all three are tracked-tree / canon-doc hygiene
 that benefits from a single touch-everywhere pod rather than per-pod
 fragments. Recommend Pod 4+ housekeeping pod aligns the three.
+
+## 86. Cap-budget-promotes-substrate mechanism (added Pod 3.5, forward-looking)
+
+Pod 3.5 HALT 2B / C2-redux finding: substrate r14 (global VM dispatch
+ceiling) and cap.energy_budget (per-cap quota tracked via babylon
+spatial-merge) are orthogonal authority mechanisms. Sub-cap entry
+doesn't reset r14; sub-cap quota doesn't extend dispatch headroom.
+
+Architect adjudication path (c) at AUTHORIZED-2B explicitly deferred
+this mechanism: "Add a substrate-level OP_ENERGY_REPLENISH or cap-
+budget-promotes-substrate mechanism — large architectural surface;
+out of Pod 3.5 scope."
+
+**Activation triggers**:
+- Pod 3.6+ programs needing per-cap dispatch headroom isolation
+  (e.g., a sub-cap with its own r14-equivalent that doesn't drain
+  ROOT's substrate budget)
+- Cap-as-resource-bundle pattern emergence (cap budgets acting as
+  composable substrate-budget-extensions rather than babylon-charge-
+  shape constraints)
+- Maid V1.0+ applications surfacing the need for "isolated workload"
+  programs that consume a cap's budget without affecting the substrate-
+  wide dispatch ceiling
+
+**Architectural surface considerations**:
+- New OP_ENERGY_REPLENISH opcode that consumes cap.energy_budget to
+  refill r14 (cap budget becomes recharge-source)
+- Per-cap r14 stack (each cap_enter pushes r14 state; cap_exit restores)
+- Substrate r14 partitioning (substrate r14 = sum of per-cap r14s;
+  cap dispatch drains its own r14)
+
+Each surface is a substantial architectural decision. Pod 3.5 raises
+the substrate ceiling 10× (D3.24) as the minimal-necessary fix for
+compute tier introduction; this forward-log captures the deeper
+architectural question for future address.
+
+## 87. Substrate metabolic ceiling forward-anchor (added Pod 3.5, forward-looking)
+
+Pod 3.5 D3.24 raised substrate r14 from 100,000j to 1,000,000j to
+accommodate compute tier introduction. The doctrine codifies the
+**substrate-grows-with-work-it-hosts pattern**:
+- Pod 0-3: ≤100j substrate ops; default 100,000j sufficient
+- Pod 3.5: 100-400j compute tier + 100,000j composite tier; default 1M
+- Pod 3.6+: TBD; future tier introductions may motivate further raises
+
+**Future raise candidates**:
+- Vector arithmetic tier (Pod 3.6+ if D80's vector_add lands)
+- Codebook ingestion tier (Pod 3.6+ if D80's bulk-load lands; per-byte
+  cost basis × file-size could surface ~1M-10M tier ops)
+- Pod 4+ Interpreter compilation tier (CBS source compilation might
+  involve op sequences exceeding 1M cumulative cost)
+- Pod 5+ networking tier if substrate grows to host Falkor (signed-event
+  exchange across hosts)
+
+**Convention**: each tier raise lands with explicit doctrine framing
+in the introducing pod's decision record (D3.24 sets the precedent).
+No silent budget changes; ceiling shifts are doctrine events.
+
+Activation: when a future pod's empirical work surfaces budget
+exhaustion in similar shape to Pod 3.5's lookup_top1 (300j-class
+preceding ops + composite ≥ ceiling), the next 10× raise lands with
+its own D-entry citing D3.24 as the convention.
+
+## 88. r14 init refactor (single-source-of-truth) (added Pod 3.5, forward-looking)
+
+Pod 3.5 Phase 2B execution finding: the actual VM r14 dispatch budget
+is initialized by hardcoded `mov r14d, 100000` at 7 sites in
+`bastian.asm` and `morla.asm`. The `vmdata.asm:energy_budget` data
+variable is read by ONLY ONE site (cbs_vm.asm:634 OP_CAP_BUDGET
+accessor). The data variable looks like the source of truth (semantic
+naming) but is unused for r14 init.
+
+Pod 3.5 patched all 7 hardcoded sites to 1,000,000j (D3.24) and
+updated the data variable in lockstep — but the 7-site duplication
+remains. **Future refactor candidate**: replace `mov r14d, 100000`
+with `mov r14, [rel energy_budget]` at all 7 sites so the data
+variable becomes the actual source of truth. Single touch point for
+future ceiling raises.
+
+**Architectural value**: eliminates the architect-error doctrine
+"r14-init-paths-not-traced" subtype (thirteenth landing) by making
+the data variable's name match its semantic role.
+
+**Risk**: 32-bit immediate vs 64-bit memory load encoding shift may
+ripple bytecode size of bastian.asm / morla.asm by ~3 bytes per
+site × 7 = ~21 bytes; PE32+ section sizing impact requires
+verification.
+
+**Activation**: when a future pod is already touching bastian.asm /
+morla.asm for substrate evolution work, batch this refactor. Or
+explicit housekeeping pod aligned with #78 / #79 / #85.

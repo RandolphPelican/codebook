@@ -10,7 +10,15 @@
 ; =============================================================
 
     align 16
-energy_budget: dq 100000
+; Pod 3.5 D3.24 — substrate metabolic ceiling scales with op tier introduction.
+; Pod 0-3 substrate ops were ≤100j tier; default 100,000j was sufficient.
+; Pod 3.5 introduces 100-400j compute tier (cosine/dot/l2) + 100,000j composite
+; tier (lookup_top1). Default scaled 10× to 1,000,000j to accommodate compute-tier
+; dispatch (r14 binds dispatch independent of cap.energy_budget per HALT 2B
+; C2-redux finding: substrate r14 and cap budgets are orthogonal authority
+; mechanisms; sub-cap entry doesn't reset r14). Twelfth architect-error doctrine
+; landing (subtype "substrate-vs-cap budget model conflation") drove this scaling.
+energy_budget: dq 1000000
 energy_used:   dq 0
 ; Pod 1.9.2a — Substrate fetch counter (D1.9.1.7; closes ProvEvent gap
 ; declared in Pod 1.8.5c). Increments once per opcode fetch at .fetch
@@ -69,6 +77,16 @@ vm_embedding_next: dq 0                ; bump allocator index (next free slot)
 ;   (preserves backward-compat for all pre-Pod-3 Sign demos).
     align 16
 vm_sign_embedding_handle: times SIGN_POOL_SLOTS dq 0
+
+; Embedding reverse side-table (Pod 3.5 — D3.20; reverse of D3.4 forward direction)
+;   Parallel BSS array indexed by (embedding_id - 1). Tracks Embedding->Sign linkage
+;   for O(1) recovery of "which Sign owns this embedding". Written at OP_SIGN_NEW
+;   post-registry_register_sign WHEN embedding_handle != 0:
+;       vm_embedding_sign_handle[(embedding_handle - 1) * 8] = sign_id
+;   Read via OP_EMBEDDING_SIGN_HANDLE accessor (0xC5). Returns 0 if no Sign linked.
+;   Sized to EMBEDDING_POOL_SLOTS (256 post-Pod-3.5 expansion); 256 × 8 = 2048 bytes.
+    align 16
+vm_embedding_sign_handle: times EMBEDDING_POOL_SLOTS dq 0
 
 ; Sign registry (Pod 1.8.5b — Move 4)
 ;   Maps sign_id (opaque counter, 1-based) -> slot pointer (u64).

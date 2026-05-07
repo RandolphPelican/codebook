@@ -173,7 +173,7 @@ morla_run_file:
     test rax, rax
     jnz .f_close
     lea r12, [rel external_prog_buf]
-    mov r14d, 100000
+    mov r14d, 1000000           ; Pod 3.5 D3.24: substrate metabolic ceiling 1M (was 100k)
     call cbs_run
 .f_close:
     mov rbx, [rel file_ptr]
@@ -187,7 +187,7 @@ morla_run_file:
     cmp rax, -1
     je .f
     lea r12, [rel external_prog_buf]
-    mov r14d, 100000
+    mov r14d, 1000000           ; Pod 3.5 D3.24: substrate metabolic ceiling 1M (was 100k)
     call cbs_run
     jmp .d
 .f: lea rsi, [rel str_run_bad]
@@ -236,7 +236,7 @@ morla_run_file_main:
     test rax, rax
     jnz .f_close
     lea r12, [rel external_prog_buf]
-    mov r14d, 100000 ; Initial energy for home surface
+    mov r14d, 1000000           ; Pod 3.5 D3.24: substrate metabolic ceiling 1M (was 100k) ; Initial energy for home surface
     call cbs_run
 .f_close:
     mov rbx, [rel file_ptr]

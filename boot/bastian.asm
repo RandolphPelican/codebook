@@ -133,7 +133,7 @@ bastian_home:
     call auryn_fill
     call cursor_home
     lea r12, [rel atreyu_cbs_prog]
-    mov r14d, 100000
+    mov r14d, 1000000           ; Pod 3.5 D3.24: substrate metabolic ceiling 1M (was 100k)
     call cbs_run
     jmp bastian_home
 
@@ -142,7 +142,7 @@ bastian_home:
     call auryn_fill
     call cursor_home
     lea r12, [rel rockbiter_cbs_prog]
-    mov r14d, 100000
+    mov r14d, 1000000           ; Pod 3.5 D3.24: substrate metabolic ceiling 1M (was 100k)
     call cbs_run
     jmp bastian_home
 
@@ -312,7 +312,7 @@ bastian_main:
     call auryn_fill
     call cursor_home
     lea r12, [rel atreyu_cbs_prog]
-    mov r14d, 100000
+    mov r14d, 1000000           ; Pod 3.5 D3.24: substrate metabolic ceiling 1M (was 100k)
     call cbs_run
     jmp .redraw
 .l_rockbiter:
@@ -320,7 +320,7 @@ bastian_main:
     call auryn_fill
     call cursor_home
     lea r12, [rel rockbiter_cbs_prog]
-    mov r14d, 100000
+    mov r14d, 1000000           ; Pod 3.5 D3.24: substrate metabolic ceiling 1M (was 100k)
     call cbs_run
     jmp .redraw
 .l_morla:

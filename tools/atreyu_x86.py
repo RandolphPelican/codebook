@@ -103,6 +103,13 @@ OP_EMBEDDING_OWNER     = 0xC2
 OP_EMBEDDING_CREATOR   = 0xC3
 OP_EMBEDDING_GET_DIM   = 0xC4
 
+# --- Pod 3.5 Maid speaks: semantic operations (D3.13/D3.14/D3.18/D3.20) ---
+OP_EMBEDDING_SIGN_HANDLE  = 0xC5   # reverse side-table read (D3.20); mirror of 0xA7
+OP_EMBEDDING_COSINE       = 0xC6   # cosine via Form A (D3.14); FP-determinism-load-bearing
+OP_EMBEDDING_DOT_PRODUCT  = 0xC7   # dot product over 384 f32 lanes
+OP_EMBEDDING_L2_DISTANCE  = 0xC8   # sqrt(sum((a-b)^2)) over 384 lanes
+OP_EMBEDDING_LOOKUP_TOP1  = 0xC9   # MAC-verify-each-candidate cosine scan (D3.18)
+
 # --- Pod 1.10.3 substrate constants (for default arg values) ---
 # Signed two's-complement representation of 0xFFFFFFFFFFFFFFFF for
 # struct.pack('<q', ...) compatibility (emit_i64 uses signed i64 pack).
@@ -512,6 +519,38 @@ class AtreyuX86:
         elif t == 'sign_embedding_handle_raw_id':
             e.emit(OP_PUSH); e.emit_i64(n['id'])
             e.emit(OP_SIGN_EMBEDDING_HANDLE)
+        # --- Pod 3.5 Embedding semantic operations (D3.13/D3.14/D3.18/D3.20) ---
+        elif t == 'embedding_sign_handle':
+            self._expr(n['operand']); e.emit(OP_EMBEDDING_SIGN_HANDLE); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_sign_handle_raw_id':
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_EMBEDDING_SIGN_HANDLE)
+        elif t == 'embedding_cosine':
+            self._expr(n['lhs']); self._expr(n['rhs'])
+            e.emit(OP_EMBEDDING_COSINE); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_cosine_raw':
+            e.emit(OP_PUSH); e.emit_i64(n['id_a'])
+            e.emit(OP_PUSH); e.emit_i64(n['id_b'])
+            e.emit(OP_EMBEDDING_COSINE)
+        elif t == 'embedding_dot_product':
+            self._expr(n['lhs']); self._expr(n['rhs'])
+            e.emit(OP_EMBEDDING_DOT_PRODUCT); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_dot_product_raw':
+            e.emit(OP_PUSH); e.emit_i64(n['id_a'])
+            e.emit(OP_PUSH); e.emit_i64(n['id_b'])
+            e.emit(OP_EMBEDDING_DOT_PRODUCT)
+        elif t == 'embedding_l2_distance':
+            self._expr(n['lhs']); self._expr(n['rhs'])
+            e.emit(OP_EMBEDDING_L2_DISTANCE); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_l2_distance_raw':
+            e.emit(OP_PUSH); e.emit_i64(n['id_a'])
+            e.emit(OP_PUSH); e.emit_i64(n['id_b'])
+            e.emit(OP_EMBEDDING_L2_DISTANCE)
+        elif t == 'embedding_lookup_top1':
+            self._expr(n['operand']); e.emit(OP_EMBEDDING_LOOKUP_TOP1); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_lookup_top1_raw':
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_EMBEDDING_LOOKUP_TOP1)
 
     def _embedding_new(self, n):
         """Emit OP_EMBEDDING_NEW with inline 1536-byte f32 vector data.
@@ -1697,6 +1736,412 @@ def demo_sign_invalid_embedding_handle():
         {'type':'print','value':{'type':'str','value':'=== Sign Invalid Embedding Handle test complete ==='}},
     ]}
 
+def _f32_vector_bytes(values):
+    """Pod 3.5 helper: pack a list of float values as f32[384], zero-padded if shorter.
+    Returns 1536-byte bytes object suitable for embedding_new vector argument.
+    Truncates if longer than 384 elements."""
+    import struct
+    if len(values) > EMBEDDING_DIM:
+        values = values[:EMBEDDING_DIM]
+    padded = list(values) + [0.0] * (EMBEDDING_DIM - len(values))
+    return b''.join(struct.pack('<f', v) for v in padded)
+
+
+def _f32_bit_pattern(value):
+    """Helper: return u32 bit-pattern of an f32 value as a Python int."""
+    import struct
+    return struct.unpack('<I', struct.pack('<f', value))[0]
+
+
+# =============================================================
+# Pod 3.5 — Maid speaks: semantic operations test surfaces (T8-T13)
+# Architect-ratified expected values per AUTHORIZED-1 prediction set.
+# B10 (cosine 45°) result corrected to 0x3F3504F4 per A6 finding —
+# Form A f32 norm-of-(1/sqrt(2))^2 sums to 0x3F7FFFFF (1-ulp shy of 1.0),
+# divisor drift carries to cosine result; D3.12 strengthened, 10th
+# empirical architect-error doctrine landing.
+# =============================================================
+
+def demo_cosine_same_vector():
+    """Pod 3.5 T8.1 — cosine(v, v) bit-exact result; D3.14 Form A non-guarantee finding.
+    Forge two embeddings with identical vector v=(1,2,3); cosine returns 0x3F7FFFFF
+    (= 1.0 - 1ulp), NOT exactly 0x3F800000.
+    Reason: Form A path = dot(v,v) / (sqrt(norm_sq_a) * sqrt(norm_sq_b));
+    norm_sq = 14 in f32 is exact, but sqrt(14)² ≠ 14 exactly (1-ulp drift).
+    HALT 2B empirical finding: bit-pattern depends on whether the specific norm_sq
+    value's sqrt round-trips through f32. D3.14 doctrine extension: bit-exact
+    determinism wins over algebraic perfection — D3.12's reproducibility goal is
+    the load-bearing requirement; programs needing exact 1.0 for same-input
+    detection should compare embedding_ids before computing, not rely on cosine
+    returning algebraically-perfect 1.0."""
+    vec = _f32_vector_bytes([1.0, 2.0, 3.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cosine Same Vector Test (Pod 3.5 T8.1; D3.14 Form A non-guarantee) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':vec}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':vec}},
+        {'type':'print','value':{'type':'str','value':'cosine (expect 1065353215 = 0x3F7FFFFF = 1.0 - 1ulp; NOT 1.0 exactly per Form A drift):'}},
+        {'type':'print','value':{'type':'embedding_cosine','lhs':{'type':'var','name':'a'},'rhs':{'type':'var','name':'b'}}},
+        {'type':'print','value':{'type':'str','value':'=== Cosine Same Vector test complete ==='}},
+    ]}
+
+def demo_cosine_zero_vector():
+    """Pod 3.5 T8.2 — cosine(0, v) → Outcome::Err(InvalidEmbeddingArg).
+    Zero-norm rejection per D3.14: divisor would be 0; substrate refuses
+    rather than emit NaN/Inf."""
+    nonzero = _f32_vector_bytes([1.0, 0.0, 0.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cosine Zero Vector Test (Pod 3.5 T8.2) ==='}},
+        {'type':'let','name':'z','value':{'type':'embedding_new'}},                  # default zero vector
+        {'type':'let','name':'v','value':{'type':'embedding_new','vector':nonzero}},
+        {'type':'let','name':'o','value':{'type':'embedding_cosine_raw','id_a':1,'id_b':2}},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 198 = OP_EMBEDDING_COSINE):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 9 = ERR_INVALID_EMBEDDING_ARG):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== Cosine Zero Vector test complete ==='}},
+    ]}
+
+def demo_cosine_45_degree():
+    """Pod 3.5 T8.3 — cosine of axis-aligned vs 45-degree vector.
+    A6 ratified bit-exact result: 0x3F3504F4 (NOT algebraically-pure 0x3F3504F3
+    — Form A f32 norm-of-(1/sqrt(2))^2 sums to 0x3F7FFFFF; divisor drift
+    propagates 1 ulp to cosine. D3.12 / 10th architect-error doctrine landing).
+    Bit-exactness load-bearing for two-build determinism extension to FP."""
+    import math
+    inv_sqrt2 = 1.0 / math.sqrt(2.0)
+    v_e0 = _f32_vector_bytes([1.0, 0.0])
+    v_45 = _f32_vector_bytes([inv_sqrt2, inv_sqrt2])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cosine 45-Degree Test (Pod 3.5 T8.3) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':v_e0}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':v_45}},
+        {'type':'print','value':{'type':'str','value':'cosine (expect 1060439284 = 0x3F3504F4 per A6):'}},
+        {'type':'print','value':{'type':'embedding_cosine','lhs':{'type':'var','name':'a'},'rhs':{'type':'var','name':'b'}}},
+        {'type':'print','value':{'type':'str','value':'=== Cosine 45-Degree test complete ==='}},
+    ]}
+
+def demo_cosine_orthogonal():
+    """Pod 3.5 T8.4 — orthogonal axis-aligned vectors → cosine = 0.0 exactly."""
+    v_x = _f32_vector_bytes([1.0, 0.0])
+    v_y = _f32_vector_bytes([0.0, 1.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cosine Orthogonal Test (Pod 3.5 T8.4) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':v_x}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':v_y}},
+        {'type':'print','value':{'type':'str','value':f'cosine (expect {_f32_bit_pattern(0.0)} = bit pattern of 0.0):'}},
+        {'type':'print','value':{'type':'embedding_cosine','lhs':{'type':'var','name':'a'},'rhs':{'type':'var','name':'b'}}},
+        {'type':'print','value':{'type':'str','value':'=== Cosine Orthogonal test complete ==='}},
+    ]}
+
+def demo_cosine_antipodal():
+    """Pod 3.5 T8.5 — cosine(v, -v) = -1.0 (bit pattern 0xBF800000)."""
+    v = _f32_vector_bytes([1.0, 2.0])
+    nv = _f32_vector_bytes([-1.0, -2.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cosine Antipodal Test (Pod 3.5 T8.5) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':v}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':nv}},
+        {'type':'print','value':{'type':'str','value':f'cosine (expect {_f32_bit_pattern(-1.0)} = bit pattern of -1.0):'}},
+        {'type':'print','value':{'type':'embedding_cosine','lhs':{'type':'var','name':'a'},'rhs':{'type':'var','name':'b'}}},
+        {'type':'print','value':{'type':'str','value':'=== Cosine Antipodal test complete ==='}},
+    ]}
+
+def demo_cosine_invalid_id():
+    """Pod 3.5 T8.6 — cosine with non-existent id → Err(InvalidId, source_op=0xC6=198)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Cosine Invalid ID Test (Pod 3.5 T8.6) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new'}},   # id=1 valid
+        {'type':'let','name':'o','value':{'type':'embedding_cosine_raw','id_a':1,'id_b':999}},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 198 = OP_EMBEDDING_COSINE):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 1 = ERR_INVALID_ID):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== Cosine Invalid ID test complete ==='}},
+    ]}
+
+def demo_dot_product_simple():
+    """Pod 3.5 T9.1 — dot((1,2,3), (4,5,6)) = 32.0 (bit pattern 0x42000000)."""
+    a = _f32_vector_bytes([1.0, 2.0, 3.0])
+    b = _f32_vector_bytes([4.0, 5.0, 6.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Dot Product Simple Test (Pod 3.5 T9.1) ==='}},
+        {'type':'let','name':'va','value':{'type':'embedding_new','vector':a}},
+        {'type':'let','name':'vb','value':{'type':'embedding_new','vector':b}},
+        {'type':'print','value':{'type':'str','value':f'dot (expect {_f32_bit_pattern(32.0)} = bit pattern of 32.0):'}},
+        {'type':'print','value':{'type':'embedding_dot_product','lhs':{'type':'var','name':'va'},'rhs':{'type':'var','name':'vb'}}},
+        {'type':'print','value':{'type':'str','value':'=== Dot Product Simple test complete ==='}},
+    ]}
+
+def demo_dot_product_invalid_id():
+    """Pod 3.5 T9.2 — dot with invalid id → Err(InvalidId, source_op=0xC7=199)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Dot Product Invalid ID Test (Pod 3.5 T9.2) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new'}},
+        {'type':'let','name':'o','value':{'type':'embedding_dot_product_raw','id_a':1,'id_b':999}},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 199 = OP_EMBEDDING_DOT_PRODUCT):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 1 = ERR_INVALID_ID):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== Dot Product Invalid ID test complete ==='}},
+    ]}
+
+def demo_l2_distance_same():
+    """Pod 3.5 T10.1 — l2(v, v) = 0.0 exactly (sqrt(0) = 0)."""
+    v = _f32_vector_bytes([1.0, 2.0, 3.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== L2 Distance Same Test (Pod 3.5 T10.1) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':v}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':v}},
+        {'type':'print','value':{'type':'str','value':f'l2 (expect {_f32_bit_pattern(0.0)} = bit pattern of 0.0):'}},
+        {'type':'print','value':{'type':'embedding_l2_distance','lhs':{'type':'var','name':'a'},'rhs':{'type':'var','name':'b'}}},
+        {'type':'print','value':{'type':'str','value':'=== L2 Distance Same test complete ==='}},
+    ]}
+
+def demo_l2_distance_simple():
+    """Pod 3.5 T10.2 — l2((0,0,0), (3,4,0)) = sqrt(25) = 5.0 (bit pattern 0x40A00000)."""
+    a = _f32_vector_bytes([0.0, 0.0, 0.0])
+    b = _f32_vector_bytes([3.0, 4.0, 0.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== L2 Distance Simple Test (Pod 3.5 T10.2) ==='}},
+        {'type':'let','name':'va','value':{'type':'embedding_new','vector':a}},
+        {'type':'let','name':'vb','value':{'type':'embedding_new','vector':b}},
+        {'type':'print','value':{'type':'str','value':f'l2 (expect {_f32_bit_pattern(5.0)} = bit pattern of 5.0):'}},
+        {'type':'print','value':{'type':'embedding_l2_distance','lhs':{'type':'var','name':'va'},'rhs':{'type':'var','name':'vb'}}},
+        {'type':'print','value':{'type':'str','value':'=== L2 Distance Simple test complete ==='}},
+    ]}
+
+def demo_l2_distance_invalid_id():
+    """Pod 3.5 T10.3 — l2 with invalid id → Err(InvalidId, source_op=0xC8=200)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== L2 Distance Invalid ID Test (Pod 3.5 T10.3) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new'}},
+        {'type':'let','name':'o','value':{'type':'embedding_l2_distance_raw','id_a':1,'id_b':999}},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 200 = OP_EMBEDDING_L2_DISTANCE):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 1 = ERR_INVALID_ID):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== L2 Distance Invalid ID test complete ==='}},
+    ]}
+
+def demo_lookup_top1_basic():
+    """Pod 3.5 T11.1 — lookup_top1 on multi-embedding pool returns nearest non-self.
+    Query at (1,0); pool has (1,0)=self, (0.9,0.1)=near, (0,1)=far.
+    Self exclusion per D3.18; expect best_id = 2 (the near embedding).
+    Pod 3.5 C2/C3 ratification: forge sub-cap A with 1M budget, ENTER, lookup, EXIT.
+    Side-benefit: first 5-digit babylon ripple observation in the project — under sub-cap A,
+    ROOT.used += floor(100000 / 2) = 50000j post-EXIT (D3.9 axiom inheritance / D3.23)."""
+    q = _f32_vector_bytes([1.0, 0.0])
+    near = _f32_vector_bytes([0.9, 0.1])
+    far = _f32_vector_bytes([0.0, 1.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Lookup Top-1 Basic Test (Pod 3.5 T11.1 = B17) ==='}},
+        {'type':'let','name':'q','value':{'type':'embedding_new','vector':q}},     # id=1 = query (self)
+        {'type':'let','name':'n','value':{'type':'embedding_new','vector':near}},  # id=2 = near
+        {'type':'let','name':'f','value':{'type':'embedding_new','vector':far}},   # id=3 = far
+        # Sub-cap A: 1M budget, BIT_CAP_FORGE only — witness doctrine D3.13 means lookup
+        # bypasses BIT_EMBEDDING_FORGE bit-check.
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap': BIT_CAP_FORGE, 'energy_budget': 1000000}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'let','name':'enter_a','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'print','value':{'type':'str','value':'best_id (expect 2 = near; self excluded):'}},
+        {'type':'print','value':{'type':'embedding_lookup_top1','operand':{'type':'var','name':'q'}}},
+        {'type':'let','name':'exit_a','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'A.used (originating; expect 0):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'print','value':{'type':'str','value':'ROOT.used (expect 50000 = first 5-digit babylon ripple; lookup 100000j / 2):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'=== Lookup Top-1 Basic test complete ==='}},
+    ]}
+
+def demo_lookup_top1_empty():
+    """Pod 3.5 T11.2 — lookup_top1 on pool with only the query → Err(InvalidEmbeddingArg).
+    No candidates (self excluded per D3.18); substrate refuses.
+    Forges sub-cap with 1M budget per C2 ratification."""
+    q = _f32_vector_bytes([1.0, 2.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Lookup Top-1 Empty Pool Test (Pod 3.5 T11.2) ==='}},
+        {'type':'let','name':'q','value':{'type':'embedding_new','vector':q}},
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap': BIT_CAP_FORGE, 'energy_budget': 1000000}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'let','name':'enter_a','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'let','name':'o','value':{'type':'embedding_lookup_top1_raw','id':1}},
+        {'type':'let','name':'exit_a','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 201 = OP_EMBEDDING_LOOKUP_TOP1):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 9 = ERR_INVALID_EMBEDDING_ARG):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== Lookup Top-1 Empty Pool test complete ==='}},
+    ]}
+
+def demo_lookup_top1_invalid_query():
+    """Pod 3.5 T11.3 — lookup_top1 on non-existent query → Err(InvalidId, source_op=0xC9=201).
+    Forges sub-cap with 1M budget per C2 ratification (full dispatch cost charged
+    upfront before err return)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Lookup Top-1 Invalid Query Test (Pod 3.5 T11.3) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new'}},
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap': BIT_CAP_FORGE, 'energy_budget': 1000000}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'let','name':'enter_a','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'let','name':'o','value':{'type':'embedding_lookup_top1_raw','id':999}},
+        {'type':'let','name':'exit_a','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 201 = OP_EMBEDDING_LOOKUP_TOP1):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 1 = ERR_INVALID_ID):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== Lookup Top-1 Invalid Query test complete ==='}},
+    ]}
+
+def demo_maid_composition():
+    """Pod 3.5 — Maid composition pattern (lookup-by-meaning → recover Sign).
+    Forge codebook of (embedding, Sign) pairs; query matches an embedding;
+    OP_EMBEDDING_LOOKUP_TOP1 returns nearest embedding_id; OP_EMBEDDING_SIGN_HANDLE
+    recovers the linked sign_id. End-to-end demonstration of D3.13 witness compute
+    + D3.20 reverse side-table working in concert.
+
+    Codebook:
+      e1 = (1, 0)         linked to sign_id=1 (label='alpha')
+      e2 = (0.9, 0.1)     linked to sign_id=2 (label='beta')
+      e3 = (0, 1)         linked to sign_id=3 (label='gamma')
+      e4 = query (1, 0)   no Sign linked (orphan)
+    Query e4 → lookup returns e1 (nearest non-self) → reverse handle returns sign_id=1.
+    Forges sub-cap with 1M budget per C2 ratification."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Maid Composition Test (Pod 3.5 — lookup-by-meaning + Sign recovery) ==='}},
+        # Codebook embeddings + Signs
+        {'type':'let','name':'e1','value':{'type':'embedding_new','vector':_f32_vector_bytes([1.0, 0.0])}},
+        {'type':'let','name':'e2','value':{'type':'embedding_new','vector':_f32_vector_bytes([0.9, 0.1])}},
+        {'type':'let','name':'e3','value':{'type':'embedding_new','vector':_f32_vector_bytes([0.0, 1.0])}},
+        {'type':'let','name':'s1','value':{'type':'sign_new','hash':b'\x01'+b'\x00'*31,'label':'alpha','energy':1,'embedding_handle':1}},
+        {'type':'let','name':'s2','value':{'type':'sign_new','hash':b'\x02'+b'\x00'*31,'label':'beta','energy':2,'embedding_handle':2}},
+        {'type':'let','name':'s3','value':{'type':'sign_new','hash':b'\x03'+b'\x00'*31,'label':'gamma','energy':3,'embedding_handle':3}},
+        # Query embedding (orphan; no linked Sign)
+        {'type':'let','name':'q','value':{'type':'embedding_new','vector':_f32_vector_bytes([1.0, 0.0])}},
+        # Sub-cap with 1M budget for the lookup
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap': BIT_CAP_FORGE, 'energy_budget': 1000000}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'let','name':'enter_a','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        # Lookup-by-meaning
+        {'type':'let','name':'best_id','value':{'type':'embedding_lookup_top1','operand':{'type':'var','name':'q'}}},
+        {'type':'let','name':'exit_a','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'best_embedding_id (expect 1 = e1; nearest non-self):'}},
+        {'type':'print','value':{'type':'var','name':'best_id'}},
+        # Reverse side-table read: which Sign owns this embedding?
+        {'type':'print','value':{'type':'str','value':'recovered_sign_id (expect 1 = s1 alpha):'}},
+        {'type':'print','value':{'type':'embedding_sign_handle','operand':{'type':'var','name':'best_id'}}},
+        {'type':'print','value':{'type':'str','value':'=== Maid Composition test complete ==='}},
+    ]}
+
+def demo_embedding_sign_handle_linked():
+    """Pod 3.5 T12.1 — D3.20 reverse side-table: forge Sign with embedding_handle=1;
+    then read OP_EMBEDDING_SIGN_HANDLE for embedding_id=1; expect sign_id=1."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Embedding Sign Handle Linked Test (Pod 3.5 T12.1) ==='}},
+        {'type':'let','name':'e','value':{'type':'embedding_new'}},                         # id=1
+        {'type':'let','name':'s','value':{'type':'sign_new','hash': b'\xaa' + b'\x00'*31,
+                                            'label': 'linked', 'energy': 7,
+                                            'embedding_handle': 1}},                         # sign_id=1
+        {'type':'print','value':{'type':'str','value':'reverse_sign_id (expect 1):'}},
+        {'type':'print','value':{'type':'embedding_sign_handle','operand':{'type':'var','name':'e'}}},
+        {'type':'print','value':{'type':'str','value':'=== Embedding Sign Handle Linked test complete ==='}},
+    ]}
+
+def demo_embedding_sign_handle_unlinked():
+    """Pod 3.5 T12.2 — orphan embedding (no Sign references it) → reverse table = 0.
+    Confirms BSS-zero default state preserves backward-compat for embeddings
+    forged before / without a Sign linkage."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Embedding Sign Handle Unlinked Test (Pod 3.5 T12.2) ==='}},
+        {'type':'let','name':'e','value':{'type':'embedding_new'}},                         # id=1, no Sign
+        {'type':'print','value':{'type':'str','value':'reverse_sign_id (expect 0 = unlinked):'}},
+        {'type':'print','value':{'type':'embedding_sign_handle','operand':{'type':'var','name':'e'}}},
+        {'type':'print','value':{'type':'str','value':'=== Embedding Sign Handle Unlinked test complete ==='}},
+    ]}
+
+def demo_compute_under_subcap():
+    """Pod 3.5 T13 / B21 / B14-compute / B20 — Compute-op single-fire canary
+    (reframed per AUTHORIZED-2A C1 ratification; eleventh empirical landing of
+    architect-error doctrine, subtype 'axiom-inheritance trace failure').
+
+    Witness doctrine D3.13: compute bypasses bit-check (sub-cap A grants
+    BIT_CAP_FORGE only — NO BIT_EMBEDDING_FORGE — yet cosine succeeds because
+    compute is read-and-witness, not forge).
+
+    D3.9/D3.23 axiom inheritance: cosine wraps result via .construct_ok_outcome,
+    which fires babylon_charge_lineage by construction. Compute ops fire babylon
+    just like primitive constructors — no opt-out, no exception. Federation
+    accounting tracks Outcome production uniformly.
+
+    Pre-condition (originating-doesn't-charge-itself): 2× embedding_new under
+    ROOT context → ROOT.used += 0 (ROOT IS the originating cap; no upward
+    lineage to charge). Pre-subcap ROOT.used = 0.
+
+    Sub-cap A cosine → A.used += 0 (originating); ROOT.used += floor(400/2) = 200
+    (lineage spatial-merge through .construct_ok_outcome's internal babylon).
+    Post-subcap ROOT.used = 200."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Compute-Op Single-Fire Canary (Pod 3.5 T13 = B21+B14-compute+B20) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':_f32_vector_bytes([1.0, 0.0])}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':_f32_vector_bytes([0.0, 1.0])}},
+        {'type':'print','value':{'type':'str','value':'ROOT.used pre-subcap (expect 0; originating):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'int','value':1}}},
+        # Sub-cap A: BIT_CAP_FORGE only — NO BIT_EMBEDDING_FORGE; witness D3.13 in action.
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap': BIT_CAP_FORGE, 'energy_budget': 1000}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'let','name':'enter','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'print','value':{'type':'str','value':'cosine under sub-cap (B20 witness; expect 0 = bit pattern of 0.0):'}},
+        {'type':'print','value':{'type':'embedding_cosine','lhs':{'type':'var','name':'a'},'rhs':{'type':'var','name':'b'}}},
+        {'type':'let','name':'exit_a','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'A.used (originating; expect 0):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'print','value':{'type':'str','value':'ROOT.used post-cosine (B21 reframed; expect 200 = floor(400/2) D3.9 axiom inheritance / D3.23):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'=== Compute-Op Single-Fire Canary test complete ==='}},
+    ]}
+
+
 def demo_energy():
     """Pod 1.8 Energy typed primitive test — hardcoded AST demo"""
     return {'type':'program','body':[
@@ -2159,5 +2604,150 @@ if __name__ == '__main__':
     elif '--sign-invalid-embedding-handle-test' in sys.argv:
         c = AtreyuX86(); bc = c.compile(demo_sign_invalid_embedding_handle())
         print(f"Sign Invalid Embedding Handle test: {len(bc)} bytes")
+    # --- Pod 3.5 Maid speaks: semantic operations test surfaces (T8-T13 / B7-B23) ---
+    elif '--cosine-same-vector-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cosine_same_vector())
+        out = sys.argv[sys.argv.index('--cosine-same-vector-build')+1] if len(sys.argv) > sys.argv.index('--cosine-same-vector-build')+1 else 'test_cosine_same_vector.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cosine Same Vector test: compiled {len(bc)} bytes -> {out}")
+    elif '--cosine-same-vector-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cosine_same_vector())
+        print(f"Cosine Same Vector test: {len(bc)} bytes")
+    elif '--cosine-zero-vector-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cosine_zero_vector())
+        out = sys.argv[sys.argv.index('--cosine-zero-vector-build')+1] if len(sys.argv) > sys.argv.index('--cosine-zero-vector-build')+1 else 'test_cosine_zero_vector.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cosine Zero Vector test: compiled {len(bc)} bytes -> {out}")
+    elif '--cosine-zero-vector-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cosine_zero_vector())
+        print(f"Cosine Zero Vector test: {len(bc)} bytes")
+    elif '--cosine-45-degree-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cosine_45_degree())
+        out = sys.argv[sys.argv.index('--cosine-45-degree-build')+1] if len(sys.argv) > sys.argv.index('--cosine-45-degree-build')+1 else 'test_cosine_45_degree.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cosine 45-Degree test: compiled {len(bc)} bytes -> {out}")
+    elif '--cosine-45-degree-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cosine_45_degree())
+        print(f"Cosine 45-Degree test: {len(bc)} bytes")
+    elif '--cosine-orthogonal-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cosine_orthogonal())
+        out = sys.argv[sys.argv.index('--cosine-orthogonal-build')+1] if len(sys.argv) > sys.argv.index('--cosine-orthogonal-build')+1 else 'test_cosine_orthogonal.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cosine Orthogonal test: compiled {len(bc)} bytes -> {out}")
+    elif '--cosine-orthogonal-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cosine_orthogonal())
+        print(f"Cosine Orthogonal test: {len(bc)} bytes")
+    elif '--cosine-antipodal-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cosine_antipodal())
+        out = sys.argv[sys.argv.index('--cosine-antipodal-build')+1] if len(sys.argv) > sys.argv.index('--cosine-antipodal-build')+1 else 'test_cosine_antipodal.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cosine Antipodal test: compiled {len(bc)} bytes -> {out}")
+    elif '--cosine-antipodal-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cosine_antipodal())
+        print(f"Cosine Antipodal test: {len(bc)} bytes")
+    elif '--cosine-invalid-id-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cosine_invalid_id())
+        out = sys.argv[sys.argv.index('--cosine-invalid-id-build')+1] if len(sys.argv) > sys.argv.index('--cosine-invalid-id-build')+1 else 'test_cosine_invalid_id.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Cosine Invalid ID test: compiled {len(bc)} bytes -> {out}")
+    elif '--cosine-invalid-id-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_cosine_invalid_id())
+        print(f"Cosine Invalid ID test: {len(bc)} bytes")
+    elif '--dot-product-simple-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_dot_product_simple())
+        out = sys.argv[sys.argv.index('--dot-product-simple-build')+1] if len(sys.argv) > sys.argv.index('--dot-product-simple-build')+1 else 'test_dot_product_simple.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Dot Product Simple test: compiled {len(bc)} bytes -> {out}")
+    elif '--dot-product-simple-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_dot_product_simple())
+        print(f"Dot Product Simple test: {len(bc)} bytes")
+    elif '--dot-product-invalid-id-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_dot_product_invalid_id())
+        out = sys.argv[sys.argv.index('--dot-product-invalid-id-build')+1] if len(sys.argv) > sys.argv.index('--dot-product-invalid-id-build')+1 else 'test_dot_product_invalid_id.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Dot Product Invalid ID test: compiled {len(bc)} bytes -> {out}")
+    elif '--dot-product-invalid-id-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_dot_product_invalid_id())
+        print(f"Dot Product Invalid ID test: {len(bc)} bytes")
+    elif '--l2-distance-same-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_l2_distance_same())
+        out = sys.argv[sys.argv.index('--l2-distance-same-build')+1] if len(sys.argv) > sys.argv.index('--l2-distance-same-build')+1 else 'test_l2_distance_same.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"L2 Distance Same test: compiled {len(bc)} bytes -> {out}")
+    elif '--l2-distance-same-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_l2_distance_same())
+        print(f"L2 Distance Same test: {len(bc)} bytes")
+    elif '--l2-distance-simple-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_l2_distance_simple())
+        out = sys.argv[sys.argv.index('--l2-distance-simple-build')+1] if len(sys.argv) > sys.argv.index('--l2-distance-simple-build')+1 else 'test_l2_distance_simple.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"L2 Distance Simple test: compiled {len(bc)} bytes -> {out}")
+    elif '--l2-distance-simple-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_l2_distance_simple())
+        print(f"L2 Distance Simple test: {len(bc)} bytes")
+    elif '--l2-distance-invalid-id-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_l2_distance_invalid_id())
+        out = sys.argv[sys.argv.index('--l2-distance-invalid-id-build')+1] if len(sys.argv) > sys.argv.index('--l2-distance-invalid-id-build')+1 else 'test_l2_distance_invalid_id.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"L2 Distance Invalid ID test: compiled {len(bc)} bytes -> {out}")
+    elif '--l2-distance-invalid-id-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_l2_distance_invalid_id())
+        print(f"L2 Distance Invalid ID test: {len(bc)} bytes")
+    elif '--lookup-top1-basic-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_lookup_top1_basic())
+        out = sys.argv[sys.argv.index('--lookup-top1-basic-build')+1] if len(sys.argv) > sys.argv.index('--lookup-top1-basic-build')+1 else 'test_lookup_top1_basic.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Lookup Top-1 Basic test: compiled {len(bc)} bytes -> {out}")
+    elif '--lookup-top1-basic-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_lookup_top1_basic())
+        print(f"Lookup Top-1 Basic test: {len(bc)} bytes")
+    elif '--lookup-top1-empty-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_lookup_top1_empty())
+        out = sys.argv[sys.argv.index('--lookup-top1-empty-build')+1] if len(sys.argv) > sys.argv.index('--lookup-top1-empty-build')+1 else 'test_lookup_top1_empty.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Lookup Top-1 Empty test: compiled {len(bc)} bytes -> {out}")
+    elif '--lookup-top1-empty-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_lookup_top1_empty())
+        print(f"Lookup Top-1 Empty test: {len(bc)} bytes")
+    elif '--lookup-top1-invalid-query-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_lookup_top1_invalid_query())
+        out = sys.argv[sys.argv.index('--lookup-top1-invalid-query-build')+1] if len(sys.argv) > sys.argv.index('--lookup-top1-invalid-query-build')+1 else 'test_lookup_top1_invalid_query.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Lookup Top-1 Invalid Query test: compiled {len(bc)} bytes -> {out}")
+    elif '--lookup-top1-invalid-query-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_lookup_top1_invalid_query())
+        print(f"Lookup Top-1 Invalid Query test: {len(bc)} bytes")
+    elif '--embedding-sign-handle-linked-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_embedding_sign_handle_linked())
+        out = sys.argv[sys.argv.index('--embedding-sign-handle-linked-build')+1] if len(sys.argv) > sys.argv.index('--embedding-sign-handle-linked-build')+1 else 'test_embedding_sign_handle_linked.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Embedding Sign Handle Linked test: compiled {len(bc)} bytes -> {out}")
+    elif '--embedding-sign-handle-linked-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_embedding_sign_handle_linked())
+        print(f"Embedding Sign Handle Linked test: {len(bc)} bytes")
+    elif '--embedding-sign-handle-unlinked-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_embedding_sign_handle_unlinked())
+        out = sys.argv[sys.argv.index('--embedding-sign-handle-unlinked-build')+1] if len(sys.argv) > sys.argv.index('--embedding-sign-handle-unlinked-build')+1 else 'test_embedding_sign_handle_unlinked.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Embedding Sign Handle Unlinked test: compiled {len(bc)} bytes -> {out}")
+    elif '--embedding-sign-handle-unlinked-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_embedding_sign_handle_unlinked())
+        print(f"Embedding Sign Handle Unlinked test: {len(bc)} bytes")
+    elif '--compute-under-subcap-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_compute_under_subcap())
+        out = sys.argv[sys.argv.index('--compute-under-subcap-build')+1] if len(sys.argv) > sys.argv.index('--compute-under-subcap-build')+1 else 'test_compute_under_subcap.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Compute Under SubCap test: compiled {len(bc)} bytes -> {out}")
+    elif '--compute-under-subcap-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_compute_under_subcap())
+        print(f"Compute Under SubCap test: {len(bc)} bytes")
+    elif '--maid-composition-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_maid_composition())
+        out = sys.argv[sys.argv.index('--maid-composition-build')+1] if len(sys.argv) > sys.argv.index('--maid-composition-build')+1 else 'test_maid_composition.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Maid Composition test: compiled {len(bc)} bytes -> {out}")
+    elif '--maid-composition-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_maid_composition())
+        print(f"Maid Composition test: {len(bc)} bytes")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-bitmap,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test} | --bitmap-{root-unbounded,subset-grant-succeeds,superset-grant-fails,authority-check-{passes,fails},accessor-round-trip}-{build,test} | --embedding-{new-basic,accessor-round-trip,invalid-id,authority-check-{passes,fails}}-{build,test} | --sign-{with-embedding,invalid-embedding-handle}-{build,test}")

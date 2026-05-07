@@ -173,6 +173,17 @@
 %define OP_EMBEDDING_CREATOR   0xC3   ; pop embedding_id, MAC verify, push Outcome<creator_cap_id>
 %define OP_EMBEDDING_GET_DIM   0xC4   ; pop embedding_id + dim_index, MAC verify, bounds-check, push Outcome<f32-bit-cast-as-i64>
 
+; --- Pod 3.5 Embedding semantic operations (D3.12-D3.22) ---
+; Witness doctrine generalizes from accessors to compute (D3.13):
+; cosine/dot/L2/lookup execute regardless of current_cap's bitmap.
+; FP determinism doctrine (D3.12): SSE scalar single-precision only.
+; Cosine canonical Form A (D3.14): separate sqrts; bit-exact reproducibility.
+%define OP_EMBEDDING_SIGN_HANDLE  0xC5   ; Pod 3.5 — pop embedding_id, validate, push Outcome<sign_id> from reverse side-table per D3.20
+%define OP_EMBEDDING_COSINE       0xC6   ; Pod 3.5 — pop two embedding_ids, MAC verify both, push Outcome<f32-as-i64> per D3.14
+%define OP_EMBEDDING_DOT_PRODUCT  0xC7   ; Pod 3.5 — pop two embedding_ids, MAC verify both, push Outcome<f32-as-i64>
+%define OP_EMBEDDING_L2_DISTANCE  0xC8   ; Pod 3.5 — pop two embedding_ids, MAC verify both, push Outcome<f32-as-i64>
+%define OP_EMBEDDING_LOOKUP_TOP1  0xC9   ; Pod 3.5 — pop query embedding_id, MAC verify, scan pool with per-candidate MAC verify, push Outcome<best_match_embedding_id> per D3.18
+
 ; --- Pod 1.10.2a Cap pool / slot constants (D1.10.1.10) ---
 ; CAP_ID_NULL=0 already defined above in canonical-ID null-sentinel block (Pod 1.8.5b).
 %define CAP_POOL_SLOTS   64
@@ -274,7 +285,7 @@
 %define EMBEDDING_VECTOR_BYTES      1536    ; 384 * 4
 %define EMBEDDING_SLOT_BYTES        1576    ; 197 qwords (header 4 + vector 192 + MAC 1)
 %define EMBEDDING_SLOT_QWORDS       197
-%define EMBEDDING_POOL_SLOTS        64
+%define EMBEDDING_POOL_SLOTS        256   ; Pod 3.5 D3.16 — anticipated-empirical-pressure expansion (#83 cash); precedent does NOT generalize to other pools
 %define EMBEDDING_MAC_INPUT_QWORDS  196     ; header (4) + vector (192); MAC at +0x620
 %define EMBEDDING_OFF_ID_SELF       0x000
 %define EMBEDDING_OFF_ARENA_ID      0x008

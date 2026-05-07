@@ -219,6 +219,17 @@ cbs_run:
     je      .op_embedding_creator
     cmp     al, OP_EMBEDDING_GET_DIM
     je      .op_embedding_get_dim
+    ; Pod 3.5 — Maid speaks: semantic operations
+    cmp     al, OP_EMBEDDING_SIGN_HANDLE
+    je      .op_embedding_sign_handle
+    cmp     al, OP_EMBEDDING_COSINE
+    je      .op_embedding_cosine
+    cmp     al, OP_EMBEDDING_DOT_PRODUCT
+    je      .op_embedding_dot_product
+    cmp     al, OP_EMBEDDING_L2_DISTANCE
+    je      .op_embedding_l2_distance
+    cmp     al, OP_EMBEDDING_LOOKUP_TOP1
+    je      .op_embedding_lookup_top1
 
     ; Unknown opcode
     lea     rsi, [rel str_vm_unk]
@@ -963,6 +974,18 @@ cbs_run:
     lea     rdx, [rel vm_sign_embedding_handle]
     mov     [rdx + rcx*8], r9                   ; write embedding_handle to side-table
     pop     rax                                 ; restore sign_id
+    ; Pod 3.5 — D3.20 reverse side-table conditional store.
+    ; If embedding_handle != 0 (Sign created with linked Embedding), record
+    ; reverse linkage: vm_embedding_sign_handle[embedding_handle - 1] = sign_id.
+    ; r9 holds embedding_handle through this point (siphash inside
+    ; .construct_ok_outcome will clobber r9; reverse-write must precede wrap).
+    test    r9, r9
+    jz      .sign_new_skip_reverse_link
+    mov     rcx, r9
+    dec     rcx                                 ; rcx = embedding_handle - 1
+    lea     rdx, [rel vm_embedding_sign_handle]
+    mov     [rdx + rcx*8], rax                  ; write sign_id to reverse side-table
+.sign_new_skip_reverse_link:
     ; Pod 2.2 Path A retrofit (D2.2.7) — wrap sign_id in Outcome::Ok via helper.
     ; .construct_ok_outcome internally fires babylon_charge_lineage for spatial-
     ; merge per D2.1; single fire site for the originating cap's lineage.
@@ -2320,6 +2343,257 @@ cbs_run:
 .embedding_get_dim_invalid_id:
     mov     rdi, ERR_INVALID_ID
     mov     rsi, OP_EMBEDDING_GET_DIM
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; =============================================================
+; Pod 3.5 — Maid speaks: semantic operations on Embedding pool
+; D3.13 witness doctrine: compute-over-substrate-state bypasses bit-check.
+; D3.18 lookup MAC-verify-each-candidate convention.
+; D3.9 single-fire greenfield axiom: handlers wrap via .construct_ok_outcome.
+; =============================================================
+
+; --- OP_EMBEDDING_SIGN_HANDLE (0xC5) Pod 3.5 — D3.20 reverse side-table read ---
+; Pop embedding_id; validate via registry_lookup_embedding; read
+; vm_embedding_sign_handle[embedding_id-1]; push Outcome<sign_id>.
+; Returns 0 if no Sign linked (BSS-zero default state).
+.op_embedding_sign_handle:
+    sub     r13, 8
+    mov     rdi, [r13]                              ; embedding_id
+    test    rdi, rdi
+    jz      .op_embedding_sign_handle_invalid
+    push    rdi                                     ; preserve embedding_id across registry call
+    call    registry_lookup_embedding
+    pop     rdi
+    test    rax, rax
+    jz      .op_embedding_sign_handle_invalid
+    ; Read reverse side-table at index (embedding_id - 1)
+    mov     rcx, rdi
+    dec     rcx                                     ; rcx = embedding_id - 1
+    lea     rdx, [rel vm_embedding_sign_handle]
+    mov     rdi, [rdx + rcx*8]                      ; rdi = sign_id (or 0)
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_ok_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+.op_embedding_sign_handle_invalid:
+    mov     rdi, ERR_INVALID_ID
+    mov     rsi, OP_EMBEDDING_SIGN_HANDLE
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- .embedding_two_resolve_verify (Pod 3.5 internal helper) ---
+; Resolves two embedding_ids and MAC-verifies both slots. Used by
+; cosine/dot/l2 handlers to avoid 25-line duplication per handler.
+;
+; Input:    r10 = id_a, r11 = id_b
+; Output:   rdi = slot_a_ptr, rsi = slot_b_ptr (on success)
+;           rax = 0 (success) or 1 (any of: id=0, lookup miss, MAC mismatch)
+; Clobbers: rax, rcx, rdx, r8, r9, r10, r11 (consumed; siphash clobbers r8-r11)
+;           Plus stack discipline (cleanup paths discard appropriate save slots).
+; Preserves: r12-r15, rbx, rbp; xmm0-xmm15 untouched.
+.embedding_two_resolve_verify:
+    ; Stack-based id storage across siphash calls (siphash clobbers r10/r11)
+    push    r11                                     ; [rsp+8] = id_b after next push
+    push    r10                                     ; [rsp+0] = id_a, [rsp+8] = id_b
+
+    ; Resolve A
+    mov     rdi, [rsp + 0]                          ; id_a
+    test    rdi, rdi
+    jz      .etrv_fail_pop2
+    call    registry_lookup_embedding               ; rax = slot_a or 0; preserves rdi
+    test    rax, rax
+    jz      .etrv_fail_pop2
+
+    ; MAC verify A
+    mov     rdi, rax                                ; slot_a
+    mov     rsi, EMBEDDING_MAC_INPUT_QWORDS
+    call    siphash_compute                         ; rax = MAC; rdi preserved per siphash contract
+    cmp     rax, [rdi + EMBEDDING_OFF_MAC]
+    jne     .etrv_fail_pop2
+
+    ; Save slot_a on stack across slot_b resolve+verify
+    push    rdi                                     ; [rsp+0]=slot_a, [rsp+8]=id_a, [rsp+16]=id_b
+
+    ; Resolve B
+    mov     rdi, [rsp + 16]                         ; id_b
+    test    rdi, rdi
+    jz      .etrv_fail_pop3
+    call    registry_lookup_embedding
+    test    rax, rax
+    jz      .etrv_fail_pop3
+
+    ; MAC verify B
+    mov     rdi, rax                                ; slot_b
+    mov     rsi, EMBEDDING_MAC_INPUT_QWORDS
+    call    siphash_compute
+    cmp     rax, [rdi + EMBEDDING_OFF_MAC]
+    jne     .etrv_fail_pop3
+
+    ; Success — return slot_a in rdi, slot_b in rsi
+    mov     rsi, rdi                                ; rsi = slot_b
+    pop     rdi                                     ; rdi = slot_a; rsp += 8
+    add     rsp, 16                                 ; discard id_a + id_b
+    xor     rax, rax                                ; success
+    ret
+
+.etrv_fail_pop3:
+    add     rsp, 24                                 ; discard slot_a + id_a + id_b
+    jmp     .etrv_fail_done
+.etrv_fail_pop2:
+    add     rsp, 16                                 ; discard id_a + id_b
+.etrv_fail_done:
+    mov     rax, 1                                  ; failure
+    ret
+
+; --- OP_EMBEDDING_COSINE (0xC6) Pod 3.5 — D3.14 cosine via Form A ---
+; Pop two embedding_ids; resolve+verify both; call compute_cosine_raw;
+; wrap in Outcome::Ok or route to err on zero-norm rejection.
+.op_embedding_cosine:
+    sub     r13, 8
+    mov     r11, [r13]                              ; id_b (top)
+    sub     r13, 8
+    mov     r10, [r13]                              ; id_a
+    call    .embedding_two_resolve_verify           ; rdi=slot_a, rsi=slot_b; rax=0 or 1
+    test    rax, rax
+    jnz     .op_embedding_cosine_invalid
+    call    compute_cosine_raw                      ; rax = f32-as-i64; CF=1 on zero-norm
+    jc      .op_embedding_cosine_zero_norm
+    mov     rdi, rax
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_ok_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+.op_embedding_cosine_invalid:
+    mov     rdi, ERR_INVALID_ID
+    mov     rsi, OP_EMBEDDING_COSINE
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+.op_embedding_cosine_zero_norm:
+    mov     rdi, ERR_INVALID_EMBEDDING_ARG
+    mov     rsi, OP_EMBEDDING_COSINE
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_EMBEDDING_DOT_PRODUCT (0xC7) Pod 3.5 ---
+.op_embedding_dot_product:
+    sub     r13, 8
+    mov     r11, [r13]
+    sub     r13, 8
+    mov     r10, [r13]
+    call    .embedding_two_resolve_verify
+    test    rax, rax
+    jnz     .op_embedding_dot_product_invalid
+    call    compute_dot_product                     ; rax = f32-as-i64
+    mov     rdi, rax
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_ok_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+.op_embedding_dot_product_invalid:
+    mov     rdi, ERR_INVALID_ID
+    mov     rsi, OP_EMBEDDING_DOT_PRODUCT
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_EMBEDDING_L2_DISTANCE (0xC8) Pod 3.5 ---
+.op_embedding_l2_distance:
+    sub     r13, 8
+    mov     r11, [r13]
+    sub     r13, 8
+    mov     r10, [r13]
+    call    .embedding_two_resolve_verify
+    test    rax, rax
+    jnz     .op_embedding_l2_distance_invalid
+    call    compute_l2_distance                     ; rax = f32-as-i64
+    mov     rdi, rax
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_ok_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+.op_embedding_l2_distance_invalid:
+    mov     rdi, ERR_INVALID_ID
+    mov     rsi, OP_EMBEDDING_L2_DISTANCE
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_EMBEDDING_LOOKUP_TOP1 (0xC9) Pod 3.5 — D3.18 ---
+; Pop query embedding_id; resolve+verify query; call lookup_top1;
+; if returns 0 (empty/all-corrupt/only-self), return Err; else wrap in Ok.
+.op_embedding_lookup_top1:
+    sub     r13, 8
+    mov     rdi, [r13]                              ; query_id
+    test    rdi, rdi
+    jz      .op_embedding_lookup_top1_invalid
+    push    rdi                                     ; preserve query_id (defensive; registry preserves rdi)
+    call    registry_lookup_embedding               ; rax = query_slot_ptr or 0
+    pop     rdi
+    test    rax, rax
+    jz      .op_embedding_lookup_top1_invalid
+    mov     rdi, rax                                ; rdi = query_slot_ptr
+    ; MAC verify query
+    mov     rsi, EMBEDDING_MAC_INPUT_QWORDS
+    call    siphash_compute                         ; rax = MAC; rdi preserved
+    cmp     rax, [rdi + EMBEDDING_OFF_MAC]
+    jne     .op_embedding_lookup_top1_invalid
+    ; rdi = verified query_slot_ptr; call lookup_top1
+    call    lookup_top1                             ; rax = best_match_embedding_id (0 if none)
+    test    rax, rax
+    jz      .op_embedding_lookup_top1_empty
+    ; Wrap best_id in Outcome::Ok
+    mov     rdi, rax
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_ok_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+.op_embedding_lookup_top1_invalid:
+    mov     rdi, ERR_INVALID_ID
+    mov     rsi, OP_EMBEDDING_LOOKUP_TOP1
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+.op_embedding_lookup_top1_empty:
+    mov     rdi, ERR_INVALID_EMBEDDING_ARG
+    mov     rsi, OP_EMBEDDING_LOOKUP_TOP1
     xor     rdx, rdx
     xor     rcx, rcx
     mov     r8, TYPE_CODE_EMBEDDING

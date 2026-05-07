@@ -127,13 +127,21 @@ energy_cost_table:
     dq 1                    ; 0xBA — OP_CAP_BITMAP (Pod 2.2; metabolic; lookup + MAC verify + cap_bitmap read per D2.2.1)
     dq 1                    ; 0xBB — reserved
     dq 1, 1, 1, 1           ; 0xBC–0xBF — reserved
-; Row 0xC0–0xCF — Embedding opcodes (Pod 3 substrate-prep; 0xC5–0xCF reserved for Pod 3.5+ semantic ops)
+; Row 0xC0–0xCF — Embedding opcodes (Pod 3 substrate-prep + Pod 3.5 semantic ops)
     dq 100                  ; 0xC0 — OP_EMBEDDING_NEW (Pod 3; metabolic; pool alloc + 1536-byte vector copy + MAC over 196 qwords + registry register; D3.X cost basis matches Sign content-bearing primitive convention)
     dq 1                    ; 0xC1 — OP_EMBEDDING_ARENA (Pod 3; metabolic; lookup + MAC verify + slot read)
     dq 1                    ; 0xC2 — OP_EMBEDDING_OWNER (Pod 3)
     dq 1                    ; 0xC3 — OP_EMBEDDING_CREATOR (Pod 3)
     dq 1                    ; 0xC4 — OP_EMBEDDING_GET_DIM (Pod 3; metabolic; lookup + MAC verify + bounds-check + dim read)
-    dq 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1   ; 0xC5–0xCF reserved for Pod 3.5+ semantic ops
+    dq 1                    ; 0xC5 — OP_EMBEDDING_SIGN_HANDLE (Pod 3.5; metabolic; lookup + reverse side-table read per D3.20; mirrors 0xA7 cost shape)
+    dq 400                  ; 0xC6 — OP_EMBEDDING_COSINE (Pod 3.5; static worst-case D3.16; 2× lookup + 2× MAC verify + 384-element compute per Form A: dot + 2× norm_sq + 2× sqrt + divisor; FP-determinism-load-bearing)
+    dq 200                  ; 0xC7 — OP_EMBEDDING_DOT_PRODUCT (Pod 3.5; D3.16; 2× lookup + 2× MAC verify + 384 mul-add accumulation; ~half of cosine cost)
+    dq 280                  ; 0xC8 — OP_EMBEDDING_L2_DISTANCE (Pod 3.5; D3.16; 2× lookup + 2× MAC verify + 384 sub-mul-add accumulation + sqrt; between dot and cosine)
+    dq 100000               ; 0xC9 — OP_EMBEDDING_LOOKUP_TOP1 (Pod 3.5; FP-compute composite;
+                            ; 256 × cosine internal + 256 × MAC verify; D3.17 anticipated-worst-case
+                            ; static cost; D3.24 substrate budget scaled to 1M to accommodate;
+                            ; demos may forge sub-caps for lineage tracking but dispatch is r14-bound)
+    dq 1, 1, 1, 1, 1, 1     ; 0xCA–0xCF reserved for Pod 3.5+ extensions
 ; Row 0xD0–0xDF — Energy opcodes (Pod 1.8) + Pod 1.8.5c 0xD4/0xD5 + Pod 1.10.2b2 accessors at 0xD6-0xD8
     dq 10                   ; 0xD0 — OP_ENERGY_NEW
     dq 1                    ; 0xD1 — OP_ENERGY_JOULES (accessor)
