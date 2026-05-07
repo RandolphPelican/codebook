@@ -184,6 +184,57 @@
 %define OP_EMBEDDING_L2_DISTANCE  0xC8   ; Pod 3.5 — pop two embedding_ids, MAC verify both, push Outcome<f32-as-i64>
 %define OP_EMBEDDING_LOOKUP_TOP1  0xC9   ; Pod 3.5 — pop query embedding_id, MAC verify, scan pool with per-candidate MAC verify, push Outcome<best_match_embedding_id> per D3.18
 
+; --- Pod 3.6 Embedding synthesis operations (D3.25-D3.28) ---
+; Forge-tier compute: each op (0xCA-0xCE) creates a new typed Embedding from
+; existing ones, gated by BIT_EMBEDDING_FORGE (R9 inheritance — no new bit).
+; Synthesis lineage tracked via D3.20-generalized non-MAC parallel side-table
+; vm_embedding_synthesis (Layout 2 quad-tuple per D3.27). Witness accessor
+; 0xCF reads synthesis lineage without forge bit (D3.13 inheritance).
+; D3.25 frames Maid as lexical-computation pole: housekeeper plus composer.
+; D3.28 codifies the FP-precision-prediction discipline surfaced empirically
+; at HALT 1 R10 (normalize v_uniform 25-ulp drift; lerp irrational-t asymmetric).
+%define OP_EMBEDDING_ADD              0xCA   ; Pod 3.6 — pop two embedding_ids, MAC verify both, forge result = a + b, write synthesis tuple, push Outcome<embedding_id>
+%define OP_EMBEDDING_SUBTRACT         0xCB   ; Pod 3.6 — pop two embedding_ids, MAC verify both, forge result = a - b, write synthesis tuple, push Outcome<embedding_id>
+%define OP_EMBEDDING_SCALE            0xCC   ; Pod 3.6 — pop embedding_id + scalar (f32-as-i64), MAC verify, forge result = scalar * a, write synthesis tuple
+%define OP_EMBEDDING_NORMALIZE        0xCD   ; Pod 3.6 — pop embedding_id, MAC verify, forge result = a / |a| (Form A), zero-norm rejection per D3.14 precedent
+%define OP_EMBEDDING_LERP             0xCE   ; Pod 3.6 — pop two embedding_ids + t (f32-as-i64), MAC verify both, forge result = (1-t)*a + t*b (Form A)
+%define OP_EMBEDDING_SYNTHESIS_HANDLE 0xCF   ; Pod 3.6 — pop embedding_id, validate, push Outcome<synthesis_tuple_qword_0>; full tuple via further ops if needed
+
+; Pod 3.6 — synthesis source-op codes (D3.27 quad-tuple op field)
+; BSS-zero default = SYNTHESIS_OP_NONE; non-synthesized embeddings register as 0
+; in vm_embedding_synthesis by construction (Sign-forged, raw OP_EMBEDDING_NEW).
+%define SYNTHESIS_OP_NONE       0x00
+%define SYNTHESIS_OP_ADD        0x01
+%define SYNTHESIS_OP_SUBTRACT   0x02
+%define SYNTHESIS_OP_SCALE      0x03
+%define SYNTHESIS_OP_NORMALIZE  0x04
+%define SYNTHESIS_OP_LERP       0x05
+; 0x06-0xFF reserved for Pod 3.7+ synthesis-op extensions
+
+; Pod 3.6 — synthesis tuple Layout 2 quad-tuple (D3.27)
+;   32 bytes per slot (16-byte aligned for SSE-friendly scalar field access).
+;   op (qword) | source_a (qword) | source_b (qword) | scalar (qword; f32-as-i64)
+;   Per-op shapes:
+;     ADD/SUBTRACT: source_a=a_id, source_b=b_id, scalar=0
+;     SCALE:        source_a=a_id, source_b=scalar (f32-as-i64), scalar=0
+;     NORMALIZE:    source_a=a_id, source_b=0, scalar=0
+;     LERP:         source_a=a_id, source_b=b_id, scalar=t (f32-as-i64)
+;   Layout 2 chosen at Phase 1.1 to avoid mid-pod migration when ternary lerp
+;   lands at Phase 3.1 (D3.27); one write convention across all five forge ops.
+%define SYNTHESIS_TUPLE_BYTES         32
+%define SYNTHESIS_TUPLE_OFF_OP        0
+%define SYNTHESIS_TUPLE_OFF_SOURCE_A  8
+%define SYNTHESIS_TUPLE_OFF_SOURCE_B  16
+%define SYNTHESIS_TUPLE_OFF_SCALAR    24
+
+; Pod 3.6 — Phase 3.2 synthesis tuple field index for OP_EMBEDDING_SYNTHESIS_HANDLE (0xCF)
+; GET_DIM-style parameterized accessor; field_index in 0..3 selects which qword
+; of the 4-qword tuple to read. Out-of-range → ERR_INVALID_EMBEDDING_ARG.
+%define SYNTHESIS_FIELD_OP            0
+%define SYNTHESIS_FIELD_SOURCE_A      1
+%define SYNTHESIS_FIELD_SOURCE_B      2
+%define SYNTHESIS_FIELD_SCALAR        3
+
 ; --- Pod 1.10.2a Cap pool / slot constants (D1.10.1.10) ---
 ; CAP_ID_NULL=0 already defined above in canonical-ID null-sentinel block (Pod 1.8.5b).
 %define CAP_POOL_SLOTS   64

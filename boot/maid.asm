@@ -284,3 +284,189 @@ lookup_top1:
     pop     rbx
     pop     rbp
     ret
+
+; --- compute_add_raw(rdi=slot_a_ptr, rsi=slot_b_ptr, rdx=dest_slot_ptr) ---
+; Pod 3.6 — D3.25 forge-tier ADD compute helper (Maid composes).
+; Per-element a[i] + b[i] → dest[i] across 384 elements; no reduction;
+; no zero-norm rejection (ADD has no degenerate input shape). Operates on
+; raw slot pointers (post-MAC-verify by caller per D3.15 + R4 step 8).
+;
+; Mirrors compute_dot_product / compute_l2_distance simple-loop shape;
+; differs by writing per-element to dest+EMBEDDING_OFF_VECTOR rather than
+; accumulating to scalar register. Per D3.28 R10 simulation: bit-exact
+; deterministic by construction (single addss per element, no accumulator
+; depth, no form-traversal asymmetry). 12/12 R10 primary canary patterns.
+;
+; Input:    rdi = slot_a_ptr, rsi = slot_b_ptr, rdx = dest_slot_ptr
+; Output:   none (writes 1536 bytes to [rdx + EMBEDDING_OFF_VECTOR])
+; Clobbers: rcx, r8, r9, r10, xmm0
+; Preserves: rax, rbx, rbp, r12-r15, rsi, rdi, rdx (input args remain valid)
+;            xmm1-xmm15 (helper uses xmm0 only; xmm1 reserved-but-unused
+;            per D3.15 forge-tier compute-helper xmm clobber convention)
+
+compute_add_raw:
+    mov     rcx, EMBEDDING_DIM                      ; 384
+    lea     r8,  [rdi + EMBEDDING_OFF_VECTOR]       ; src a vector base
+    lea     r9,  [rsi + EMBEDDING_OFF_VECTOR]       ; src b vector base
+    lea     r10, [rdx + EMBEDDING_OFF_VECTOR]       ; dest vector base
+.add_loop:
+    movss   xmm0, [r8]
+    addss   xmm0, [r9]
+    movss   [r10], xmm0
+    add     r8,  4
+    add     r9,  4
+    add     r10, 4
+    dec     rcx
+    jnz     .add_loop
+    ret
+
+; --- compute_subtract_raw(rdi=slot_a_ptr, rsi=slot_b_ptr, rdx=dest_slot_ptr) ---
+; Pod 3.6 — D3.25 forge-tier SUBTRACT compute helper. Inherits compute_add_raw
+; shape verbatim with subss replacing addss. Per-element a[i] - b[i] → dest[i]
+; across 384 elements; no reduction; no zero-norm rejection. Per D3.28 R10:
+; bit-exact deterministic (subss has no accumulator depth); subss(x, x) = +0.0
+; byte-exact for finite non-NaN x (B28 endpoint property).
+;
+; Input/Output/Clobbers/Preserves: identical to compute_add_raw.
+
+compute_subtract_raw:
+    mov     rcx, EMBEDDING_DIM
+    lea     r8,  [rdi + EMBEDDING_OFF_VECTOR]
+    lea     r9,  [rsi + EMBEDDING_OFF_VECTOR]
+    lea     r10, [rdx + EMBEDDING_OFF_VECTOR]
+.sub_loop:
+    movss   xmm0, [r8]
+    subss   xmm0, [r9]
+    movss   [r10], xmm0
+    add     r8,  4
+    add     r9,  4
+    add     r10, 4
+    dec     rcx
+    jnz     .sub_loop
+    ret
+
+; --- compute_scale_raw(rdi=slot_a_ptr, rsi=scalar_f32_as_i64, rdx=dest_slot_ptr) ---
+; Pod 3.6 — D3.25 forge-tier SCALE compute helper. First scalar-mixed compute
+; in synthesis tier. Scalar passed as f32-as-i64 in low 32 bits of rsi (high
+; 32 bits zeroed on operand-stack pop; broadcast into xmm1 once via movd, then
+; per-element movss/mulss/movss). Per D3.28 R10: bit-exact deterministic;
+; mulss(0.0, x) = 0 (B30); mulss(-1.0, x) = -x (B31); single-rounding event.
+;
+; Input:    rdi = slot_a_ptr, rsi = scalar (f32-as-i64), rdx = dest_slot_ptr
+; Output:   none (writes 1536 bytes to [rdx + EMBEDDING_OFF_VECTOR])
+; Clobbers: rcx, r8, r10, xmm0, xmm1
+; Preserves: rax, rbx, rbp, r12-r15, rsi, rdi, rdx (input args remain valid)
+
+compute_scale_raw:
+    mov     rcx, EMBEDDING_DIM
+    movd    xmm1, esi                                ; xmm1 = scalar (low 32 bits of rsi)
+    lea     r8,  [rdi + EMBEDDING_OFF_VECTOR]
+    lea     r10, [rdx + EMBEDDING_OFF_VECTOR]
+.scale_loop:
+    movss   xmm0, [r8]
+    mulss   xmm0, xmm1
+    movss   [r10], xmm0
+    add     r8,  4
+    add     r10, 4
+    dec     rcx
+    jnz     .scale_loop
+    ret
+
+; --- compute_normalize_raw(rdi=slot_a_ptr, rdx=dest_slot_ptr) ---
+; Pod 3.6 — D3.14 Form A normalize. First unary forge compute helper + first
+; synthesis-tier zero-norm rejection (mirrors compute_cosine_raw zero-norm path).
+;
+; Form A (per D3.14 / D3.28): norm_sq accumulator → zero check → sqrtss(norm_sq)
+; → per-element divss. Form B (a[i] * (1.0/norm)) considered + rejected:
+; same 25-ulp norm_sq drift would feed reciprocal; extra divss-then-mulss with
+; no compensating accuracy benefit. Form A's per-element divss is fewer rounding
+; events. Architect-ratified at AUTHORIZED-1 with v_uniform anti-pattern note
+; and B32-aux as self-verifying canon for the predicted 25-ulp drift.
+;
+; Input:    rdi = slot_a_ptr, rdx = dest_slot_ptr
+; Output:   CF=0 success (dest vector written); CF=1 zero-norm rejection (dest unwritten)
+; Clobbers: rcx, r8, r10, xmm0, xmm1, xmm2
+; Preserves: rax, rbx, rbp, r12-r15, rsi, rdi, rdx (input args remain valid)
+
+compute_normalize_raw:
+    ; Step 1: norm_sq = sum_i a[i] * a[i]
+    xorps   xmm0, xmm0                               ; norm_sq accumulator
+    mov     rcx, EMBEDDING_DIM
+    lea     r8,  [rdi + EMBEDDING_OFF_VECTOR]
+.normalize_norm_sq_loop:
+    movss   xmm1, [r8]
+    mulss   xmm1, xmm1
+    addss   xmm0, xmm1
+    add     r8,  4
+    dec     rcx
+    jnz     .normalize_norm_sq_loop
+
+    ; Step 2: zero-norm rejection (D3.14 Pre-A7 strict zero check)
+    xorps   xmm2, xmm2                               ; xmm2 = 0.0 baseline
+    ucomiss xmm0, xmm2                               ; norm_sq vs 0.0
+    je      .normalize_zero_norm_fail
+
+    ; Step 3: norm = sqrtss(norm_sq)
+    sqrtss  xmm0, xmm0                               ; xmm0 = norm
+
+    ; Step 4: result[i] = a[i] / norm  (per-element divss)
+    mov     rcx, EMBEDDING_DIM
+    lea     r8,  [rdi + EMBEDDING_OFF_VECTOR]
+    lea     r10, [rdx + EMBEDDING_OFF_VECTOR]
+.normalize_div_loop:
+    movss   xmm1, [r8]
+    divss   xmm1, xmm0
+    movss   [r10], xmm1
+    add     r8,  4
+    add     r10, 4
+    dec     rcx
+    jnz     .normalize_div_loop
+
+    clc                                              ; CF=0 success
+    ret
+
+.normalize_zero_norm_fail:
+    stc                                              ; CF=1 zero-norm rejection
+    ret
+
+; --- compute_lerp_raw(rdi=slot_a_ptr, rsi=slot_b_ptr, rdx=dest_slot_ptr, r8=t_as_i64) ---
+; Pod 3.6 — D3.14 Form A linear interpolation. First ternary forge compute helper.
+;
+; Form A: one_minus_t = subss(1.0, t); result[i] = (one_minus_t * a[i]) + (t * b[i])
+;   2 mulss + 1 addss per element.
+; Form chosen for endpoint-byte-exactness at t=0.0 / t=1.0 (B35/B36):
+;   t=0: (1.0 * a[i]) + (0.0 * b[i]) = a[i] + 0.0 = a[i] byte-exact
+;   t=1: (0.0 * a[i]) + (1.0 * b[i]) = 0.0 + b[i] = b[i] byte-exact
+; D3.28 R10 simulation: irrational-t inputs produce asymmetric drift via
+; one_minus_t lossy traversal (B34-aux self-verifies the predicted asymmetry).
+;
+; Input:    rdi = slot_a_ptr, rsi = slot_b_ptr, rdx = dest_slot_ptr, r8 = t (f32-as-i64)
+; Output:   none (writes 1536 bytes to [rdx + EMBEDDING_OFF_VECTOR])
+; Clobbers: rcx, r9, r10, r11, xmm0, xmm1, xmm2, xmm3
+; Preserves: rax, rbx, rbp, r12-r15, rsi, rdi, rdx, r8 (input args remain valid)
+
+compute_lerp_raw:
+    ; Setup: xmm1 = t; xmm0 = one_minus_t = subss(1.0, t)
+    movd    xmm1, r8d                                ; xmm1 = t (low 32 of r8)
+    mov     ecx, 0x3F800000                          ; bit pattern for f32(1.0)
+    movd    xmm0, ecx                                ; xmm0 = 1.0
+    subss   xmm0, xmm1                               ; xmm0 = 1.0 - t = one_minus_t
+
+    ; Per-element loop: result[i] = (one_minus_t * a[i]) + (t * b[i])
+    mov     rcx, EMBEDDING_DIM
+    lea     r9,  [rdi + EMBEDDING_OFF_VECTOR]        ; src a
+    lea     r10, [rsi + EMBEDDING_OFF_VECTOR]        ; src b
+    lea     r11, [rdx + EMBEDDING_OFF_VECTOR]        ; dest
+.lerp_loop:
+    movss   xmm2, [r9]                               ; a[i]
+    mulss   xmm2, xmm0                               ; one_minus_t * a[i]
+    movss   xmm3, [r10]                              ; b[i]
+    mulss   xmm3, xmm1                               ; t * b[i]
+    addss   xmm2, xmm3                               ; sum
+    movss   [r11], xmm2                              ; store
+    add     r9,  4
+    add     r10, 4
+    add     r11, 4
+    dec     rcx
+    jnz     .lerp_loop
+    ret

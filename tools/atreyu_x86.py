@@ -109,6 +109,13 @@ OP_EMBEDDING_COSINE       = 0xC6   # cosine via Form A (D3.14); FP-determinism-l
 OP_EMBEDDING_DOT_PRODUCT  = 0xC7   # dot product over 384 f32 lanes
 OP_EMBEDDING_L2_DISTANCE  = 0xC8   # sqrt(sum((a-b)^2)) over 384 lanes
 OP_EMBEDDING_LOOKUP_TOP1  = 0xC9   # MAC-verify-each-candidate cosine scan (D3.18)
+# --- Pod 3.6 Maid composes: synthesis (forge-tier) ---
+OP_EMBEDDING_ADD          = 0xCA   # forge result = a + b; synthesis tuple write per D3.27
+OP_EMBEDDING_SUBTRACT     = 0xCB   # forge result = a - b; ADD's twin (Phase 2.1)
+OP_EMBEDDING_SCALE        = 0xCC   # forge result = scalar * a; first scalar-mixed (Phase 2.2)
+OP_EMBEDDING_NORMALIZE    = 0xCD   # forge result = a / |a|; Form A; first unary forge + zero-norm rejection (Phase 2.2)
+OP_EMBEDDING_LERP         = 0xCE   # forge result = (1-t)*a + t*b; Form A; first ternary forge (Phase 3.1)
+OP_EMBEDDING_SYNTHESIS_HANDLE = 0xCF   # GET_DIM-style parameterized accessor for synthesis tuple (Phase 3.2)
 
 # --- Pod 1.10.3 substrate constants (for default arg values) ---
 # Signed two's-complement representation of 0xFFFFFFFFFFFFFFFF for
@@ -551,6 +558,55 @@ class AtreyuX86:
         elif t == 'embedding_lookup_top1_raw':
             e.emit(OP_PUSH); e.emit_i64(n['id'])
             e.emit(OP_EMBEDDING_LOOKUP_TOP1)
+        # --- Pod 3.6 Maid composes: synthesis (forge-tier; D3.25/D3.26/D3.27) ---
+        elif t == 'embedding_add':
+            self._expr(n['lhs']); self._expr(n['rhs'])
+            e.emit(OP_EMBEDDING_ADD); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_add_raw':
+            e.emit(OP_PUSH); e.emit_i64(n['id_a'])
+            e.emit(OP_PUSH); e.emit_i64(n['id_b'])
+            e.emit(OP_EMBEDDING_ADD)
+        elif t == 'embedding_subtract':
+            self._expr(n['lhs']); self._expr(n['rhs'])
+            e.emit(OP_EMBEDDING_SUBTRACT); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_subtract_raw':
+            e.emit(OP_PUSH); e.emit_i64(n['id_a'])
+            e.emit(OP_PUSH); e.emit_i64(n['id_b'])
+            e.emit(OP_EMBEDDING_SUBTRACT)
+        elif t == 'embedding_scale':
+            # Stack order: [..., embedding_id, scalar] (TOS-is-rightmost-arg per GET_DIM convention)
+            self._expr(n['operand'])
+            e.emit(OP_PUSH); e.emit_i64(n['scalar_bits'])
+            e.emit(OP_EMBEDDING_SCALE); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_scale_raw':
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_PUSH); e.emit_i64(n['scalar_bits'])
+            e.emit(OP_EMBEDDING_SCALE)
+        elif t == 'embedding_normalize':
+            self._expr(n['operand'])
+            e.emit(OP_EMBEDDING_NORMALIZE); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_normalize_raw':
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_EMBEDDING_NORMALIZE)
+        elif t == 'embedding_lerp':
+            # Stack order: [..., id_a, id_b, t] (TOS-is-rightmost-arg per GET_DIM convention)
+            self._expr(n['a']); self._expr(n['b'])
+            e.emit(OP_PUSH); e.emit_i64(n['t_bits'])
+            e.emit(OP_EMBEDDING_LERP); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_lerp_raw':
+            e.emit(OP_PUSH); e.emit_i64(n['id_a'])
+            e.emit(OP_PUSH); e.emit_i64(n['id_b'])
+            e.emit(OP_PUSH); e.emit_i64(n['t_bits'])
+            e.emit(OP_EMBEDDING_LERP)
+        elif t == 'embedding_synthesis_handle':
+            # Stack order: [..., embedding_id, field_index]
+            self._expr(n['operand'])
+            e.emit(OP_PUSH); e.emit_i64(n['field_index'])
+            e.emit(OP_EMBEDDING_SYNTHESIS_HANDLE); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_synthesis_handle_raw':
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_PUSH); e.emit_i64(n['field_index'])
+            e.emit(OP_EMBEDDING_SYNTHESIS_HANDLE)
 
     def _embedding_new(self, n):
         """Emit OP_EMBEDDING_NEW with inline 1536-byte f32 vector data.
@@ -2142,6 +2198,477 @@ def demo_compute_under_subcap():
     ]}
 
 
+# --- Pod 3.6 Maid composes: synthesis test surfaces (B25-B26 Phase 1.2) ---
+
+def demo_synthesis_add_basic():
+    """Pod 3.6 B25 — add(e_unit_x, e_unit_y) = (1.0, 1.0, 0.0, 0.0, ...).
+    R10 expected: result[0]=0x3F800000, result[1]=0x3F800000, result[2]=0x00000000.
+    Synthesis tuple at vm_embedding_synthesis[(new_id-1)*32]: (op=0x01, source_a=1, source_b=2, scalar=0).
+    Tuple verification deferred to Phase 3.2 when OP_EMBEDDING_SYNTHESIS_HANDLE (0xCF) lands."""
+    v_x = _f32_vector_bytes([1.0, 0.0])
+    v_y = _f32_vector_bytes([0.0, 1.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Add Basic Test (Pod 3.6 B25) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':v_x}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':v_y}},
+        {'type':'let','name':'c','value':{'type':'embedding_add','lhs':{'type':'var','name':'a'},'rhs':{'type':'var','name':'b'}}},
+        {'type':'print','value':{'type':'str','value':f'c[0] (expect {_f32_bit_pattern(1.0)} = bit pattern of 1.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'c[1] (expect {_f32_bit_pattern(1.0)} = bit pattern of 1.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':f'c[2] (expect {_f32_bit_pattern(0.0)} = bit pattern of 0.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':2}},
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Add Basic test complete ==='}},
+    ]}
+
+def demo_synthesis_add_zero():
+    """Pod 3.6 B26 — add(a, zero_vector) = a byte-exact (R10 endpoint property)."""
+    a_vec = _f32_vector_bytes([1.0, 2.0, 3.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Add Zero Test (Pod 3.6 B26) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':a_vec}},
+        {'type':'let','name':'z','value':{'type':'embedding_new'}},   # default zero vector
+        {'type':'let','name':'c','value':{'type':'embedding_add','lhs':{'type':'var','name':'a'},'rhs':{'type':'var','name':'z'}}},
+        {'type':'print','value':{'type':'str','value':f'c[0] (expect {_f32_bit_pattern(1.0)} = a[0]=1.0 byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'c[1] (expect {_f32_bit_pattern(2.0)} = a[1]=2.0 byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':f'c[2] (expect {_f32_bit_pattern(3.0)} = a[2]=3.0 byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':2}},
+        {'type':'print','value':{'type':'str','value':f'c[383] (expect {_f32_bit_pattern(0.0)} = a[383]=0.0 byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':383}},
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Add Zero test complete ==='}},
+    ]}
+
+def demo_synthesis_subtract_basic():
+    """Pod 3.6 B27 — sub(e_unit_x, e_unit_y) = (1.0, -1.0, 0.0, ...).
+    R10 expected: result[0]=0x3F800000, result[1]=0xBF800000, result[2]=0x00000000."""
+    v_x = _f32_vector_bytes([1.0, 0.0])
+    v_y = _f32_vector_bytes([0.0, 1.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Subtract Basic Test (Pod 3.6 B27) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':v_x}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':v_y}},
+        {'type':'let','name':'c','value':{'type':'embedding_subtract','lhs':{'type':'var','name':'a'},'rhs':{'type':'var','name':'b'}}},
+        {'type':'print','value':{'type':'str','value':f'c[0] (expect {_f32_bit_pattern(1.0)} = bit pattern of 1.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'c[1] (expect {_f32_bit_pattern(-1.0)} = bit pattern of -1.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':f'c[2] (expect {_f32_bit_pattern(0.0)} = bit pattern of 0.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':2}},
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Subtract Basic test complete ==='}},
+    ]}
+
+def demo_synthesis_subtract_self():
+    """Pod 3.6 B28 — sub(a, a) = zero vector byte-exact (subss(x,x) = +0.0 for finite non-NaN x)."""
+    a_vec = _f32_vector_bytes([1.0, 2.0, 3.0, 4.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Subtract Self Test (Pod 3.6 B28) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':a_vec}},
+        {'type':'let','name':'c','value':{'type':'embedding_subtract','lhs':{'type':'var','name':'a'},'rhs':{'type':'var','name':'a'}}},
+        {'type':'print','value':{'type':'str','value':f'c[0] (expect {_f32_bit_pattern(0.0)} = +0.0 byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'c[1] (expect {_f32_bit_pattern(0.0)} = +0.0 byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':f'c[3] (expect {_f32_bit_pattern(0.0)} = +0.0 byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':3}},
+        {'type':'print','value':{'type':'str','value':f'c[100] (expect {_f32_bit_pattern(0.0)} = +0.0 byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':100}},
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Subtract Self test complete ==='}},
+    ]}
+
+def demo_synthesis_scale_basic():
+    """Pod 3.6 B29 — scale(2.0, e_unit_x) = (2.0, 0.0, ...).
+    R10 expected: result[0]=0x40000000, rest zero."""
+    v_x = _f32_vector_bytes([1.0, 0.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Scale Basic Test (Pod 3.6 B29) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':v_x}},
+        {'type':'let','name':'c','value':{'type':'embedding_scale','operand':{'type':'var','name':'a'},'scalar_bits':_f32_bit_pattern(2.0)}},
+        {'type':'print','value':{'type':'str','value':f'c[0] (expect {_f32_bit_pattern(2.0)} = bit pattern of 2.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'c[1] (expect {_f32_bit_pattern(0.0)} = bit pattern of 0.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Scale Basic test complete ==='}},
+    ]}
+
+def demo_synthesis_scale_zero():
+    """Pod 3.6 B30 — scale(0.0, a) = zero vector byte-exact (mulss(0.0, x) = 0 for finite non-NaN x)."""
+    a_vec = _f32_vector_bytes([1.0, 2.0, 3.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Scale Zero Test (Pod 3.6 B30) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':a_vec}},
+        {'type':'let','name':'c','value':{'type':'embedding_scale','operand':{'type':'var','name':'a'},'scalar_bits':_f32_bit_pattern(0.0)}},
+        {'type':'print','value':{'type':'str','value':f'c[0] (expect {_f32_bit_pattern(0.0)} = +0.0 byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'c[1] (expect {_f32_bit_pattern(0.0)} = +0.0 byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':f'c[2] (expect {_f32_bit_pattern(0.0)} = +0.0 byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':2}},
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Scale Zero test complete ==='}},
+    ]}
+
+def demo_synthesis_scale_negative():
+    """Pod 3.6 B31 — scale(-1.0, a) = -a byte-exact (negation; mulss(-1.0, x) = -x)."""
+    a_vec = _f32_vector_bytes([1.0, 2.0, 3.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Scale Negative Test (Pod 3.6 B31) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':a_vec}},
+        {'type':'let','name':'c','value':{'type':'embedding_scale','operand':{'type':'var','name':'a'},'scalar_bits':_f32_bit_pattern(-1.0)}},
+        {'type':'print','value':{'type':'str','value':f'c[0] (expect {_f32_bit_pattern(-1.0)} = -1.0 byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'c[1] (expect {_f32_bit_pattern(-2.0)} = -2.0 byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':f'c[2] (expect {_f32_bit_pattern(-3.0)} = -3.0 byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':2}},
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Scale Negative test complete ==='}},
+    ]}
+
+def demo_synthesis_normalize_basic():
+    """Pod 3.6 B32 — normalize(scale(2.0, e_unit_x)) = e_unit_x byte-exact (single divss).
+    R10 expected: norm_sq=0x40800000, norm=0x40000000, result[0]=0x3F800000, rest zero.
+    Sparse-non-trivial input; no v_uniform-class accumulator drift surface (B32-aux covers that)."""
+    # input directly: (2.0, 0.0, ..., 0.0)
+    v_2x = _f32_vector_bytes([2.0, 0.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Normalize Basic Test (Pod 3.6 B32) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':v_2x}},
+        {'type':'let','name':'c','value':{'type':'embedding_normalize','operand':{'type':'var','name':'a'}}},
+        {'type':'print','value':{'type':'str','value':f'c[0] (expect {_f32_bit_pattern(1.0)} = 1.0; sqrt(4)=2; 2/2=1 byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'c[1] (expect {_f32_bit_pattern(0.0)} = 0.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':f'c[100] (expect {_f32_bit_pattern(0.0)} = 0.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':100}},
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Normalize Basic test complete ==='}},
+    ]}
+
+def demo_synthesis_normalize_v_uniform_drift():
+    """Pod 3.6 B32-aux — D3.28 self-verifying canon: v_uniform 25-ulp normalize drift.
+
+    Per HALT 1 R10 simulation: 384 sequential addss accumulations of (1/sqrt(384))^2
+    produce norm_sq = 0x3F800019 (NOT algebraic 1.0 = 0x3F800000); norm = 0x3F80000C;
+    result[0..383] = 0x3D5105D8 (-20 ulp from input 0x3D5105EC). Uniform input → uniform
+    result; per-element drift is identical across all 384 dims.
+
+    This canary turns the predicted drift from documentation-only anti-pattern (Pod 3.5
+    Surprise 4 framing) into mechanically-enforced contract. Failure means the substrate's
+    FP-precision-prediction discipline has shifted — load-bearing event requiring D3.28
+    re-evaluation. The doctrine learns to defend itself."""
+    import math
+    val = 1.0 / math.sqrt(384.0)
+    v_uniform = _f32_vector_bytes([val] * EMBEDDING_DIM)
+    expected_drift = 0x3D5105D8   # per R10 sim; 1028720088 decimal
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Normalize v_uniform Drift Test (Pod 3.6 B32-aux; D3.28 canon) ==='}},
+        {'type':'let','name':'v','value':{'type':'embedding_new','vector':v_uniform}},
+        {'type':'let','name':'n','value':{'type':'embedding_normalize','operand':{'type':'var','name':'v'}}},
+        {'type':'print','value':{'type':'str','value':f'n[0] (expect {expected_drift} = 0x3D5105D8 per D3.28 R10 prediction):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'n'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'n[1] (expect {expected_drift} = uniform input -> uniform result):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'n'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':f'n[383] (expect {expected_drift} = uniform):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'n'},'dim_index':383}},
+        {'type':'print','value':{'type':'str','value':'=== B32-aux: 25-ulp drift mechanically enforced as D3.28 canon ==='}},
+    ]}
+
+def demo_synthesis_normalize_zero_reject():
+    """Pod 3.6 B33 — normalize(zero_vector) -> Err(InvalidEmbeddingArg, src=0xCD=205, err=9)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Normalize Zero Reject Test (Pod 3.6 B33) ==='}},
+        {'type':'let','name':'z','value':{'type':'embedding_new'}},   # default zero vector
+        {'type':'let','name':'o','value':{'type':'embedding_normalize_raw','id':1}},   # wrap-and-test the Outcome
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 205 = OP_EMBEDDING_NORMALIZE):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 9 = ERR_INVALID_EMBEDDING_ARG):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Normalize Zero Reject test complete ==='}},
+    ]}
+
+def demo_synthesis_lerp_basic():
+    """Pod 3.6 B34 — lerp(e_unit_x, e_unit_y, 0.5) = (0.5, 0.5, 0, ...)."""
+    v_x = _f32_vector_bytes([1.0, 0.0])
+    v_y = _f32_vector_bytes([0.0, 1.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Lerp Basic Test (Pod 3.6 B34) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':v_x}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':v_y}},
+        {'type':'let','name':'c','value':{'type':'embedding_lerp','a':{'type':'var','name':'a'},'b':{'type':'var','name':'b'},'t_bits':_f32_bit_pattern(0.5)}},
+        {'type':'print','value':{'type':'str','value':f'c[0] (expect {_f32_bit_pattern(0.5)} = 0.5):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'c[1] (expect {_f32_bit_pattern(0.5)} = 0.5):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':f'c[2] (expect {_f32_bit_pattern(0.0)} = 0.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':2}},
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Lerp Basic test complete ==='}},
+    ]}
+
+def demo_synthesis_lerp_t_zero():
+    """Pod 3.6 B35 — lerp(a, b, 0.0) = a byte-exact (Form A endpoint property)."""
+    a_vec = _f32_vector_bytes([1.0, 2.0, 3.0])
+    b_vec = _f32_vector_bytes([4.0, 5.0, 6.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Lerp t=0 Endpoint Test (Pod 3.6 B35) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':a_vec}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':b_vec}},
+        {'type':'let','name':'c','value':{'type':'embedding_lerp','a':{'type':'var','name':'a'},'b':{'type':'var','name':'b'},'t_bits':_f32_bit_pattern(0.0)}},
+        {'type':'print','value':{'type':'str','value':f'c[0] (expect {_f32_bit_pattern(1.0)} = a[0] byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'c[1] (expect {_f32_bit_pattern(2.0)} = a[1]):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':f'c[2] (expect {_f32_bit_pattern(3.0)} = a[2]):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':2}},
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Lerp t=0 test complete ==='}},
+    ]}
+
+def demo_synthesis_lerp_t_one():
+    """Pod 3.6 B36 — lerp(a, b, 1.0) = b byte-exact (Form A endpoint property)."""
+    a_vec = _f32_vector_bytes([1.0, 2.0, 3.0])
+    b_vec = _f32_vector_bytes([4.0, 5.0, 6.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Lerp t=1 Endpoint Test (Pod 3.6 B36) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':a_vec}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':b_vec}},
+        {'type':'let','name':'c','value':{'type':'embedding_lerp','a':{'type':'var','name':'a'},'b':{'type':'var','name':'b'},'t_bits':_f32_bit_pattern(1.0)}},
+        {'type':'print','value':{'type':'str','value':f'c[0] (expect {_f32_bit_pattern(4.0)} = b[0] byte-exact):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'c[1] (expect {_f32_bit_pattern(5.0)} = b[1]):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':f'c[2] (expect {_f32_bit_pattern(6.0)} = b[2]):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':2}},
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Lerp t=1 test complete ==='}},
+    ]}
+
+def demo_synthesis_lerp_irrational_t_drift():
+    """Pod 3.6 B34-aux — D3.28 self-verifying canon: lerp asymmetric drift at irrational t.
+
+    Per HALT 1 R10 simulation: lerp(e_unit_x, scale(2.0, e_unit_y), 1/3):
+      one_minus_t = subss(1.0, f32(1/3)) = 0x3F2AAAAA (= f32(2/3) - 1 ulp)
+      result[0] = mulss(0x3F2AAAAA, 1.0) + mulss(0x3F2AAAAB, 0.0) = 0x3F2AAAAA  (-1 ulp from algebraic 2/3)
+      result[1] = mulss(0x3F2AAAAA, 0.0) + mulss(0x3F2AAAAB, 2.0) = 0x3F2AAAAB  (= 2/3 byte-exact)
+
+    Same algebraic value (2/3) produces different bit patterns depending on which
+    side of the lerp the lossy multiplier traversed. Form A's two-mulss-then-addss
+    causes asymmetric drift. Companion to B32-aux (normalize 25-ulp accumulator drift):
+    together establish D3.28 as self-verifying canon across both accumulator-depth
+    and form-traversal drift surfaces. The doctrine learns to defend itself."""
+    v_x = _f32_vector_bytes([1.0, 0.0])
+    v_2y = _f32_vector_bytes([0.0, 2.0])   # b = scale(2.0, e_unit_y) precomputed
+    expect_0 = 0x3F2AAAAA   # 1059760810 decimal
+    expect_1 = 0x3F2AAAAB   # 1059760811 decimal
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Lerp Irrational-t Drift Test (Pod 3.6 B34-aux; D3.28 canon) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':v_x}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':v_2y}},
+        {'type':'let','name':'c','value':{'type':'embedding_lerp','a':{'type':'var','name':'a'},'b':{'type':'var','name':'b'},'t_bits':_f32_bit_pattern(1.0/3.0)}},
+        {'type':'print','value':{'type':'str','value':f'c[0] (expect {expect_0} = 0x3F2AAAAA = 2/3-1ulp via one_minus_t lossy traversal):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'c[1] (expect {expect_1} = 0x3F2AAAAB = 2/3 byte-exact via t * 2.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'c'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':'=== B34-aux: lerp form-traversal asymmetry mechanically enforced as D3.28 canon ==='}},
+    ]}
+
+def demo_synthesis_round_trip():
+    """Pod 3.6 B37 — synthesis tuple round-trip via OP_EMBEDDING_SYNTHESIS_HANDLE.
+    Forge e3 = add(e1, e2); query each tuple field; expect (op=1=ADD, source_a=1, source_b=2, scalar=0)."""
+    v_x = _f32_vector_bytes([1.0, 0.0])
+    v_y = _f32_vector_bytes([0.0, 1.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Round Trip Test (Pod 3.6 B37; D3.27 tuple via 0xCF accessor) ==='}},
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':v_x}},                    # id=1
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':v_y}},                    # id=2
+        {'type':'let','name':'c','value':{'type':'embedding_add','lhs':{'type':'var','name':'a'},'rhs':{'type':'var','name':'b'}}},   # id=3
+        {'type':'print','value':{'type':'str','value':'tuple[0] op (expect 1 = SYNTHESIS_OP_ADD):'}},
+        {'type':'print','value':{'type':'embedding_synthesis_handle','operand':{'type':'var','name':'c'},'field_index':0}},
+        {'type':'print','value':{'type':'str','value':'tuple[1] source_a (expect 1):'}},
+        {'type':'print','value':{'type':'embedding_synthesis_handle','operand':{'type':'var','name':'c'},'field_index':1}},
+        {'type':'print','value':{'type':'str','value':'tuple[2] source_b (expect 2):'}},
+        {'type':'print','value':{'type':'embedding_synthesis_handle','operand':{'type':'var','name':'c'},'field_index':2}},
+        {'type':'print','value':{'type':'str','value':'tuple[3] scalar (expect 0):'}},
+        {'type':'print','value':{'type':'embedding_synthesis_handle','operand':{'type':'var','name':'c'},'field_index':3}},
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Round Trip test complete ==='}},
+    ]}
+
+def demo_synthesis_unsynthesized():
+    """Pod 3.6 B38 — query tuple of raw OP_EMBEDDING_NEW; expect (0, 0, 0, 0) per BSS-zero default.
+    Closes B-prep-2 deferral: synthesis-tuple BSS state explicitly verified via the natural read surface."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Synthesis Unsynthesized Test (Pod 3.6 B38; closes B-prep-2 deferral) ==='}},
+        {'type':'let','name':'e','value':{'type':'embedding_new'}},   # id=1, raw, default zero vector
+        {'type':'print','value':{'type':'str','value':'tuple[0] op (expect 0 = SYNTHESIS_OP_NONE):'}},
+        {'type':'print','value':{'type':'embedding_synthesis_handle','operand':{'type':'var','name':'e'},'field_index':0}},
+        {'type':'print','value':{'type':'str','value':'tuple[1] source_a (expect 0):'}},
+        {'type':'print','value':{'type':'embedding_synthesis_handle','operand':{'type':'var','name':'e'},'field_index':1}},
+        {'type':'print','value':{'type':'str','value':'tuple[2] source_b (expect 0):'}},
+        {'type':'print','value':{'type':'embedding_synthesis_handle','operand':{'type':'var','name':'e'},'field_index':2}},
+        {'type':'print','value':{'type':'str','value':'tuple[3] scalar (expect 0):'}},
+        {'type':'print','value':{'type':'embedding_synthesis_handle','operand':{'type':'var','name':'e'},'field_index':3}},
+        {'type':'print','value':{'type':'str','value':'=== B38: BSS-zero confirmed; B-prep-2 deferral closed ==='}},
+    ]}
+
+def demo_analogical_reasoning():
+    """Pod 3.6 B39 — the closing arc. king - man + woman -> nearest -> Sign + synthesis lineage recovered.
+
+    Forge basis vectors as concept embeddings:
+      king      = e_unit_0 = (1, 0, 0, 0, ...) at id=1
+      man       = e_unit_1 = (0, 1, 0, 0, ...) at id=2
+      woman     = e_unit_2 = (0, 0, 1, 0, ...) at id=3
+      queen_ref = (1, -1, 1, 0, ...)            at id=4  (algebraically precomputed)
+
+    Forge Sign linked to queen_ref (sign_id=1 -> embedding_handle=4).
+
+    Compute:
+      diff   = subtract(king, man)      at id=5  -> (1, -1, 0, 0, ...)
+      result = add(diff, woman)         at id=6  -> (1, -1, 1, 0, ...) = queen_ref byte-exact
+
+    Recover:
+      lookup_top1(result)                          -> nearest = queen_ref (id=4); cosine = 1.0 (or -1ulp)
+      OP_EMBEDDING_SIGN_HANDLE(queen_ref id=4)     -> sign_id=1
+      OP_EMBEDDING_SYNTHESIS_HANDLE(result, ...)   -> (SYNTHESIS_OP_ADD, diff_id=5, woman_id=3, 0)
+
+    Forge-witness duality lands in one program. Maid composes; the substrate accounts for what it composed."""
+    v_king  = _f32_vector_bytes([1.0, 0.0, 0.0])
+    v_man   = _f32_vector_bytes([0.0, 1.0, 0.0])
+    v_woman = _f32_vector_bytes([0.0, 0.0, 1.0])
+    v_queen = _f32_vector_bytes([1.0, -1.0, 1.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Analogical Reasoning Demo (Pod 3.6 B39 — the Maid composes) ==='}},
+        # Forge concept embeddings
+        {'type':'let','name':'king',     'value':{'type':'embedding_new','vector':v_king}},     # id=1
+        {'type':'let','name':'man',      'value':{'type':'embedding_new','vector':v_man}},      # id=2
+        {'type':'let','name':'woman',    'value':{'type':'embedding_new','vector':v_woman}},    # id=3
+        {'type':'let','name':'queen_ref','value':{'type':'embedding_new','vector':v_queen}},    # id=4
+        # Forge Sign linked to queen_ref
+        {'type':'let','name':'queen_sign','value':{
+            'type':'sign_new',
+            'hash': b'\xff' + b'\x00' * 31, 'label': 'queen', 'energy': 100,
+            'embedding_handle': 4,
+        }},
+        {'type':'print','value':{'type':'str','value':'queen_sign sign_id (expect 1):'}},
+        {'type':'print','value':{'type':'var','name':'queen_sign'}},
+        # Compose: diff = king - man; result = diff + woman
+        {'type':'let','name':'diff',  'value':{'type':'embedding_subtract','lhs':{'type':'var','name':'king'},'rhs':{'type':'var','name':'man'}}},     # id=5
+        {'type':'let','name':'result','value':{'type':'embedding_add',     'lhs':{'type':'var','name':'diff'},'rhs':{'type':'var','name':'woman'}}},   # id=6
+        {'type':'print','value':{'type':'str','value':'diff   id (expect 5):'}},
+        {'type':'print','value':{'type':'var','name':'diff'}},
+        {'type':'print','value':{'type':'str','value':'result id (expect 6):'}},
+        {'type':'print','value':{'type':'var','name':'result'}},
+        # Recover via lookup_top1: should find queen_ref (id=4) — cosine(result, queen_ref) = 1.0
+        {'type':'let','name':'nearest','value':{'type':'embedding_lookup_top1','operand':{'type':'var','name':'result'}}},
+        {'type':'print','value':{'type':'str','value':'lookup_top1(result) -> nearest_id (expect 4 = queen_ref):'}},
+        {'type':'print','value':{'type':'var','name':'nearest'}},
+        # Recover Sign from nearest embedding_id
+        {'type':'print','value':{'type':'str','value':'OP_EMBEDDING_SIGN_HANDLE(nearest) -> sign_id (expect 1 = queen_sign):'}},
+        {'type':'print','value':{'type':'embedding_sign_handle','operand':{'type':'var','name':'nearest'}}},
+        # Recover synthesis lineage from result
+        {'type':'print','value':{'type':'str','value':'OP_EMBEDDING_SYNTHESIS_HANDLE(result, op) -> (expect 1 = SYNTHESIS_OP_ADD):'}},
+        {'type':'print','value':{'type':'embedding_synthesis_handle','operand':{'type':'var','name':'result'},'field_index':0}},
+        {'type':'print','value':{'type':'str','value':'OP_EMBEDDING_SYNTHESIS_HANDLE(result, source_a) -> (expect 5 = diff_id):'}},
+        {'type':'print','value':{'type':'embedding_synthesis_handle','operand':{'type':'var','name':'result'},'field_index':1}},
+        {'type':'print','value':{'type':'str','value':'OP_EMBEDDING_SYNTHESIS_HANDLE(result, source_b) -> (expect 3 = woman_id):'}},
+        {'type':'print','value':{'type':'embedding_synthesis_handle','operand':{'type':'var','name':'result'},'field_index':2}},
+        {'type':'print','value':{'type':'str','value':'=== Maid composes; substrate accounts for what it composed ==='}},
+    ]}
+
+def demo_forge_authority_required():
+    """Pod 3.6 B40 — cap without BIT_EMBEDDING_FORGE attempts ADD -> Err(InsufficientAuthority, src=0xCA=202)."""
+    v_x = _f32_vector_bytes([1.0, 0.0])
+    v_y = _f32_vector_bytes([0.0, 1.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Forge Authority Required Test (Pod 3.6 B40) ==='}},
+        # Forge sources under ROOT (which has all bits)
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':v_x}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':v_y}},
+        # Construct cap A WITHOUT BIT_EMBEDDING_FORGE (only BIT_SIGN_FORGE | BIT_CAP_FORGE)
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap': BIT_SIGN_FORGE | BIT_CAP_FORGE, 'energy_budget': 10000}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'let','name':'enter_a','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        # Attempt ADD under A; bit-check fails
+        {'type':'let','name':'o','value':{'type':'embedding_add_raw','id_a':1,'id_b':2}},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 202 = OP_EMBEDDING_ADD):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 8 = ERR_CAP_INSUFFICIENT_AUTHORITY):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'let','name':'exit_a','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'=== Forge Authority Required test complete ==='}},
+    ]}
+
+def demo_babylon_ripple_synthesis():
+    """Pod 3.6 B41 — ADD under sub-cap A; expect A.used=0, ROOT.used += floor(500/2) = 250.
+    Mirrors Pod 3.5 B23 compute_under_subcap; first synthesis-tier babylon ripple
+    via D3.9/D3.23 axiom inheritance through .construct_ok_outcome."""
+    v_x = _f32_vector_bytes([1.0, 0.0])
+    v_y = _f32_vector_bytes([0.0, 1.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Babylon Ripple Synthesis Test (Pod 3.6 B41; first synthesis-tier ripple) ==='}},
+        # Forge sources under ROOT
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':v_x}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':v_y}},
+        # Construct cap A with BIT_EMBEDDING_FORGE | BIT_CAP_FORGE; energy_budget 10000 (room for 500j ADD)
+        {'type':'let','name':'co','value':{'type':'cap_new','granted_bitmap': BIT_EMBEDDING_FORGE | BIT_CAP_FORGE, 'energy_budget': 10000}},
+        {'type':'let','name':'cap_a','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'co'}}},
+        {'type':'let','name':'enter_a','value':{'type':'cap_enter','operand':{'type':'var','name':'cap_a'}}},
+        # ADD under A
+        {'type':'let','name':'c','value':{'type':'embedding_add','lhs':{'type':'var','name':'a'},'rhs':{'type':'var','name':'b'}}},
+        {'type':'print','value':{'type':'str','value':'add result id (expect 3):'}},
+        {'type':'print','value':{'type':'var','name':'c'}},
+        {'type':'let','name':'exit_a','value':{'type':'cap_exit'}},
+        # Check ripple
+        {'type':'print','value':{'type':'str','value':'A.used (expect 0; originating doesn\'t charge itself):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'cap_a'}}},
+        {'type':'print','value':{'type':'str','value':'ROOT.used (expect 250; floor(500/2) ADD ripple):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'=== Babylon Ripple Synthesis test complete ==='}},
+    ]}
+
+def demo_pool_capacity_synthesis_pressure():
+    """Pod 3.6 B42 — fill pool to 256/256 then attempt ADD -> Err(PoolFull, src=0xCA=202, err=2).
+    Uses while loop to forge embeddings until pool exhausted; then ADD must allocate slot 257."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Pool Capacity Synthesis Pressure Test (Pod 3.6 B42) ==='}},
+        # Forge initial 2 embeddings (ids 1, 2 — used as ADD sources)
+        {'type':'let','name':'a','value':{'type':'embedding_new'}},
+        {'type':'let','name':'b','value':{'type':'embedding_new'}},
+        # Loop forge 254 more (ids 3..256); pool ends at 256/256
+        {'type':'let','name':'n','value':{'type':'int','value':2}},
+        {'type':'while',
+         'cond':{'type':'lt','left':{'type':'var','name':'n'},'right':{'type':'int','value':256}},
+         'body':{'type':'block','stmts':[
+             {'type':'let','name':'_e','value':{'type':'embedding_new'}},
+             {'type':'let','name':'n','value':{'type':'add','left':{'type':'var','name':'n'},'right':{'type':'int','value':1}}},
+         ]}},
+        {'type':'print','value':{'type':'str','value':'pool filled to 256/256; final n (expect 256):'}},
+        {'type':'print','value':{'type':'var','name':'n'}},
+        # Now attempt ADD; needs to allocate slot 257 -> pool capacity check fails -> Err(PoolFull)
+        {'type':'let','name':'o','value':{'type':'embedding_add_raw','id_a':1,'id_b':2}},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 202 = OP_EMBEDDING_ADD):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 2 = ERR_POOL_FULL):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== Pool Capacity Synthesis Pressure test complete ==='}},
+    ]}
+
 def demo_energy():
     """Pod 1.8 Energy typed primitive test — hardcoded AST demo"""
     return {'type':'program','body':[
@@ -2749,5 +3276,119 @@ if __name__ == '__main__':
     elif '--maid-composition-test' in sys.argv:
         c = AtreyuX86(); bc = c.compile(demo_maid_composition())
         print(f"Maid Composition test: {len(bc)} bytes")
+    # --- Pod 3.6 Maid composes: synthesis test surfaces (Phase 1.2 B25-B26) ---
+    elif '--synthesis-add-basic-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_add_basic())
+        out = sys.argv[sys.argv.index('--synthesis-add-basic-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-add-basic-build')+1 else 'test_synthesis_add_basic.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Add Basic test: compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-add-basic-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_add_basic())
+        print(f"Synthesis Add Basic test: {len(bc)} bytes")
+    elif '--synthesis-add-zero-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_add_zero())
+        out = sys.argv[sys.argv.index('--synthesis-add-zero-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-add-zero-build')+1 else 'test_synthesis_add_zero.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Add Zero test: compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-add-zero-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_add_zero())
+        print(f"Synthesis Add Zero test: {len(bc)} bytes")
+    elif '--synthesis-subtract-basic-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_subtract_basic())
+        out = sys.argv[sys.argv.index('--synthesis-subtract-basic-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-subtract-basic-build')+1 else 'test_synthesis_subtract_basic.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Subtract Basic test: compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-subtract-basic-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_subtract_basic())
+        print(f"Synthesis Subtract Basic test: {len(bc)} bytes")
+    elif '--synthesis-subtract-self-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_subtract_self())
+        out = sys.argv[sys.argv.index('--synthesis-subtract-self-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-subtract-self-build')+1 else 'test_synthesis_subtract_self.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Subtract Self test: compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-subtract-self-test' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_subtract_self())
+        print(f"Synthesis Subtract Self test: {len(bc)} bytes")
+    elif '--synthesis-scale-basic-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_scale_basic())
+        out = sys.argv[sys.argv.index('--synthesis-scale-basic-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-scale-basic-build')+1 else 'test_synthesis_scale_basic.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Scale Basic test: compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-scale-zero-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_scale_zero())
+        out = sys.argv[sys.argv.index('--synthesis-scale-zero-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-scale-zero-build')+1 else 'test_synthesis_scale_zero.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Scale Zero test: compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-scale-negative-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_scale_negative())
+        out = sys.argv[sys.argv.index('--synthesis-scale-negative-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-scale-negative-build')+1 else 'test_synthesis_scale_negative.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Scale Negative test: compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-normalize-basic-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_normalize_basic())
+        out = sys.argv[sys.argv.index('--synthesis-normalize-basic-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-normalize-basic-build')+1 else 'test_synthesis_normalize_basic.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Normalize Basic test: compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-normalize-v-uniform-drift-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_normalize_v_uniform_drift())
+        out = sys.argv[sys.argv.index('--synthesis-normalize-v-uniform-drift-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-normalize-v-uniform-drift-build')+1 else 'test_synthesis_normalize_v_uniform_drift.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Normalize v_uniform Drift test (B32-aux): compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-normalize-zero-reject-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_normalize_zero_reject())
+        out = sys.argv[sys.argv.index('--synthesis-normalize-zero-reject-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-normalize-zero-reject-build')+1 else 'test_synthesis_normalize_zero_reject.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Normalize Zero Reject test: compiled {len(bc)} bytes -> {out}")
+    # --- Pod 3.6 Phase 3.1 (lerp) + Phase 3.2 (synthesis_handle + closing arc) ---
+    elif '--synthesis-lerp-basic-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_lerp_basic())
+        out = sys.argv[sys.argv.index('--synthesis-lerp-basic-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-lerp-basic-build')+1 else 'test_synthesis_lerp_basic.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Lerp Basic test: compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-lerp-t-zero-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_lerp_t_zero())
+        out = sys.argv[sys.argv.index('--synthesis-lerp-t-zero-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-lerp-t-zero-build')+1 else 'test_synthesis_lerp_t_zero.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Lerp t=0 test: compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-lerp-t-one-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_lerp_t_one())
+        out = sys.argv[sys.argv.index('--synthesis-lerp-t-one-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-lerp-t-one-build')+1 else 'test_synthesis_lerp_t_one.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Lerp t=1 test: compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-lerp-irrational-drift-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_lerp_irrational_t_drift())
+        out = sys.argv[sys.argv.index('--synthesis-lerp-irrational-drift-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-lerp-irrational-drift-build')+1 else 'test_synthesis_lerp_irrational_drift.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Lerp Irrational-t Drift test (B34-aux): compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-round-trip-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_round_trip())
+        out = sys.argv[sys.argv.index('--synthesis-round-trip-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-round-trip-build')+1 else 'test_synthesis_round_trip.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Round Trip test (B37): compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-unsynthesized-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_synthesis_unsynthesized())
+        out = sys.argv[sys.argv.index('--synthesis-unsynthesized-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-unsynthesized-build')+1 else 'test_synthesis_unsynthesized.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Unsynthesized test (B38): compiled {len(bc)} bytes -> {out}")
+    elif '--analogical-reasoning-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_analogical_reasoning())
+        out = sys.argv[sys.argv.index('--analogical-reasoning-build')+1] if len(sys.argv) > sys.argv.index('--analogical-reasoning-build')+1 else 'test_analogical_reasoning.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Analogical Reasoning test (B39): compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-forge-authority-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_forge_authority_required())
+        out = sys.argv[sys.argv.index('--synthesis-forge-authority-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-forge-authority-build')+1 else 'test_synthesis_forge_authority.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Forge Authority Required test (B40): compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-babylon-ripple-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_babylon_ripple_synthesis())
+        out = sys.argv[sys.argv.index('--synthesis-babylon-ripple-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-babylon-ripple-build')+1 else 'test_synthesis_babylon_ripple.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Babylon Ripple test (B41): compiled {len(bc)} bytes -> {out}")
+    elif '--synthesis-pool-capacity-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pool_capacity_synthesis_pressure())
+        out = sys.argv[sys.argv.index('--synthesis-pool-capacity-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-pool-capacity-build')+1 else 'test_synthesis_pool_capacity.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Synthesis Pool Capacity Pressure test (B42): compiled {len(bc)} bytes -> {out}")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-bitmap,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test} | --bitmap-{root-unbounded,subset-grant-succeeds,superset-grant-fails,authority-check-{passes,fails},accessor-round-trip}-{build,test} | --embedding-{new-basic,accessor-round-trip,invalid-id,authority-check-{passes,fails}}-{build,test} | --sign-{with-embedding,invalid-embedding-handle}-{build,test}")

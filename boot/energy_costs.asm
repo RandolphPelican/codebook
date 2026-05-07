@@ -141,7 +141,12 @@ energy_cost_table:
                             ; 256 × cosine internal + 256 × MAC verify; D3.17 anticipated-worst-case
                             ; static cost; D3.24 substrate budget scaled to 1M to accommodate;
                             ; demos may forge sub-caps for lineage tracking but dispatch is r14-bound)
-    dq 1, 1, 1, 1, 1, 1     ; 0xCA–0xCF reserved for Pod 3.5+ extensions
+    dq 500                  ; 0xCA — OP_EMBEDDING_ADD (Pod 3.6; SEAL-calibrated; B25/B26 empirical: ~503j matches; 384 mulss + 384 addss + forge + MAC + tuple write)
+    dq 500                  ; 0xCB — OP_EMBEDDING_SUBTRACT (Pod 3.6; SEAL-calibrated; B27/B28 empirical: ~503j matches; same shape as ADD with subss)
+    dq 500                  ; 0xCC — OP_EMBEDDING_SCALE (Pod 3.6; SEAL-calibrated; B29-B31 empirical: ~489j matches; 384 mulss + scalar broadcast + forge + MAC)
+    dq 700                  ; 0xCD — OP_EMBEDDING_NORMALIZE (Pod 3.6; SEAL-calibrated; B32 empirical: ~699j matches; sum_sq + sqrt + 384 divss + forge + MAC; Form A per D3.14)
+    dq 800                  ; 0xCE — OP_EMBEDDING_LERP (Pod 3.6; SEAL-calibrated; B34 empirical: ~804j matches; (1-t) precompute + 768 mulss + 384 addss + forge + MAC; Form A endpoint-byte-exact)
+    dq 1                    ; 0xCF — OP_EMBEDDING_SYNTHESIS_HANDLE (Pod 3.6; witness; metabolic minimum; lookup + side-table read per D3.26; mirrors 0xC5 cost shape)
 ; Row 0xD0–0xDF — Energy opcodes (Pod 1.8) + Pod 1.8.5c 0xD4/0xD5 + Pod 1.10.2b2 accessors at 0xD6-0xD8
     dq 10                   ; 0xD0 — OP_ENERGY_NEW
     dq 1                    ; 0xD1 — OP_ENERGY_JOULES (accessor)

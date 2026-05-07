@@ -88,6 +88,22 @@ vm_sign_embedding_handle: times SIGN_POOL_SLOTS dq 0
     align 16
 vm_embedding_sign_handle: times EMBEDDING_POOL_SLOTS dq 0
 
+; Embedding synthesis side-table (Pod 3.6 — D3.20 generalized per D3.26)
+;   Parallel BSS array indexed by (embedding_id - 1) * SYNTHESIS_TUPLE_BYTES.
+;   D3.26 broadens D3.20 from "Sign reverse" specifically to "non-MAC parallel
+;   linkage" generally. The convention this side-table embodies was already
+;   enacted by vm_embedding_sign_handle above; D3.26 makes the generalization
+;   explicit (recognition, not invention).
+;   Written at synthesis forge time (Pod 3.6 ops 0xCA-0xCE) post-siphash,
+;   pre-Outcome-wrap (R4 step 9.5; mirrors OP_SIGN_NEW reverse-write shape).
+;   Read via OP_EMBEDDING_SYNTHESIS_HANDLE accessor (0xCF).
+;   BSS-zero default = SYNTHESIS_OP_NONE (0x00) for non-synthesized embeddings
+;   (Sign-forged, raw OP_EMBEDDING_NEW). Substrate trusts its own write paths
+;   (D3.20 inheritance). Sized to EMBEDDING_POOL_SLOTS × SYNTHESIS_TUPLE_BYTES
+;   = 256 × 32 = 8192 bytes.
+    align 16
+vm_embedding_synthesis: times EMBEDDING_POOL_SLOTS * SYNTHESIS_TUPLE_BYTES db 0
+
 ; Sign registry (Pod 1.8.5b — Move 4)
 ;   Maps sign_id (opaque counter, 1-based) -> slot pointer (u64).
 ;   Each entry = {id: u64, slot_ptr: u64} = 16 bytes.
