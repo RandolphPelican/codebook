@@ -29,9 +29,23 @@ echo ""
 
 mkdir -p "$BUILD_DIR"
 
-# ---- Dependency check ----
-command -v nasm  >/dev/null || { echo "[!] NASM not found. sudo apt install nasm"; exit 1; }
-command -v mcopy >/dev/null || { echo "[!] mtools not found. sudo apt install mtools"; exit 1; }
+# ---- Pod 3.7 build-shell determinism (D3.29 + DEFERRED #89 RESOLVED) ----
+# Dual-layer pinning: absolute-path bypasses $PATH (defense against Git-Bash-
+# on-Windows or other shells with different binaries on PATH); version-grep
+# guards against silent toolchain drift. NASM/MCOPY env vars are override-
+# friendly for testability (Pod 3.7 B47 host-side guard test fakes a wrong
+# nasm via NASM=/tmp/fake_nasm to verify fail-loud behavior).
+NASM="${NASM:-/usr/bin/nasm}"
+MCOPY="${MCOPY:-/usr/bin/mcopy}"
+EXPECTED_NASM_VERSION="2.16.01"
+EXPECTED_MCOPY_VERSION="4.0.43"
+
+[ -x "$NASM" ]  || { echo "BUILD-SHELL: $NASM not found or not executable";  exit 1; }
+[ -x "$MCOPY" ] || { echo "BUILD-SHELL: $MCOPY not found or not executable"; exit 1; }
+
+"$NASM"  --version | grep -q "$EXPECTED_NASM_VERSION"  || { echo "BUILD-SHELL: nasm version mismatch (expected $EXPECTED_NASM_VERSION); got: $("$NASM" --version)"; exit 1; }
+"$MCOPY" --version 2>&1 | grep -q "$EXPECTED_MCOPY_VERSION" || { echo "BUILD-SHELL: mcopy version mismatch (expected $EXPECTED_MCOPY_VERSION); got: $("$MCOPY" --version 2>&1 | head -1)"; exit 1; }
+# ---- end Pod 3.7 dependency check ----
 
 # ---- [1/5] Pre-compile CBS surfaces (best-effort, dev-only) ----
 echo "[1/5] Pre-compiling CBS surfaces..."
@@ -49,7 +63,7 @@ find "$SCRIPT_DIR" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || 
 
 # ---- [3/5] Assemble boot.asm ----
 echo "[3/5] Assembling boot.asm..."
-nasm -f bin -o "$BUILD_DIR/$EFI_NAME" "$BOOT_DIR/boot.asm"
+"$NASM" -f bin -o "$BUILD_DIR/$EFI_NAME" "$BOOT_DIR/boot.asm"
 SIZE=$(stat -c %s "$BUILD_DIR/$EFI_NAME" 2>/dev/null || stat -f %z "$BUILD_DIR/$EFI_NAME")
 echo "      $EFI_NAME: $SIZE bytes"
 
@@ -69,7 +83,7 @@ dd if=/dev/zero of="$BUILD_DIR/$IMG_NAME" bs=1M count=$IMG_SIZE_MB status=none
 
 mmd -i "$BUILD_DIR/$IMG_NAME" ::/EFI
 mmd -i "$BUILD_DIR/$IMG_NAME" ::/EFI/BOOT
-mcopy -i "$BUILD_DIR/$IMG_NAME" "$BUILD_DIR/$EFI_NAME" ::/EFI/BOOT/BOOTX64.EFI
+"$MCOPY" -i "$BUILD_DIR/$IMG_NAME" "$BUILD_DIR/$EFI_NAME" ::/EFI/BOOT/BOOTX64.EFI
 
 echo ""
 echo "=== Build complete ==="

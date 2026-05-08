@@ -11,14 +11,14 @@
 
 %define TEXT_RVA     0x1000
 %define TEXT_RAW     0x200
-%define TEXT_RAWSZ   0x100000      ; 64KB for code+VM+programs
-%define TEXT_VSZ     0x100000
+%define TEXT_RAWSZ   0x500000      ; Pod 3.7 D3.29 — expanded from 0x100000 to accommodate ~3.4MB BSS growth (vm_embedding_pool 256→2048, vm_outcome_pool 64→4096, side-tables cascade); 5MB total budget for code+VM+programs+BSS
+%define TEXT_VSZ     0x500000
 
-%define RELOC_RVA    0x101000
-%define RELOC_RAW    0x100200
+%define RELOC_RVA    0x501000      ; Pod 3.7: shifted by TEXT_RAWSZ delta (0x101000 → 0x501000)
+%define RELOC_RAW    0x500200      ; Pod 3.7: shifted (0x100200 → 0x500200)
 %define RELOC_RAWSZ  0x200
 %define RELOC_VSZ    0x200
-%define IMAGE_SZ     0x102000
+%define IMAGE_SZ     0x502000      ; Pod 3.7: shifted (0x102000 → 0x502000)
 
 %define ST_CONIN     0x30
 %define ST_CONOUT    0x40
@@ -315,7 +315,7 @@
 
 ; --- Outcome struct layout (Pod 1.9.2a; D1.9.1.5 inline error context) ---
 %define OUTCOME_SLOT_SIZE    0x80   ; 128 bytes
-%define OUTCOME_POOL_SLOTS   64
+%define OUTCOME_POOL_SLOTS   4096   ; Pod 3.7 D3.29 — proportional coupling: OUTCOME_POOL_SLOTS >= 2 * EMBEDDING_POOL_SLOTS (#90 RESOLVED); 64 (Pod 1.9.2a) -> 4096
 %define OUTCOME_OFF_CREATOR_CAP_ID 0x68   ; Pod 1.10.2b2 — last qword of former Pod 3+ reserved zone
 
 ; --- Pod 3 Embedding typed primitive (D3.1; substrate-prep mode) ---
@@ -336,7 +336,7 @@
 %define EMBEDDING_VECTOR_BYTES      1536    ; 384 * 4
 %define EMBEDDING_SLOT_BYTES        1576    ; 197 qwords (header 4 + vector 192 + MAC 1)
 %define EMBEDDING_SLOT_QWORDS       197
-%define EMBEDDING_POOL_SLOTS        256   ; Pod 3.5 D3.16 — anticipated-empirical-pressure expansion (#83 cash); precedent does NOT generalize to other pools
+%define EMBEDDING_POOL_SLOTS        2048  ; Pod 3.7 D3.29 — production codebook scale (#83 RESOLVED); 256 (Pod 3.5) -> 2048; side-tables vm_embedding_sign_handle/vm_embedding_synthesis cascade automatically per shared-constant discipline
 %define EMBEDDING_MAC_INPUT_QWORDS  196     ; header (4) + vector (192); MAC at +0x620
 %define EMBEDDING_OFF_ID_SELF       0x000
 %define EMBEDDING_OFF_ARENA_ID      0x008

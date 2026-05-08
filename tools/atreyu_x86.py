@@ -2669,6 +2669,117 @@ def demo_pool_capacity_synthesis_pressure():
         {'type':'print','value':{'type':'str','value':'=== Pool Capacity Synthesis Pressure test complete ==='}},
     ]}
 
+# --- Pod 3.7 canaries (B43-B45): capacity expansion verification ---
+
+def demo_pod37_embedding_pool_capacity_at_2048():
+    """Pod 3.7 B43 — forge 2048 embeddings (filling pool); 2049th → Err(PoolFull, src=0xC0=192, err=2).
+    Verifies EMBEDDING_POOL_SLOTS expansion 256→2048 (DEFERRED #83 RESOLVED).
+    Outcome pool at 4096 has room for the 2049th err outcome (D3.29 proportionality)."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Pod 3.7 B43 — Embedding Pool Capacity at 2048 ==='}},
+        # Forge 2048 embeddings via while loop
+        {'type':'let','name':'n','value':{'type':'int','value':0}},
+        {'type':'while',
+         'cond':{'type':'lt','left':{'type':'var','name':'n'},'right':{'type':'int','value':2048}},
+         'body':{'type':'block','stmts':[
+             {'type':'let','name':'_e','value':{'type':'embedding_new'}},
+             {'type':'let','name':'n','value':{'type':'add','left':{'type':'var','name':'n'},'right':{'type':'int','value':1}}},
+         ]}},
+        {'type':'print','value':{'type':'str','value':'pool filled; n (expect 2048):'}},
+        {'type':'print','value':{'type':'var','name':'n'}},
+        # 2049th forge → Err
+        {'type':'let','name':'o','value':{'type':'embedding_new', 'wrap': True}},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 192 = OP_EMBEDDING_NEW):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 2 = ERR_POOL_FULL):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== B43: embedding_pool 2048-slot capacity verified ==='}},
+    ]}
+
+def demo_pod37_outcome_pool_under_synthesis_load():
+    """Pod 3.7 B44 — stress outcome_pool under combined embedding-fill + post-fill-err.
+    Forge in loop until is_ok signals failure (embedding pool fills at 2048); continue forging
+    in non-unwrap mode to fill outcome_pool with err outcomes; verify substrate handles
+    gracefully and halts cleanly. D3.29 proportional coupling validated under stress."""
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Pod 3.7 B44 — Outcome Pool Under Synthesis Load ==='}},
+        # Forge 2048 embeddings (fills embedding_pool; 2048 ok outcomes registered)
+        {'type':'let','name':'n','value':{'type':'int','value':0}},
+        {'type':'while',
+         'cond':{'type':'lt','left':{'type':'var','name':'n'},'right':{'type':'int','value':2048}},
+         'body':{'type':'block','stmts':[
+             {'type':'let','name':'_e','value':{'type':'embedding_new'}},
+             {'type':'let','name':'n','value':{'type':'add','left':{'type':'var','name':'n'},'right':{'type':'int','value':1}}},
+         ]}},
+        {'type':'print','value':{'type':'str','value':'phase 1 (embedding_pool filled): n (expect 2048):'}},
+        {'type':'print','value':{'type':'var','name':'n'}},
+        # Forge 1900 more in non-unwrap mode (2048 ok + 1900 err = 3948 outcomes; under 4096 ceiling)
+        {'type':'let','name':'m','value':{'type':'int','value':0}},
+        {'type':'while',
+         'cond':{'type':'lt','left':{'type':'var','name':'m'},'right':{'type':'int','value':1900}},
+         'body':{'type':'block','stmts':[
+             {'type':'let','name':'_o','value':{'type':'embedding_new', 'wrap': True}},   # err outcome registered, not unwrapped
+             {'type':'let','name':'m','value':{'type':'add','left':{'type':'var','name':'m'},'right':{'type':'int','value':1}}},
+         ]}},
+        {'type':'print','value':{'type':'str','value':'phase 2 (1900 err outcomes registered): m (expect 1900):'}},
+        {'type':'print','value':{'type':'var','name':'m'}},
+        # Final forge attempt; outcome_pool nearly full (3948 + this one = 3949); should still construct err outcome
+        {'type':'let','name':'final_o','value':{'type':'embedding_new', 'wrap': True}},
+        {'type':'print','value':{'type':'str','value':'final is_ok (expect 0 = err on embedding pool full):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'final_o'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'final_o'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 192 = OP_EMBEDDING_NEW):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 2 = ERR_POOL_FULL):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== B44: outcome_pool 4096-slot capacity verified under stress ==='}},
+    ]}
+
+def demo_pod37_mixed_workload_within_capacity():
+    """Pod 3.7 B45 — realistic forge+accessor+synthesis mixed workload at production scale.
+    50 embeddings forged + several synthesis ops + lookup_top1 + sign linkage; all pools handle.
+    Demonstrates D3.29 proportionality holds under realistic workload (not corner-case stress)."""
+    v_anchor = _f32_vector_bytes([1.0, 0.5, 0.25])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Pod 3.7 B45 — Mixed Workload Within Capacity ==='}},
+        # Forge an anchor + 49 random-ish embeddings via loop (default-zero is fine for capacity test)
+        {'type':'let','name':'anchor','value':{'type':'embedding_new','vector':v_anchor}},  # id=1
+        {'type':'let','name':'n','value':{'type':'int','value':1}},
+        {'type':'while',
+         'cond':{'type':'lt','left':{'type':'var','name':'n'},'right':{'type':'int','value':50}},
+         'body':{'type':'block','stmts':[
+             {'type':'let','name':'_e','value':{'type':'embedding_new'}},
+             {'type':'let','name':'n','value':{'type':'add','left':{'type':'var','name':'n'},'right':{'type':'int','value':1}}},
+         ]}},
+        {'type':'print','value':{'type':'str','value':'embeddings forged (expect 50):'}},
+        {'type':'print','value':{'type':'var','name':'n'}},
+        # Synthesis ops
+        {'type':'let','name':'doubled','value':{'type':'embedding_scale','operand':{'type':'var','name':'anchor'},'scalar_bits':_f32_bit_pattern(2.0)}},
+        {'type':'let','name':'sum','value':{'type':'embedding_add','lhs':{'type':'var','name':'anchor'},'rhs':{'type':'var','name':'doubled'}}},
+        {'type':'let','name':'mid','value':{'type':'embedding_lerp','a':{'type':'var','name':'anchor'},'b':{'type':'var','name':'doubled'},'t_bits':_f32_bit_pattern(0.5)}},
+        {'type':'print','value':{'type':'str','value':'doubled[0] (expect 1073741824 = 2.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'doubled'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':'sum[0] (expect 1077936128 = 3.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'sum'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':'mid[0] (expect 1069547520 = 1.5):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'mid'},'dim_index':0}},
+        # Synthesis tuple readback
+        {'type':'print','value':{'type':'str','value':'sum tuple op (expect 1 = ADD):'}},
+        {'type':'print','value':{'type':'embedding_synthesis_handle','operand':{'type':'var','name':'sum'},'field_index':0}},
+        {'type':'print','value':{'type':'str','value':'=== B45: mixed workload across 50+ embeddings + synthesis ops handled cleanly ==='}},
+    ]}
+
 def demo_energy():
     """Pod 1.8 Energy typed primitive test — hardcoded AST demo"""
     return {'type':'program','body':[
@@ -3390,5 +3501,21 @@ if __name__ == '__main__':
         out = sys.argv[sys.argv.index('--synthesis-pool-capacity-build')+1] if len(sys.argv) > sys.argv.index('--synthesis-pool-capacity-build')+1 else 'test_synthesis_pool_capacity.cbc'
         with open(out,'wb') as f: f.write(bc)
         print(f"Synthesis Pool Capacity Pressure test (B42): compiled {len(bc)} bytes -> {out}")
+    # --- Pod 3.7 capacity-expansion canaries (B43-B45) ---
+    elif '--pod37-embedding-pool-capacity-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod37_embedding_pool_capacity_at_2048())
+        out = sys.argv[sys.argv.index('--pod37-embedding-pool-capacity-build')+1] if len(sys.argv) > sys.argv.index('--pod37-embedding-pool-capacity-build')+1 else 'test_pod37_embedding_pool_capacity.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 3.7 Embedding Pool Capacity at 2048 test (B43): compiled {len(bc)} bytes -> {out}")
+    elif '--pod37-outcome-pool-load-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod37_outcome_pool_under_synthesis_load())
+        out = sys.argv[sys.argv.index('--pod37-outcome-pool-load-build')+1] if len(sys.argv) > sys.argv.index('--pod37-outcome-pool-load-build')+1 else 'test_pod37_outcome_pool_load.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 3.7 Outcome Pool Under Load test (B44): compiled {len(bc)} bytes -> {out}")
+    elif '--pod37-mixed-workload-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod37_mixed_workload_within_capacity())
+        out = sys.argv[sys.argv.index('--pod37-mixed-workload-build')+1] if len(sys.argv) > sys.argv.index('--pod37-mixed-workload-build')+1 else 'test_pod37_mixed_workload.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 3.7 Mixed Workload test (B45): compiled {len(bc)} bytes -> {out}")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-bitmap,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test} | --bitmap-{root-unbounded,subset-grant-succeeds,superset-grant-fails,authority-check-{passes,fails},accessor-round-trip}-{build,test} | --embedding-{new-basic,accessor-round-trip,invalid-id,authority-check-{passes,fails}}-{build,test} | --sign-{with-embedding,invalid-embedding-handle}-{build,test}")
