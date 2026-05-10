@@ -119,6 +119,7 @@ OP_EMBEDDING_SYNTHESIS_HANDLE = 0xCF   # GET_DIM-style parameterized accessor fo
 # --- Pod 3.8 codebook-tier (Q5 0xF0-0xFE row; D3.31) ---
 OP_EMBEDDING_IMPORT          = 0xF0    # forge embedding from codebook block (Pod 3.8.F)
 OP_EMBEDDING_IMPORTED_HANDLE = 0xF1    # GET_DIM-style parameterized accessor for imported tuple (Pod 3.8.E)
+OP_EMBEDDING_LOOKUP_TOP_K    = 0xF2    # top-K + threshold housekeeper recognition; "Maid finds many" (Pod 3.9 D3.35)
 
 # --- Pod 1.10.3 substrate constants (for default arg values) ---
 # Signed two's-complement representation of 0xFFFFFFFFFFFFFFFF for
@@ -620,6 +621,22 @@ class AtreyuX86:
             e.emit(OP_PUSH); e.emit_i64(n['id'])
             e.emit(OP_PUSH); e.emit_i64(n['field_index'])
             e.emit(OP_EMBEDDING_IMPORTED_HANDLE)
+        # --- Pod 3.9 Maid finds many: top-K + threshold (D3.35) ---
+        elif t == 'embedding_lookup_top_k':
+            # Stack order: [..., query_id, K, threshold]; threshold on top per TOS-is-rightmost-arg.
+            # Auto-unwrap_ok pops outcome_id and pushes K' count to TOS;
+            # K' embedding_ids sit BELOW the K' count on operand stack
+            # (best at TOS-just-below-count; user pops count first then pops K' ids best-to-worst).
+            self._expr(n['query'])
+            e.emit(OP_PUSH); e.emit_i64(n['k'])
+            e.emit(OP_PUSH); e.emit_i64(n['threshold_bits'])
+            e.emit(OP_EMBEDDING_LOOKUP_TOP_K); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_lookup_top_k_raw':
+            # No auto-unwrap; outcome_id stays on TOS; K' ids sit below.
+            e.emit(OP_PUSH); e.emit_i64(n['query_id'])
+            e.emit(OP_PUSH); e.emit_i64(n['k'])
+            e.emit(OP_PUSH); e.emit_i64(n['threshold_bits'])
+            e.emit(OP_EMBEDDING_LOOKUP_TOP_K)
 
     def _embedding_new(self, n):
         """Emit OP_EMBEDDING_NEW with inline 1536-byte f32 vector data.
@@ -2793,6 +2810,149 @@ def demo_pod37_mixed_workload_within_capacity():
         {'type':'print','value':{'type':'str','value':'=== B45: mixed workload across 50+ embeddings + synthesis ops handled cleanly ==='}},
     ]}
 
+def demo_pod39_top_k_b49():
+    """Pod 3.9 B49 — top-K + threshold canary.
+
+    Substrate boot-ingests inputs/test_codebook_b49.txt (10 codebook entries
+    with distinct cosines vs query). User program forges query embedding at
+    runtime (id=11; vector (1.0, 0.0, 0, ...)) and issues
+    OP_EMBEDDING_LOOKUP_TOP_K(query_id=11, K=5, threshold=-INF).
+
+    R10 prediction (tools/pod39_r10_sim.py): top-5 ids in descending cosine
+    order are [1, 2, 3, 4, 5]. Verification by ordering match (D3.28 transitive:
+    bit-exact cosine values per pair determine deterministic substrate ordering).
+
+    Stack layout post-handler (per ratified protocol):
+      [..., id_4 (worst=5), id_3 (=4), id_2 (=3), id_1 (=2), id_0 (best=1), outcome_id_at_TOS]
+    User: outcome_unwrap_ok → K' on TOS; pop K'; pop K' ids best-to-worst.
+    """
+    # Query: (1.0, 0.0, 0.0, ..., 0.0)
+    v_query = _f32_vector_bytes([1.0, 0.0])
+    NEG_INF_BITS = 0xFF800000   # f32 -INF; unfiltered top-K sentinel
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Pod 3.9 B49 — Top-K + Threshold ==='}},
+        # Forge query embedding at runtime (id=11; codebook entries occupy ids 1..10 from boot ingest)
+        {'type':'let','name':'q','value':{'type':'embedding_new','vector':v_query}},
+        {'type':'print','value':{'type':'str','value':'query id (expect 11):'}},
+        {'type':'print','value':{'type':'var','name':'q'}},
+        # Issue OP_EMBEDDING_LOOKUP_TOP_K(query, K=5, threshold=-INF)
+        # Auto-unwrap_ok pops outcome_id and pushes K' count to TOS; K' ids sit BELOW.
+        {'type':'let','name':'count','value':{'type':'embedding_lookup_top_k',
+            'query':{'type':'var','name':'q'},
+            'k':5,
+            'threshold_bits':NEG_INF_BITS,
+        }},
+        {'type':'print','value':{'type':'str','value':'count (expect 5):'}},
+        {'type':'print','value':{'type':'var','name':'count'}},
+        # Pop + print 5 ids from operand stack best-to-worst.
+        # TOS at this point = id_0 (best); pops give id_0, id_1, ..., id_4 in order.
+        # Capture each id into a let-var, then print + accumulate sum.
+        # Sum of [1,2,3,4,5] = 15; any other top-5 sums differently → unambiguous validation.
+        {'type':'let','name':'i0','value':{'type':'tos'}},
+        {'type':'let','name':'i1','value':{'type':'tos'}},
+        {'type':'let','name':'i2','value':{'type':'tos'}},
+        {'type':'let','name':'i3','value':{'type':'tos'}},
+        {'type':'let','name':'i4','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'id_0 (best; expect 1):'}},
+        {'type':'print','value':{'type':'var','name':'i0'}},
+        {'type':'print','value':{'type':'str','value':'id_1 (expect 2):'}},
+        {'type':'print','value':{'type':'var','name':'i1'}},
+        {'type':'print','value':{'type':'str','value':'id_2 (expect 3):'}},
+        {'type':'print','value':{'type':'var','name':'i2'}},
+        {'type':'print','value':{'type':'str','value':'id_3 (expect 4):'}},
+        {'type':'print','value':{'type':'var','name':'i3'}},
+        {'type':'print','value':{'type':'str','value':'id_4 (worst; expect 5):'}},
+        {'type':'print','value':{'type':'var','name':'i4'}},
+        {'type':'print','value':{'type':'str','value':'sum (expect 15):'}},
+        {'type':'print','value':{'type':'add','left':{'type':'add','left':{'type':'add','left':{'type':'add','left':{'type':'var','name':'i0'},'right':{'type':'var','name':'i1'}},'right':{'type':'var','name':'i2'}},'right':{'type':'var','name':'i3'}},'right':{'type':'var','name':'i4'}}},
+        {'type':'print','value':{'type':'str','value':'=== B49 done ==='}},
+    ]}
+
+def demo_pod39_b49_probe_k():
+    """Pod 3.9 B49 K-incremental probe — test top_k at K=1, K=2, K=3 to localize bug.
+
+    K=1: append to empty scratch only (no find-min path).
+    K=2: append twice, then find-min-replace path triggers on candidates 3..10.
+    K=3: append thrice, then find-min-replace.
+
+    Each invocation forges separate query (different id each time).
+    """
+    v_query = _f32_vector_bytes([1.0, 0.0])
+    body = [{'type':'print','value':{'type':'str','value':'=== Pod 3.9 B49 K-Probe ==='}}]
+    # K=1
+    body.extend([
+        {'type':'let','name':'q1','value':{'type':'embedding_new','vector':v_query}},
+        {'type':'print','value':{'type':'str','value':'K=1 (expect id=1):'}},
+        {'type':'let','name':'c1','value':{'type':'embedding_lookup_top_k',
+            'query':{'type':'var','name':'q1'},'k':1,'threshold_bits':0xFF800000}},
+        {'type':'print','value':{'type':'str','value':'count:'}},
+        {'type':'print','value':{'type':'var','name':'c1'}},
+        {'type':'print','value':{'type':'str','value':'best:'}},
+        {'type':'print','value':{'type':'tos'}},
+    ])
+    # K=2
+    body.extend([
+        {'type':'let','name':'q2','value':{'type':'embedding_new','vector':v_query}},
+        {'type':'print','value':{'type':'str','value':'K=2 (expect [1,2]):'}},
+        {'type':'let','name':'c2','value':{'type':'embedding_lookup_top_k',
+            'query':{'type':'var','name':'q2'},'k':2,'threshold_bits':0xFF800000}},
+        {'type':'print','value':{'type':'str','value':'count:'}},
+        {'type':'print','value':{'type':'var','name':'c2'}},
+        {'type':'print','value':{'type':'str','value':'best:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'2nd:'}},
+        {'type':'print','value':{'type':'tos'}},
+    ])
+    # K=3
+    body.extend([
+        {'type':'let','name':'q3','value':{'type':'embedding_new','vector':v_query}},
+        {'type':'print','value':{'type':'str','value':'K=3 (expect [1,2,3]):'}},
+        {'type':'let','name':'c3','value':{'type':'embedding_lookup_top_k',
+            'query':{'type':'var','name':'q3'},'k':3,'threshold_bits':0xFF800000}},
+        {'type':'print','value':{'type':'str','value':'count:'}},
+        {'type':'print','value':{'type':'var','name':'c3'}},
+        {'type':'print','value':{'type':'str','value':'best:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'2nd:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'3rd:'}},
+        {'type':'print','value':{'type':'tos'}},
+    ])
+    body.append({'type':'print','value':{'type':'str','value':'=== K-Probe done ==='}})
+    return {'type':'program','body':body}
+
+
+def demo_pod39_b49_probe():
+    """Pod 3.9 B49 diagnostic probe — isolate which substrate component is producing
+    [2,3,4,5,10] instead of expected [1,2,3,4,5] for top-K query against B49 codebook.
+
+    Forges query (id=11; vec=(1,0,0,...)). Then:
+      1) Calls lookup_top1(q) — expect id=1 (best match excluding self).
+         If returns id=1: cosine + MAC + scan all work; bug isolated to compute_top_k_raw.
+         If returns other: bug is in cosine/MAC/scan path itself.
+      2) Prints cosine(q, id_1), cosine(q, id_6), cosine(q, id_10) — verify byte-exact
+         against R10 prediction (0x3F800000, ~0x3F72ABCB, ~0x3F3E4886).
+    """
+    v_query = _f32_vector_bytes([1.0, 0.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Pod 3.9 B49 Probe ==='}},
+        {'type':'let','name':'q','value':{'type':'embedding_new','vector':v_query}},
+        {'type':'print','value':{'type':'str','value':'query id (expect 11):'}},
+        {'type':'print','value':{'type':'var','name':'q'}},
+        # Test 1: lookup_top1 — expect id=1
+        {'type':'print','value':{'type':'str','value':'lookup_top1(q) (expect 1):'}},
+        {'type':'print','value':{'type':'embedding_lookup_top1','operand':{'type':'var','name':'q'}}},
+        # Test 2: cosines for boundary ids
+        {'type':'print','value':{'type':'str','value':'cos(q, id=1) (expect 1065353216 = 0x3F800000):'}},
+        {'type':'print','value':{'type':'embedding_cosine','lhs':{'type':'var','name':'q'},'rhs':{'type':'int','value':1}}},
+        {'type':'print','value':{'type':'str','value':'cos(q, id=6) (expect ~0x3F72ABCB):'}},
+        {'type':'print','value':{'type':'embedding_cosine','lhs':{'type':'var','name':'q'},'rhs':{'type':'int','value':6}}},
+        {'type':'print','value':{'type':'str','value':'cos(q, id=10) (expect ~0x3F3E4886):'}},
+        {'type':'print','value':{'type':'embedding_cosine','lhs':{'type':'var','name':'q'},'rhs':{'type':'int','value':10}}},
+        {'type':'print','value':{'type':'str','value':'=== Probe done ==='}},
+    ]}
+
+
 def demo_pod38_codebook_imported_round_trip():
     """Pod 3.8 B48 — boot-ingestion observation. Substrate built with
     inputs/test_codebook_b48.txt (5 basis vectors); boot_ingest_codebook
@@ -3568,5 +3728,20 @@ if __name__ == '__main__':
         out = sys.argv[sys.argv.index('--pod38-codebook-imported-round-trip-build')+1] if len(sys.argv) > sys.argv.index('--pod38-codebook-imported-round-trip-build')+1 else 'test_pod38_b48_codebook_imported.cbc'
         with open(out,'wb') as f: f.write(bc)
         print(f"Pod 3.8 B48 Codebook Imported Round-Trip test: compiled {len(bc)} bytes -> {out}")
+    elif '--pod39-top-k-b49-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod39_top_k_b49())
+        out = sys.argv[sys.argv.index('--pod39-top-k-b49-build')+1] if len(sys.argv) > sys.argv.index('--pod39-top-k-b49-build')+1 else 'test_pod39_b49_top_k.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 3.9 B49 Top-K test: compiled {len(bc)} bytes -> {out}")
+    elif '--pod39-b49-probe-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod39_b49_probe())
+        out = sys.argv[sys.argv.index('--pod39-b49-probe-build')+1] if len(sys.argv) > sys.argv.index('--pod39-b49-probe-build')+1 else 'test_pod39_b49_probe.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 3.9 B49 Probe test: compiled {len(bc)} bytes -> {out}")
+    elif '--pod39-b49-probe-k-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod39_b49_probe_k())
+        out = sys.argv[sys.argv.index('--pod39-b49-probe-k-build')+1] if len(sys.argv) > sys.argv.index('--pod39-b49-probe-k-build')+1 else 'test_pod39_b49_probe_k.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 3.9 B49 K-Probe test: compiled {len(bc)} bytes -> {out}")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-bitmap,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test} | --bitmap-{root-unbounded,subset-grant-succeeds,superset-grant-fails,authority-check-{passes,fails},accessor-round-trip}-{build,test} | --embedding-{new-basic,accessor-round-trip,invalid-id,authority-check-{passes,fails}}-{build,test} | --sign-{with-embedding,invalid-embedding-handle}-{build,test}")

@@ -285,6 +285,210 @@ lookup_top1:
     pop     rbp
     ret
 
+; --- compute_top_k_raw(rdi=query_slot_ptr, rsi=K, rdx=threshold_f32_as_i64) → rax = K' ---
+; Pod 3.9 — D3.35 housekeeper-tier generalization of compute_lookup_top1.
+;
+; Iterates 1..vm_embedding_next; for each candidate (excluding query_id):
+;   resolve via registry_lookup_embedding → MAC verify → cosine vs query →
+;   if score >= threshold AND insertion conditions met: write into BSS scratch.
+; After scan: selection-sort scratch[0..K'-1] descending; return K' in rax.
+;
+; Sorted-array K-tracking via find-min-replace (not insertion sort during
+; collection): scratch is unsorted while collecting; min-tracked via linear
+; scan when array is full and a new candidate qualifies. Final O(K²) selection
+; sort places in descending cosine order before return. For K ≤ 32 typical,
+; total cost dominated by N × cosine compute (per-candidate ~400j); K-tracking
+; overhead negligible (D3.X cost framing matches lookup_top1 100,000j).
+;
+; Threshold semantics: score >= threshold (inclusive comparison via ucomiss).
+; Threshold = -INF sentinel (0xFF800000 f32 bit pattern) → unfiltered top-K
+; (any finite score passes; -INF >= -INF holds via IEEE 754).
+;
+; K silently clamped to MAX_K (=256) at helper entry. Caller (handler in Pod 3.9.D)
+; expected to validate K ≤ MAX_K and return Err(InvalidEmbeddingArg) if exceeded;
+; helper-side clamp is defensive (protects scratch bounds against caller bugs).
+;
+; Substrate-state side effects: top_k_scratch_ids[0..K'-1] populated with
+; embedding_ids in descending-cosine order; top_k_scratch_scores[0..K'-1]
+; populated with corresponding f32 scores. Handler (3.9.D) reads these and
+; pushes K' ids + count onto operand stack; this helper does NOT touch operand
+; stack (substrate-private; mirrors compute_*_raw convention).
+;
+; Input:    rdi = query_slot_ptr (post-MAC-verify by caller per D3.18 / D3.15)
+;           rsi = K (max number of results; clamped to MAX_K)
+;           rdx = threshold (f32-as-i64; only low 32 bits used)
+; Output:   rax = K' (count of results; ≤ K)
+;           Side effect: top_k_scratch_ids + top_k_scratch_scores populated
+; Clobbers: rcx, rdx, rsi, rdi, r8-r11, xmm0-xmm5
+; Preserves: rbx, rbp, r12-r15, xmm6-xmm15 (saved/restored via push/pop bracket)
+
+compute_top_k_raw:
+    push    rbx
+    push    rbp
+    push    r12
+    push    r13
+    push    r14
+    push    r15
+
+    mov     rbx, rdi                                ; rbx = query_slot_ptr (preserved across calls)
+    mov     r15, [rdi + EMBEDDING_OFF_ID_SELF]      ; r15 = query_id (for self-skip)
+
+    ; Clamp K to MAX_K (defensive; handler should validate but belt+suspenders)
+    mov     rax, MAX_K
+    cmp     rsi, rax
+    cmovg   rsi, rax
+    mov     rbp, rsi                                ; rbp = clamped K
+
+    ; Stash threshold in xmm6 (preserved across compute_cosine_raw clobbers xmm0-5)
+    movd    xmm6, edx                               ; xmm6 = threshold (low 32 of rdx)
+
+    ; K' = 0 (running result count)
+    xor     r12, r12                                ; r12 = K' (preserved across loop)
+
+    ; K = 0 → return 0 immediately
+    test    rbp, rbp
+    jz      .top_k_done
+
+    ; Empty pool → return 0
+    mov     r14, [rel vm_embedding_next]
+    test    r14, r14
+    jz      .top_k_done
+
+    mov     r13, 1                                  ; r13 = current candidate id (1-based)
+
+.top_k_loop:
+    cmp     r13, r14
+    jg      .top_k_scan_done                         ; scanned all candidates → sort + return
+
+    cmp     r13, r15
+    je      .top_k_skip                              ; embed_id == query_id, self-skip
+
+    ; Resolve candidate via registry_lookup_embedding
+    mov     rdi, r13
+    call    registry_lookup_embedding               ; rax = slot_ptr or 0; rdi preserved
+    test    rax, rax
+    jz      .top_k_skip                              ; not found, silent skip
+
+    ; MAC verify candidate (D3.18 per-candidate verification)
+    push    rax                                     ; preserve candidate slot_ptr across siphash
+    mov     rdi, rax
+    mov     rsi, EMBEDDING_MAC_INPUT_QWORDS
+    call    siphash_compute                         ; rax = MAC; rdi preserved per siphash contract
+    pop     rdi                                     ; rdi = candidate slot_ptr
+    cmp     rax, [rdi + EMBEDDING_OFF_MAC]
+    jne     .top_k_skip                              ; MAC mismatch silent skip
+
+    ; Compute cosine(query, candidate)
+    mov     rsi, rdi                                ; rsi = candidate slot_ptr
+    mov     rdi, rbx                                ; rdi = query slot_ptr
+    call    compute_cosine_raw                      ; rax = score (f32-as-i64); CF=1 on zero-norm
+    jc      .top_k_skip                              ; zero-norm rejection (silent skip)
+
+    ; Threshold check: score >= threshold (inclusive)
+    movd    xmm0, eax                               ; xmm0 = score
+    ucomiss xmm0, xmm6                              ; score vs threshold
+    jb      .top_k_skip                              ; score < threshold, skip
+
+    ; Score qualifies. Insert into scratch.
+    cmp     r12, rbp
+    jge     .top_k_array_full                        ; K' == K, find-min-replace
+
+    ; Array not full: append at scratch[K']
+    ; (NASM `[rel sym + reg*scale]` does NOT generate correct code; use lea+base then [base + idx*scale])
+    lea     r10, [rel top_k_scratch_ids]
+    mov     [r10 + r12*8], r13                       ; scratch_ids[K'] = candidate_id
+    lea     r10, [rel top_k_scratch_scores]
+    movss   [r10 + r12*4], xmm0                      ; scratch_scores[K'] = score
+    inc     r12
+    jmp     .top_k_skip
+
+.top_k_array_full:
+    ; Array full (K'==K). Find min in scratch_scores[0..rbp-1]; replace if score > min.
+    lea     r11, [rel top_k_scratch_scores]          ; r11 = scores base (no helper calls in this path)
+    xor     rcx, rcx                                ; rcx = scan_idx
+    xor     r9, r9                                  ; r9 = min_idx
+    movss   xmm1, [r11]                             ; xmm1 = current min (start with [0])
+.find_min_loop:
+    cmp     rcx, rbp
+    jge     .find_min_done
+    movss   xmm2, [r11 + rcx*4]
+    ucomiss xmm1, xmm2
+    jbe     .find_min_skip                           ; xmm1 <= xmm2, no update
+    ; xmm1 > xmm2; xmm2 is new min
+    movss   xmm1, xmm2
+    mov     r9, rcx
+.find_min_skip:
+    inc     rcx
+    jmp     .find_min_loop
+.find_min_done:
+    ; xmm1 = min_score; r9 = min_idx
+    ucomiss xmm0, xmm1                              ; new score vs min
+    jbe     .top_k_skip                              ; score <= min, don't replace
+    ; New score > min; replace at min_idx
+    lea     r10, [rel top_k_scratch_ids]
+    mov     [r10 + r9*8], r13
+    movss   [r11 + r9*4], xmm0                      ; r11 still scores base from find-min
+
+.top_k_skip:
+    inc     r13
+    jmp     .top_k_loop
+
+.top_k_scan_done:
+    ; Selection sort scratch[0..K'-1] descending (one-time post-collection cost)
+    test    r12, r12
+    jz      .top_k_done                              ; K' == 0, nothing to sort
+    ; lea bases (no helper calls in sort path; r10/r11 freely usable)
+    lea     r10, [rel top_k_scratch_ids]             ; r10 = ids base
+    lea     r11, [rel top_k_scratch_scores]          ; r11 = scores base
+    xor     r8, r8                                  ; r8 = i (outer loop)
+.sort_outer:
+    cmp     r8, r12
+    jge     .top_k_done
+    mov     r9, r8                                  ; r9 = max_idx (initially i)
+    movss   xmm0, [r11 + r8*4]                      ; xmm0 = max_score (initially scratch[i])
+    mov     rcx, r8
+    inc     rcx                                     ; rcx = j (inner loop)
+.sort_inner:
+    cmp     rcx, r12
+    jge     .sort_swap
+    movss   xmm1, [r11 + rcx*4]
+    ucomiss xmm1, xmm0                              ; scratch[j] vs max
+    jbe     .sort_inner_skip                         ; scratch[j] <= max
+    movss   xmm0, xmm1                              ; new max
+    mov     r9, rcx
+.sort_inner_skip:
+    inc     rcx
+    jmp     .sort_inner
+.sort_swap:
+    cmp     r9, r8
+    je      .sort_outer_advance                      ; max_idx == i, no swap
+
+    ; Swap scratch_ids[i] <-> scratch_ids[max_idx] (use rsi/rdi as temps; r10/r11 hold bases)
+    mov     rax, [r10 + r8*8]
+    mov     rsi, [r10 + r9*8]
+    mov     [r10 + r8*8], rsi
+    mov     [r10 + r9*8], rax
+
+    ; Swap scratch_scores[i] <-> scratch_scores[max_idx]
+    mov     eax, [r11 + r8*4]
+    mov     esi, [r11 + r9*4]
+    mov     [r11 + r8*4], esi
+    mov     [r11 + r9*4], eax
+
+.sort_outer_advance:
+    inc     r8
+    jmp     .sort_outer
+
+.top_k_done:
+    mov     rax, r12                                ; return K'
+    pop     r15
+    pop     r14
+    pop     r13
+    pop     r12
+    pop     rbp
+    pop     rbx
+    ret
+
 ; --- compute_add_raw(rdi=slot_a_ptr, rsi=slot_b_ptr, rdx=dest_slot_ptr) ---
 ; Pod 3.6 — D3.25 forge-tier ADD compute helper (Maid composes).
 ; Per-element a[i] + b[i] → dest[i] across 384 elements; no reduction;

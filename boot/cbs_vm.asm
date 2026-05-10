@@ -248,6 +248,9 @@ cbs_run:
     ; build.sh codebook integration). 0xF1 IMPORTED_HANDLE accessor here.
     cmp     al, OP_EMBEDDING_IMPORTED_HANDLE
     je      .op_embedding_imported_handle
+    ; Pod 3.9 — Maid finds many: top-K + threshold (D3.35; 0xF2 in embedding-tier-extensions row)
+    cmp     al, OP_EMBEDDING_LOOKUP_TOP_K
+    je      .op_embedding_lookup_top_k
 
     ; Unknown opcode
     lea     rsi, [rel str_vm_unk]
@@ -3471,6 +3474,116 @@ cbs_run:
 .op_embedding_imported_handle_invalid_id:
     mov     rdi, ERR_INVALID_ID
     mov     rsi, OP_EMBEDDING_IMPORTED_HANDLE
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_EMBEDDING_LOOKUP_TOP_K (0xF2) Pod 3.9 — D3.35 housekeeper-tier top-K ---
+; Pop threshold + K + query_id from operand stack; validate K range + query_id;
+; resolve query slot via registry + MAC verify; call compute_top_k_raw helper;
+; push K' embedding_ids in [worst..best] order (best ends up TOS-most-recent
+; among ids); wrap K' count as Outcome::Ok (full dispatch-runtime semantics —
+; D3.9 single-fire babylon, fetch counter, r14 drain at 100,000j per D3.X cost
+; matching D3.17 lookup_top1 anticipated-worst-case).
+;
+; Stack output protocol (novel K'+1 multi-output shape; D3.X documented):
+;   ..., id_{K'-1} (worst), id_{K'-2}, ..., id_0 (best), outcome_id_at_TOS
+;   User: outcome_unwrap_ok → K' on TOS → pop K' → loop K' times popping ids
+;   best-to-worst.
+;
+; Witness op (D3.13): no bit-check; recognition surface, not forge.
+.op_embedding_lookup_top_k:
+    sub     r13, 8
+    mov     rdx, [r13]                              ; threshold (top of operand stack; f32-as-i64 in low 32 bits)
+    sub     r13, 8
+    mov     rsi, [r13]                              ; K
+    sub     r13, 8
+    mov     rdi, [r13]                              ; query_id
+
+    ; Validate K ∈ [1, MAX_K]
+    test    rsi, rsi
+    jz      .op_embedding_lookup_top_k_invalid_arg   ; K=0 → ERR_INVALID_EMBEDDING_ARG
+    cmp     rsi, MAX_K
+    ja      .op_embedding_lookup_top_k_invalid_arg   ; K > MAX_K → ERR_INVALID_EMBEDDING_ARG
+
+    ; Validate query_id non-zero (preliminary; full validation via registry below)
+    test    rdi, rdi
+    jz      .op_embedding_lookup_top_k_invalid_id
+
+    ; Stash K + threshold across registry/MAC calls (both clobber rsi/rdx; preserve rdi)
+    push    rsi                                     ; K
+    push    rdx                                     ; threshold
+
+    ; Resolve query slot via registry_lookup_embedding (preserves rdi)
+    call    registry_lookup_embedding               ; rax = slot_ptr or 0
+    test    rax, rax
+    jz      .op_embedding_lookup_top_k_invalid_id_drop2
+
+    ; MAC verify query slot (D3.18 / D3.X convention)
+    mov     rdi, rax                                ; rdi = query slot_ptr
+    push    rdi                                     ; preserve slot_ptr across siphash
+    mov     rsi, EMBEDDING_MAC_INPUT_QWORDS
+    call    siphash_compute                         ; rax = MAC; rdi preserved
+    pop     rdi                                     ; rdi = query slot_ptr
+    cmp     rax, [rdi + EMBEDDING_OFF_MAC]
+    jne     .op_embedding_lookup_top_k_invalid_id_drop2
+
+    ; Restore K + threshold for compute_top_k_raw
+    pop     rdx                                     ; threshold
+    pop     rsi                                     ; K
+    ; rdi = query slot_ptr (preserved from MAC verify)
+
+    ; Call compute_top_k_raw(rdi=query_slot, rsi=K, rdx=threshold) → rax = K'
+    call    compute_top_k_raw
+
+    ; Push K' embedding_ids onto operand stack in reverse [worst..best] order
+    ; (best ends up TOS-most-recent so user pops best-first per ratified protocol)
+    push    rax                                     ; preserve K' across push loop
+    mov     rcx, rax                                ; rcx = K' (loop counter init)
+    test    rcx, rcx
+    jz      .op_embedding_lookup_top_k_skip_push     ; K' = 0; no ids
+    dec     rcx                                     ; rcx = K' - 1 (initial loop index, descending)
+    lea     r10, [rel top_k_scratch_ids]             ; r10 = ids base (NASM `[rel sym + idx*scale]` is broken; use lea+base)
+.op_embedding_lookup_top_k_push_ids_loop:
+    mov     rdx, [r10 + rcx*8]                       ; rdx = scratch_ids[i]
+    mov     [r13], rdx
+    add     r13, 8
+    test    rcx, rcx
+    jz      .op_embedding_lookup_top_k_skip_push
+    dec     rcx
+    jmp     .op_embedding_lookup_top_k_push_ids_loop
+.op_embedding_lookup_top_k_skip_push:
+    pop     rax                                     ; restore K'
+
+    ; Wrap K' count as Outcome::Ok (D3.9/D3.23 single-fire babylon via .construct_ok_outcome)
+    mov     rdi, rax                                ; value = K'
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_ok_outcome
+    mov     [r13], rax                              ; push outcome_id (TOS-final; ids sit below)
+    add     r13, 8
+    jmp     .fetch
+
+.op_embedding_lookup_top_k_invalid_id_drop2:
+    add     rsp, 16                                 ; discard K + threshold pushed earlier
+
+.op_embedding_lookup_top_k_invalid_id:
+    mov     rdi, ERR_INVALID_ID
+    mov     rsi, OP_EMBEDDING_LOOKUP_TOP_K
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_embedding_lookup_top_k_invalid_arg:
+    mov     rdi, ERR_INVALID_EMBEDDING_ARG
+    mov     rsi, OP_EMBEDDING_LOOKUP_TOP_K
     xor     rdx, rdx
     xor     rcx, rcx
     mov     r8, TYPE_CODE_EMBEDDING

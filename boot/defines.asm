@@ -247,6 +247,22 @@
 %define OP_EMBEDDING_IMPORT          0xF0
 %define OP_EMBEDDING_IMPORTED_HANDLE 0xF1
 
+; --- Pod 3.9 Maid finds many: top-K + threshold (D3.35; 0xF2 in embedding-tier-extensions row) ---
+; OP_EMBEDDING_LOOKUP_TOP_K (0xF2): pop query_id + K + threshold (f32-as-i64);
+;   substrate scans embedding pool, returns ≤K best-cosine matches above threshold;
+;   pushes K' embedding_ids (descending cosine order; best at top), then K' count last.
+;   Threshold = -INF sentinel (0xFF800000 f32 bit pattern) for unfiltered top-K.
+;   Static cost: 100,000j matching D3.17 lookup_top1 anticipated-worst-case.
+;   Witness op (D3.13): no bit-check; recognition surface, not forge.
+%define OP_EMBEDDING_LOOKUP_TOP_K    0xF2
+
+; --- Pod 3.9 top-K scratch sizing (D3.X axis-2 mechanical sizing applies) ---
+; MAX_K bounds the top-K result count + sizes the BSS scratch arrays
+; (top_k_scratch_ids: MAX_K × 8 = 2048 bytes; top_k_scratch_scores: MAX_K × 4 = 1024 bytes).
+; Production scenarios typically K ≤ 32; MAX_K = 256 matches embedding-pool-Pod-3-cap
+; era for headroom. Operand-stack capacity = vm_stack 512 qwords; K' = 256 fills half.
+%define MAX_K                        256
+
 ; --- Pod 3.8 imported provenance tuple (D3.27 Layout-2 mirror) ---
 ; 32-byte quad-tuple at vm_embedding_imported[(embedding_id - 1) * 32].
 ; Same shape as vm_embedding_synthesis; mechanical Layout-2 inheritance.

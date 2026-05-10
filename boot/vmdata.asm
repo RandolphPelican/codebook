@@ -130,6 +130,23 @@ vm_embedding_imported: times EMBEDDING_POOL_SLOTS * IMPORTED_TUPLE_BYTES db 0
     align 16
 vm_codebook_meta: times 64 db 0
 
+; Top-K scratch arrays (Pod 3.9 — D3.35; "Maid finds many")
+;   Substrate-private working space for compute_top_k_raw helper. Sorted-array
+;   K-tracking pattern; final selection sort places in descending cosine order
+;   before helper returns. Sized to MAX_K (=256) per D3.29 axis-2 mechanical
+;   coupling discipline.
+;
+;   top_k_scratch_ids:    MAX_K × 8 = 2048 bytes (qwords; embedding_id values)
+;   top_k_scratch_scores: MAX_K × 4 = 1024 bytes (f32-as-i32; cosine scores)
+;
+;   Total: ~3 KB substrate-private scratch. Overwritten on each compute_top_k_raw
+;   invocation; not user-visible state. Read by handler (Pod 3.9.D) which pushes
+;   the K' results onto the operand stack post-helper-return.
+    align 16
+top_k_scratch_ids:    times MAX_K dq 0
+    align 16
+top_k_scratch_scores: times MAX_K dd 0
+
 ; Sign registry (Pod 1.8.5b — Move 4)
 ;   Maps sign_id (opaque counter, 1-based) -> slot pointer (u64).
 ;   Each entry = {id: u64, slot_ptr: u64} = 16 bytes.
