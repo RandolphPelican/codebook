@@ -674,3 +674,190 @@ compute_lerp_raw:
     dec     rcx
     jnz     .lerp_loop
     ret
+
+; --- compute_project_raw(rdi=slot_a_ptr, rsi=slot_b_ptr, rdx=dest_slot_ptr) ---
+; Pod 3.10 — D3.38 forge-tier PROJECT compute helper. Maid orthogonalizes.
+;
+; project(A, B) = (A·B / B·B) * B — A's component along B's direction.
+;
+; Form A (per D3.14 / D3.28; Pod 3.10 ratification):
+;   1. dot_AB = sum_i a[i] * b[i]   (left-to-right accumulator; mulss + addss per dim)
+;   2. dot_BB = sum_i b[i] * b[i]   (same shape; matches compute_normalize_raw norm_sq)
+;   3. exact-zero rejection on dot_BB (D3.40 hybrid: bits(dot_BB)==0 → CF=1; matches
+;      compute_normalize_raw / compute_cosine_raw zero-norm-rejection precedent)
+;   4. ratio = divss(dot_AB, dot_BB)   (direct division; NOT a*(1/b) reciprocal-multiply
+;      per D3.14 Form A — direct divss is fewer rounding events than recip-mul)
+;   5. per-element: result[d] = mulss(ratio, b[d])   (single-rounding event per dim;
+;      matches compute_scale_raw single-mulss shape)
+;
+; Bit-exact properties (D3.28 self-verifying canon for R10 sim):
+;   - project(A, B) byte-identical to compute-as-(scale(B, dot(A,B)/dot(B,B))) — same
+;     evaluation order; same rounding events; native helper IS the composition
+;   - project(A, A) where A nonzero: ratio = dot(A,A)/dot(A,A) = 1.0 byte-exact;
+;     result[d] = mulss(1.0, a[d]) = a[d] byte-exact (B30 mulss(1.0, x) = x identity)
+;   - project(zero, B) where B nonzero: ratio = mulss-accumulated-zero / dot_BB = 0
+;     bit-exact; result = zero vector byte-exact
+;   - project(A, B) and project(A, k*B) for nonzero k: ratios scale by 1/k; result
+;     scales by 1/k * k = identical (idealized; f32 rounding may drift in k-magnitude
+;     directions; R10 sim characterizes per-pair)
+;
+; D3.37 NASM RIP-relative discipline: no indexed BSS access in this helper; only
+; pointer-based [reg+offset] access (matches existing synthesis helpers).
+;
+; Input:    rdi = slot_a_ptr, rsi = slot_b_ptr, rdx = dest_slot_ptr
+; Output:   CF=0 success (dest vector written); CF=1 zero-norm rejection on dot_BB==0
+;           (dest unwritten)
+; Clobbers: rcx, r8, r9, r10, xmm0, xmm1, xmm2, xmm3
+; Preserves: rax, rbx, rbp, r12-r15, rsi, rdi, rdx (input args remain valid)
+
+compute_project_raw:
+    ; Step 1: dot_AB = sum_i a[i] * b[i]
+    xorps   xmm0, xmm0                               ; dot_AB accumulator
+    mov     rcx, EMBEDDING_DIM
+    lea     r8,  [rdi + EMBEDDING_OFF_VECTOR]
+    lea     r9,  [rsi + EMBEDDING_OFF_VECTOR]
+.project_dot_ab_loop:
+    movss   xmm1, [r8]
+    mulss   xmm1, [r9]
+    addss   xmm0, xmm1
+    add     r8,  4
+    add     r9,  4
+    dec     rcx
+    jnz     .project_dot_ab_loop
+
+    ; Step 2: dot_BB = sum_i b[i] * b[i]
+    xorps   xmm2, xmm2                               ; dot_BB accumulator
+    mov     rcx, EMBEDDING_DIM
+    lea     r9,  [rsi + EMBEDDING_OFF_VECTOR]        ; b base (reset)
+.project_dot_bb_loop:
+    movss   xmm1, [r9]
+    mulss   xmm1, xmm1
+    addss   xmm2, xmm1
+    add     r9,  4
+    dec     rcx
+    jnz     .project_dot_bb_loop
+
+    ; Step 3: exact-zero rejection on dot_BB (D3.40 hybrid; matches D3.14)
+    xorps   xmm3, xmm3                               ; xmm3 = 0.0 baseline
+    ucomiss xmm2, xmm3                               ; dot_BB vs 0.0
+    je      .project_zero_norm_fail
+
+    ; Step 4: ratio = dot_AB / dot_BB (Form A direct divss per D3.14)
+    divss   xmm0, xmm2                               ; xmm0 = ratio (dot_AB / dot_BB)
+
+    ; Step 5: result[d] = ratio * b[d]  (per-element scale of B by ratio)
+    mov     rcx, EMBEDDING_DIM
+    lea     r9,  [rsi + EMBEDDING_OFF_VECTOR]        ; b base
+    lea     r10, [rdx + EMBEDDING_OFF_VECTOR]        ; dest base
+.project_scale_loop:
+    movss   xmm1, [r9]
+    mulss   xmm1, xmm0                               ; ratio * b[d]
+    movss   [r10], xmm1
+    add     r9,  4
+    add     r10, 4
+    dec     rcx
+    jnz     .project_scale_loop
+
+    clc                                              ; CF=0 success
+    ret
+
+.project_zero_norm_fail:
+    stc                                              ; CF=1 zero-norm rejection (D3.40)
+    ret
+
+; --- compute_reject_raw(rdi=slot_a_ptr, rsi=slot_b_ptr, rdx=dest_slot_ptr) ---
+; Pod 3.10 — D3.38 forge-tier REJECT compute helper. Maid orthogonalizes.
+;
+; reject(A, B) = A - project(A, B) = A - (A·B / B·B) * B — A's component
+; orthogonal to B's direction.
+;
+; Form A (single-pass; D3.28 / Pod 3.10 ratification):
+;   Steps 1-4 identical to compute_project_raw (dot_AB + dot_BB + zero check + ratio)
+;   Step 5: per-element single-pass: t = mulss(ratio, b[d]); result[d] = subss(a[d], t)
+;     Two rounding events per element (mulss + subss); single slot-write to dest;
+;     does NOT compute intermediate full-vector project then subtract (avoids
+;     1536-byte slot-write × 2 memory traffic).
+;
+; Bit-exact properties (D3.28 self-verifying canon for R10 sim):
+;   - reject(A, A) where A nonzero: ratio = 1.0 byte-exact; result[d] = a[d] -
+;     mulss(1.0, a[d]) = a[d] - a[d] = +0.0 byte-exact (subss(x, x) = +0.0 for
+;     finite non-NaN x, B28 endpoint property). Self-reject = zero vector
+;     byte-exact identity. Subsequent normalize/cosine on result triggers
+;     zero-norm rejection per D3.40.
+;   - reject(B, B) = +0 vector (same identity)
+;   - reject(zero, B) where B nonzero: dot_AB = 0; ratio = 0 / dot_BB = 0.0
+;     byte-exact; result[d] = 0 - 0*b[d] = 0 byte-exact. Reject of zero is zero.
+;   - Orthogonality: dot(reject(A, B), B) — mathematical 0 but f32 drift via
+;     compound operations; NOT byte-exact zero in general; R10 characterizes drift.
+;   - Decomposition: A = project(A, B) + reject(A, B) — math identity; f32 has
+;     compound rounding through decompose-recompose; NOT byte-exact A in general
+;     except in trivial cases (e.g., A·B = 0 already → ratio = 0 → project = 0
+;     → reject = A → A + 0 = A byte-exact).
+;
+; D3.37 NASM RIP-relative discipline: no indexed BSS access in this helper.
+;
+; Input:    rdi = slot_a_ptr, rsi = slot_b_ptr, rdx = dest_slot_ptr
+; Output:   CF=0 success (dest vector written); CF=1 zero-norm rejection on dot_BB==0
+;           (dest unwritten)
+; Clobbers: rcx, r8, r9, r10, xmm0, xmm1, xmm2, xmm3
+; Preserves: rax, rbx, rbp, r12-r15, rsi, rdi, rdx (input args remain valid)
+
+compute_reject_raw:
+    ; Step 1: dot_AB = sum_i a[i] * b[i]
+    xorps   xmm0, xmm0                               ; dot_AB accumulator
+    mov     rcx, EMBEDDING_DIM
+    lea     r8,  [rdi + EMBEDDING_OFF_VECTOR]
+    lea     r9,  [rsi + EMBEDDING_OFF_VECTOR]
+.reject_dot_ab_loop:
+    movss   xmm1, [r8]
+    mulss   xmm1, [r9]
+    addss   xmm0, xmm1
+    add     r8,  4
+    add     r9,  4
+    dec     rcx
+    jnz     .reject_dot_ab_loop
+
+    ; Step 2: dot_BB = sum_i b[i] * b[i]
+    xorps   xmm2, xmm2                               ; dot_BB accumulator
+    mov     rcx, EMBEDDING_DIM
+    lea     r9,  [rsi + EMBEDDING_OFF_VECTOR]        ; b base (reset)
+.reject_dot_bb_loop:
+    movss   xmm1, [r9]
+    mulss   xmm1, xmm1
+    addss   xmm2, xmm1
+    add     r9,  4
+    dec     rcx
+    jnz     .reject_dot_bb_loop
+
+    ; Step 3: exact-zero rejection on dot_BB (D3.40 hybrid; matches D3.14)
+    xorps   xmm3, xmm3                               ; xmm3 = 0.0 baseline
+    ucomiss xmm2, xmm3
+    je      .reject_zero_norm_fail
+
+    ; Step 4: ratio = dot_AB / dot_BB (Form A direct divss per D3.14)
+    divss   xmm0, xmm2                               ; xmm0 = ratio (dot_AB / dot_BB)
+
+    ; Step 5: result[d] = a[d] - ratio * b[d]  (single-pass; two rounding events per dim)
+    ;   Note: xmm2 (was dot_BB) is now free; reused as a[d] temp.
+    mov     rcx, EMBEDDING_DIM
+    lea     r8,  [rdi + EMBEDDING_OFF_VECTOR]        ; a base
+    lea     r9,  [rsi + EMBEDDING_OFF_VECTOR]        ; b base
+    lea     r10, [rdx + EMBEDDING_OFF_VECTOR]        ; dest base
+.reject_combined_loop:
+    movss   xmm1, [r9]                               ; b[d]
+    mulss   xmm1, xmm0                               ; ratio * b[d]   (rounding event 1)
+    movss   xmm2, [r8]                               ; a[d]
+    subss   xmm2, xmm1                               ; a[d] - ratio*b[d]  (rounding event 2)
+    movss   [r10], xmm2
+    add     r8,  4
+    add     r9,  4
+    add     r10, 4
+    dec     rcx
+    jnz     .reject_combined_loop
+
+    clc                                              ; CF=0 success
+    ret
+
+.reject_zero_norm_fail:
+    stc                                              ; CF=1 zero-norm rejection (D3.40)
+    ret

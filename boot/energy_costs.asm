@@ -171,11 +171,12 @@ energy_cost_table:
     dq 1, 1                 ; 0xE8–0xE9 — reserved (Demod Pod 1.12)
     dq 1, 1, 1, 1, 1       ; 0xEA–0xEE — reserved (Demod Pod 1.12)
     dq 1                    ; 0xEF — reserved (Demod Pod 1.12)
-; Row 0xF0–0xFF — Pod 3.8/3.9 embedding-tier extensions (D3.32 / D3.34)
+; Row 0xF0–0xFF — Pod 3.8/3.9/3.10 embedding-tier extensions (D3.32 / D3.34 / D3.38)
     dq 100000               ; 0xF0 — OP_EMBEDDING_IMPORT (Pod 3.8 D3.32; forge-tier; deferred handler per #91; cost reserved for runtime activation; matches OP_EMBEDDING_NEW shape with codebook-block source instead of operand-stack-vector source)
     dq 1                    ; 0xF1 — OP_EMBEDDING_IMPORTED_HANDLE (Pod 3.8 D3.13 witness; lookup + side-table read; mirrors 0xC5/0xCF cost shape per witness-op convention)
     dq 100000               ; 0xF2 — OP_EMBEDDING_LOOKUP_TOP_K (Pod 3.9 D3.35; recognition; matches lookup_top1 D3.17 anticipated-worst-case continuity; pool-bounded scan dominates cost; K-tracking marginal vs single-best-tracking)
-    dq 1, 1                 ; 0xF3–0xF4 — reserved for embedding-tier extensions (D3.34; Pod 3.10+ aggregation candidates / Pod 3.11+ multi-codebook ops)
-    dq 1, 1, 1, 1, 1       ; 0xF5–0xF9 — reserved for embedding-tier extensions
+    dq 1500                 ; 0xF3 — OP_EMBEDDING_PROJECT (Pod 3.10 D3.38; compound geometric op; ~2300 ops = 384 mulss + 384 addss × 2 dot loops + divss + 384 mulss scale; above synthesis tier 500-800j per Q6 ratification reflecting compound nature, below recognition tier 100,000j as not pool-bounded)
+    dq 1500                 ; 0xF4 — OP_EMBEDDING_REJECT (Pod 3.10 D3.38; parity pricing per Q6 — reject's marginal +384 subss over project doesn't justify pricing-decision overhead; round-number aesthetic; project-reject duality preserves uniform-cost composability)
+    dq 1, 1, 1, 1, 1       ; 0xF5–0xF9 — reserved for embedding-tier extensions (D3.34)
     dq 1, 1, 1, 1, 1       ; 0xFA–0xFE — reserved for embedding-tier extensions
     dq 0                    ; 0xFF — OP_HALT (termination, free)

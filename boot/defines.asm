@@ -209,7 +209,9 @@
 %define SYNTHESIS_OP_SCALE      0x03
 %define SYNTHESIS_OP_NORMALIZE  0x04
 %define SYNTHESIS_OP_LERP       0x05
-; 0x06-0xFF reserved for Pod 3.7+ synthesis-op extensions
+%define SYNTHESIS_OP_PROJECT    0x06   ; Pod 3.10 D3.38 — A's component along B's direction
+%define SYNTHESIS_OP_REJECT     0x07   ; Pod 3.10 D3.38 — A's component orthogonal to B
+; 0x08-0xFF reserved for Pod 3.11+ synthesis-op extensions
 
 ; Pod 3.6 — synthesis tuple Layout 2 quad-tuple (D3.27)
 ;   32 bytes per slot (16-byte aligned for SSE-friendly scalar field access).
@@ -255,6 +257,17 @@
 ;   Static cost: 100,000j matching D3.17 lookup_top1 anticipated-worst-case.
 ;   Witness op (D3.13): no bit-check; recognition surface, not forge.
 %define OP_EMBEDDING_LOOKUP_TOP_K    0xF2
+
+; --- Pod 3.10 Maid orthogonalizes: project + reject (D3.38; 0xF3/0xF4 in embedding-tier-extensions row) ---
+; OP_EMBEDDING_PROJECT (0xF3): pop A_id + B_id (B at TOS); MAC verify both;
+;   forge result = (A·B / B·B) * B (Form A direct divss per D3.14 / D3.40); zero-norm
+;   rejection on dot(B,B)==0 returns Err(InvalidEmbeddingArg) per D3.40 hybrid; tuple
+;   write op=SYNTHESIS_OP_PROJECT=0x06, source_a=A_id, source_b=B_id, scalar=0 per D3.39.
+;   Static cost: 1500j (compound geometric op tier; above synthesis 500-800j; below recognition).
+; OP_EMBEDDING_REJECT (0xF4): same shape; result = A - project(A,B); single-pass per-element
+;   subss(a[d], mulss(ratio, b[d])); same zero-norm rejection; tuple op=0x07.
+%define OP_EMBEDDING_PROJECT         0xF3
+%define OP_EMBEDDING_REJECT          0xF4
 
 ; --- Pod 3.9 top-K scratch sizing (D3.X axis-2 mechanical sizing applies) ---
 ; MAX_K bounds the top-K result count + sizes the BSS scratch arrays

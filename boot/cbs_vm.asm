@@ -251,6 +251,11 @@ cbs_run:
     ; Pod 3.9 — Maid finds many: top-K + threshold (D3.35; 0xF2 in embedding-tier-extensions row)
     cmp     al, OP_EMBEDDING_LOOKUP_TOP_K
     je      .op_embedding_lookup_top_k
+    ; Pod 3.10 — Maid orthogonalizes: project + reject (D3.38; 0xF3/0xF4 in embedding-tier-extensions row)
+    cmp     al, OP_EMBEDDING_PROJECT
+    je      .op_embedding_project
+    cmp     al, OP_EMBEDDING_REJECT
+    je      .op_embedding_reject
 
     ; Unknown opcode
     lea     rsi, [rel str_vm_unk]
@@ -3584,6 +3589,302 @@ cbs_run:
 .op_embedding_lookup_top_k_invalid_arg:
     mov     rdi, ERR_INVALID_EMBEDDING_ARG
     mov     rsi, OP_EMBEDDING_LOOKUP_TOP_K
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_EMBEDDING_PROJECT (0xF3) Pod 3.10 D3.38 — Maid orthogonalizes ---
+; Inherits .op_embedding_add shape: same stack discipline (push id_a, push id_b →
+; resolve+verify → push slot_a, push slot_b → pop slot_b/slot_a pre-compute →
+; tuple write reads id_a/id_b from stack). Differs from add: compute_project_raw
+; can return CF=1 (zero-norm rejection on dot(B,B)==0 per D3.40); fifth cleanup
+; label .op_embedding_project_zero_norm_drop2 returns Err(InvalidEmbeddingArg)
+; when this fires (matches normalize's zero-norm path shape).
+.op_embedding_project:
+    sub     r13, 8
+    mov     r11, [r13]                              ; id_b (top of operand stack)
+    sub     r13, 8
+    mov     r10, [r13]                              ; id_a
+
+    push    r10                                     ; [rsp+0] = id_a
+    push    r11                                     ; [rsp+0] = id_b, [rsp+8] = id_a
+
+    ; Bit-check: BIT_EMBEDDING_FORGE
+    mov     rdi, BIT_EMBEDDING_FORGE
+    mov     rsi, [rel current_cap_id]
+    call    babylon_check_authority
+    test    rax, rax
+    jnz     .op_embedding_project_insufficient_authority_drop2
+
+    ; Resolve + MAC verify both source slots
+    mov     r10, [rsp + 8]                          ; reload id_a
+    mov     r11, [rsp + 0]                          ; reload id_b
+    call    .embedding_two_resolve_verify           ; rdi=slot_a, rsi=slot_b on success
+    test    rax, rax
+    jnz     .op_embedding_project_invalid_drop2
+
+    ; Save source slot pointers across pool-cap / alloc / cap-cache writes
+    push    rdi                                     ; [rsp+0] = slot_a, [rsp+8] = id_b, [rsp+16] = id_a
+    push    rsi                                     ; [rsp+0] = slot_b, [rsp+8] = slot_a, [rsp+16] = id_b, [rsp+24] = id_a
+
+    ; Pool capacity check
+    mov     rcx, [rel vm_embedding_next]
+    cmp     rcx, EMBEDDING_POOL_SLOTS
+    jge     .op_embedding_project_pool_full_drop4
+
+    ; Allocate dest slot
+    call    .embedding_alloc                        ; rax = dest slot_ptr (0 if full; defensive)
+    test    rax, rax
+    jz      .op_embedding_project_pool_full_drop4
+    mov     rbx, rax                                ; rbx = dest slot_ptr (callee-saved)
+
+    ; Write placeholder id (0) + cap-cache (arena/owner/creator from substrate state)
+    mov     qword [rbx + EMBEDDING_OFF_ID_SELF], 0
+    mov     rdx, [rel current_cap_arena_id_cache]
+    mov     [rbx + EMBEDDING_OFF_ARENA_ID], rdx
+    mov     rdx, [rel current_cap_owner_demod_id_cache]
+    mov     [rbx + EMBEDDING_OFF_OWNER_DEMOD_ID], rdx
+    mov     rdx, [rel current_cap_id]
+    mov     [rbx + EMBEDDING_OFF_CREATOR_CAP_ID], rdx
+
+    ; compute_project_raw(rdi=slot_a, rsi=slot_b, rdx=dest_slot=rbx); CF=1 on zero-norm
+    pop     rsi                                     ; slot_b
+    pop     rdi                                     ; slot_a
+    mov     rdx, rbx                                ; dest = new slot
+    call    compute_project_raw
+    jc      .op_embedding_project_zero_norm_drop2
+
+    ; Register dest slot to obtain new embedding_id
+    mov     rdi, rbx
+    call    registry_register_embedding             ; rax = new_id (0 if registry full; defensive)
+    test    rax, rax
+    jz      .op_embedding_project_pool_full_drop2
+
+    ; Stamp embedding_id_self post-registry
+    mov     [rbx + EMBEDDING_OFF_ID_SELF], rax
+
+    ; SipHash MAC over 196 qwords
+    push    rax                                     ; preserve new_id across siphash
+    mov     rdi, rbx
+    mov     rsi, EMBEDDING_MAC_INPUT_QWORDS
+    call    siphash_compute
+    mov     [rbx + EMBEDDING_OFF_MAC], rax
+    pop     rax
+
+    ; Synthesis-tuple write (D3.27 Layout 2; D3.39 internally-derived-scalar → scalar=0)
+    ; Stack: [rsp+0] = id_b, [rsp+8] = id_a
+    lea     rdx, [rel vm_embedding_synthesis]
+    mov     rcx, rax
+    dec     rcx
+    shl     rcx, 5                                  ; * SYNTHESIS_TUPLE_BYTES (32)
+    add     rdx, rcx
+    mov     qword [rdx + SYNTHESIS_TUPLE_OFF_OP],       SYNTHESIS_OP_PROJECT
+    mov     rcx, [rsp + 8]                          ; id_a
+    mov     [rdx + SYNTHESIS_TUPLE_OFF_SOURCE_A], rcx
+    mov     rcx, [rsp + 0]                          ; id_b
+    mov     [rdx + SYNTHESIS_TUPLE_OFF_SOURCE_B], rcx
+    mov     qword [rdx + SYNTHESIS_TUPLE_OFF_SCALAR],   0   ; D3.39 scalar=0 for binary internally-derived-scalar ops
+
+    add     rsp, 16                                 ; discard id_a + id_b
+
+    ; Outcome wrap — D3.9/D3.23 single-fire babylon
+    mov     rdi, rax
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_ok_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_embedding_project_pool_full_drop4:
+    add     rsp, 32                                 ; discard slot_a + slot_b + id_a + id_b
+    jmp     .op_embedding_project_pool_full_emit
+
+.op_embedding_project_pool_full_drop2:
+    add     rsp, 16                                 ; discard id_a + id_b (slot_a/slot_b already popped)
+
+.op_embedding_project_pool_full_emit:
+    mov     rdi, ERR_POOL_FULL
+    mov     rsi, OP_EMBEDDING_PROJECT
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_embedding_project_invalid_drop2:
+    add     rsp, 16                                 ; discard id_a + id_b
+    mov     rdi, ERR_INVALID_ID
+    mov     rsi, OP_EMBEDDING_PROJECT
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_embedding_project_insufficient_authority_drop2:
+    add     rsp, 16                                 ; discard id_a + id_b
+    mov     rdi, ERR_CAP_INSUFFICIENT_AUTHORITY
+    mov     rsi, OP_EMBEDDING_PROJECT
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_embedding_project_zero_norm_drop2:
+    add     rsp, 16                                 ; discard id_a + id_b (slot_a/slot_b already popped pre-compute)
+    mov     rdi, ERR_INVALID_EMBEDDING_ARG
+    mov     rsi, OP_EMBEDDING_PROJECT
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_EMBEDDING_REJECT (0xF4) Pod 3.10 D3.38 — project's twin ---
+; Inherits .op_embedding_project shape verbatim (same stack discipline; same
+; 5 cleanup labels; same R4 sequence). Differs only in compute helper
+; (compute_reject_raw) and tuple op code (SYNTHESIS_OP_REJECT=0x07).
+.op_embedding_reject:
+    sub     r13, 8
+    mov     r11, [r13]                              ; id_b (top)
+    sub     r13, 8
+    mov     r10, [r13]                              ; id_a
+
+    push    r10
+    push    r11
+
+    mov     rdi, BIT_EMBEDDING_FORGE
+    mov     rsi, [rel current_cap_id]
+    call    babylon_check_authority
+    test    rax, rax
+    jnz     .op_embedding_reject_insufficient_authority_drop2
+
+    mov     r10, [rsp + 8]
+    mov     r11, [rsp + 0]
+    call    .embedding_two_resolve_verify
+    test    rax, rax
+    jnz     .op_embedding_reject_invalid_drop2
+
+    push    rdi
+    push    rsi
+
+    mov     rcx, [rel vm_embedding_next]
+    cmp     rcx, EMBEDDING_POOL_SLOTS
+    jge     .op_embedding_reject_pool_full_drop4
+
+    call    .embedding_alloc
+    test    rax, rax
+    jz      .op_embedding_reject_pool_full_drop4
+    mov     rbx, rax
+
+    mov     qword [rbx + EMBEDDING_OFF_ID_SELF], 0
+    mov     rdx, [rel current_cap_arena_id_cache]
+    mov     [rbx + EMBEDDING_OFF_ARENA_ID], rdx
+    mov     rdx, [rel current_cap_owner_demod_id_cache]
+    mov     [rbx + EMBEDDING_OFF_OWNER_DEMOD_ID], rdx
+    mov     rdx, [rel current_cap_id]
+    mov     [rbx + EMBEDDING_OFF_CREATOR_CAP_ID], rdx
+
+    pop     rsi
+    pop     rdi
+    mov     rdx, rbx
+    call    compute_reject_raw
+    jc      .op_embedding_reject_zero_norm_drop2
+
+    mov     rdi, rbx
+    call    registry_register_embedding
+    test    rax, rax
+    jz      .op_embedding_reject_pool_full_drop2
+
+    mov     [rbx + EMBEDDING_OFF_ID_SELF], rax
+
+    push    rax
+    mov     rdi, rbx
+    mov     rsi, EMBEDDING_MAC_INPUT_QWORDS
+    call    siphash_compute
+    mov     [rbx + EMBEDDING_OFF_MAC], rax
+    pop     rax
+
+    lea     rdx, [rel vm_embedding_synthesis]
+    mov     rcx, rax
+    dec     rcx
+    shl     rcx, 5
+    add     rdx, rcx
+    mov     qword [rdx + SYNTHESIS_TUPLE_OFF_OP],       SYNTHESIS_OP_REJECT
+    mov     rcx, [rsp + 8]
+    mov     [rdx + SYNTHESIS_TUPLE_OFF_SOURCE_A], rcx
+    mov     rcx, [rsp + 0]
+    mov     [rdx + SYNTHESIS_TUPLE_OFF_SOURCE_B], rcx
+    mov     qword [rdx + SYNTHESIS_TUPLE_OFF_SCALAR],   0
+
+    add     rsp, 16
+
+    mov     rdi, rax
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_ok_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_embedding_reject_pool_full_drop4:
+    add     rsp, 32
+    jmp     .op_embedding_reject_pool_full_emit
+
+.op_embedding_reject_pool_full_drop2:
+    add     rsp, 16
+
+.op_embedding_reject_pool_full_emit:
+    mov     rdi, ERR_POOL_FULL
+    mov     rsi, OP_EMBEDDING_REJECT
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_embedding_reject_invalid_drop2:
+    add     rsp, 16
+    mov     rdi, ERR_INVALID_ID
+    mov     rsi, OP_EMBEDDING_REJECT
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_embedding_reject_insufficient_authority_drop2:
+    add     rsp, 16
+    mov     rdi, ERR_CAP_INSUFFICIENT_AUTHORITY
+    mov     rsi, OP_EMBEDDING_REJECT
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_embedding_reject_zero_norm_drop2:
+    add     rsp, 16
+    mov     rdi, ERR_INVALID_EMBEDDING_ARG
+    mov     rsi, OP_EMBEDDING_REJECT
     xor     rdx, rdx
     xor     rcx, rcx
     mov     r8, TYPE_CODE_EMBEDDING

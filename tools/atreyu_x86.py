@@ -120,6 +120,8 @@ OP_EMBEDDING_SYNTHESIS_HANDLE = 0xCF   # GET_DIM-style parameterized accessor fo
 OP_EMBEDDING_IMPORT          = 0xF0    # forge embedding from codebook block (Pod 3.8.F)
 OP_EMBEDDING_IMPORTED_HANDLE = 0xF1    # GET_DIM-style parameterized accessor for imported tuple (Pod 3.8.E)
 OP_EMBEDDING_LOOKUP_TOP_K    = 0xF2    # top-K + threshold housekeeper recognition; "Maid finds many" (Pod 3.9 D3.35)
+OP_EMBEDDING_PROJECT         = 0xF3    # forge result = (A·B/B·B)*B; "Maid orthogonalizes" (Pod 3.10 D3.38)
+OP_EMBEDDING_REJECT          = 0xF4    # forge result = A - project(A,B); project's twin (Pod 3.10 D3.38)
 
 # --- Pod 1.10.3 substrate constants (for default arg values) ---
 # Signed two's-complement representation of 0xFFFFFFFFFFFFFFFF for
@@ -577,6 +579,20 @@ class AtreyuX86:
             e.emit(OP_PUSH); e.emit_i64(n['id_a'])
             e.emit(OP_PUSH); e.emit_i64(n['id_b'])
             e.emit(OP_EMBEDDING_SUBTRACT)
+        elif t == 'embedding_project':
+            self._expr(n['lhs']); self._expr(n['rhs'])
+            e.emit(OP_EMBEDDING_PROJECT); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_project_raw':
+            e.emit(OP_PUSH); e.emit_i64(n['id_a'])
+            e.emit(OP_PUSH); e.emit_i64(n['id_b'])
+            e.emit(OP_EMBEDDING_PROJECT)
+        elif t == 'embedding_reject':
+            self._expr(n['lhs']); self._expr(n['rhs'])
+            e.emit(OP_EMBEDDING_REJECT); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_reject_raw':
+            e.emit(OP_PUSH); e.emit_i64(n['id_a'])
+            e.emit(OP_PUSH); e.emit_i64(n['id_b'])
+            e.emit(OP_EMBEDDING_REJECT)
         elif t == 'embedding_scale':
             # Stack order: [..., embedding_id, scalar] (TOS-is-rightmost-arg per GET_DIM convention)
             self._expr(n['operand'])
@@ -2953,6 +2969,204 @@ def demo_pod39_b49_probe():
     ]}
 
 
+def demo_pod310_b50_project():
+    """Pod 3.10 B50 — project(A, B) = (A·B/B·B)*B.
+
+    Identity probes + concrete cases anchored to R10 sim (tools/pod310_r10_sim.py):
+      - id1: project(A, A) = A byte-exact (ratio = 1.0; mulss(1.0, x) = x via B30)
+      - id2: project(zero, B) = zero (ratio = 0; mulss(0, x) = 0)
+      - id3: project(A, zero) → Err(InvalidEmbeddingArg, src=0xF3=243, err=9) per D3.40
+      - c1: project((1,1,0..), (1,0,0..)) = (1,0,0..) (ratio = 1.0; result == B byte-exact)
+      - c2: project((3,4,0..), (1,0,0..)) = (3,0,0..) (ratio = 3.0)
+    """
+    v_one = _f32_vector_bytes([1.0])                       # (1,0,0,..)
+    v_e0_e1 = _f32_vector_bytes([1.0, 1.0])                # (1,1,0,..)
+    v_3_4   = _f32_vector_bytes([3.0, 4.0])                # (3,4,0,..)
+    v_id1A  = _f32_vector_bytes([1.0, 2.0, 0.0, 0.0, 0.0, 3.0])  # (1,2,0,0,0,3,0,..) — sparse
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Pod 3.10 B50 — Project ==='}},
+
+        # B50.id1: project(A, A) = A byte-exact
+        {'type':'print','value':{'type':'str','value':'-- id1: project(A, A) = A byte-exact (A nonzero) --'}},
+        {'type':'let','name':'a1','value':{'type':'embedding_new','vector':v_id1A}},
+        {'type':'let','name':'p1','value':{'type':'embedding_project','lhs':{'type':'var','name':'a1'},'rhs':{'type':'var','name':'a1'}}},
+        {'type':'print','value':{'type':'str','value':f'p1[0] (expect {_f32_bit_pattern(1.0)} = 1.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'p1'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'p1[1] (expect {_f32_bit_pattern(2.0)} = 2.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'p1'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':f'p1[5] (expect {_f32_bit_pattern(3.0)} = 3.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'p1'},'dim_index':5}},
+        {'type':'print','value':{'type':'str','value':f'p1[2] (expect {_f32_bit_pattern(0.0)} = 0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'p1'},'dim_index':2}},
+
+        # B50.id2: project(zero, B) = zero
+        {'type':'print','value':{'type':'str','value':'-- id2: project(zero, B) = zero --'}},
+        {'type':'let','name':'z2','value':{'type':'embedding_new'}},
+        {'type':'let','name':'b2','value':{'type':'embedding_new','vector':v_3_4}},
+        {'type':'let','name':'p2','value':{'type':'embedding_project','lhs':{'type':'var','name':'z2'},'rhs':{'type':'var','name':'b2'}}},
+        {'type':'print','value':{'type':'str','value':f'p2[0] (expect {_f32_bit_pattern(0.0)} = 0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'p2'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'p2[1] (expect {_f32_bit_pattern(0.0)} = 0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'p2'},'dim_index':1}},
+
+        # B50.id3: project(A, zero) → CF=1 → Err(InvalidEmbeddingArg, src=243, err=9)
+        # Forge order so far: a1=1, p1=2, z2=3, b2=4, p2=5; next forges: a3=6, z3=7
+        {'type':'print','value':{'type':'str','value':'-- id3: project(A, zero) -> Err(InvalidEmbeddingArg) --'}},
+        {'type':'let','name':'a3','value':{'type':'embedding_new','vector':v_one}},
+        {'type':'let','name':'z3','value':{'type':'embedding_new'}},
+        # _raw variant returns Outcome on stack (no auto-unwrap)
+        {'type':'let','name':'o3','value':{'type':'embedding_project_raw','id_a':6,'id_b':7}},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o3'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o3'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 243 = OP_EMBEDDING_PROJECT):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 9 = ERR_INVALID_EMBEDDING_ARG):'}},
+        {'type':'print','value':{'type':'tos'}},
+
+        # B50.c1: project((1,1), (1,0)) = (1, 0)
+        {'type':'print','value':{'type':'str','value':'-- c1: project((1,1,0..), (1,0,0..)) = (1,0,0..) --'}},
+        {'type':'let','name':'ac1','value':{'type':'embedding_new','vector':v_e0_e1}},
+        {'type':'let','name':'bc1','value':{'type':'embedding_new','vector':v_one}},
+        {'type':'let','name':'pc1','value':{'type':'embedding_project','lhs':{'type':'var','name':'ac1'},'rhs':{'type':'var','name':'bc1'}}},
+        {'type':'print','value':{'type':'str','value':f'pc1[0] (expect {_f32_bit_pattern(1.0)} = 1.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'pc1'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'pc1[1] (expect {_f32_bit_pattern(0.0)} = 0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'pc1'},'dim_index':1}},
+
+        # B50.c2: project((3,4), (1,0)) = (3, 0)
+        {'type':'print','value':{'type':'str','value':'-- c2: project((3,4,0..), (1,0,0..)) = (3,0,0..) --'}},
+        {'type':'let','name':'ac2','value':{'type':'embedding_new','vector':v_3_4}},
+        {'type':'let','name':'bc2','value':{'type':'embedding_new','vector':v_one}},
+        {'type':'let','name':'pc2','value':{'type':'embedding_project','lhs':{'type':'var','name':'ac2'},'rhs':{'type':'var','name':'bc2'}}},
+        {'type':'print','value':{'type':'str','value':f'pc2[0] (expect {_f32_bit_pattern(3.0)} = 3.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'pc2'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'pc2[1] (expect {_f32_bit_pattern(0.0)} = 0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'pc2'},'dim_index':1}},
+
+        {'type':'print','value':{'type':'str','value':'=== B50 done ==='}},
+    ]}
+
+
+def demo_pod310_b51_reject():
+    """Pod 3.10 B51 — reject(A, B) = A - (A·B/B·B)*B + orthogonality drift panel.
+
+    Identity probes + drift panel (D3.28 self-verifying canon for Pod 3.10):
+      - id1: reject(A, A) = +0 vector byte-exact (subss(x, mulss(1.0, x)) = subss(x, x) = +0 via B28)
+      - id2: reject(zero, B) = zero
+      - id3: reject(A, zero) → Err(InvalidEmbeddingArg, src=0xF4=244, err=9)
+      - c1: reject((1,1,0..), (1,0,0..)) = (0,1,0..)
+      - c2: reject((3,4,0..), (1,0,0..)) = (0,4,0..)
+      - drift1: dot(reject((1,1), (1,0)), (1,0)) = 0 byte-exact
+      - drift2: dot(reject((1,1), (3,4)), (3,4)) = 0xB4000000 drift (R10-predicted)
+      - drift3: dot(reject((1,2,3), (1,1,1)), (1,1,1)) = 0 byte-exact (clean cancellation)
+    """
+    v_one = _f32_vector_bytes([1.0])
+    v_e0_e1 = _f32_vector_bytes([1.0, 1.0])
+    v_3_4 = _f32_vector_bytes([3.0, 4.0])
+    v_1_2_3 = _f32_vector_bytes([1.0, 2.0, 3.0])
+    v_1_1_1 = _f32_vector_bytes([1.0, 1.0, 1.0])
+    v_id1A = _f32_vector_bytes([1.0, 2.0, 0.0, 0.0, 0.0, 3.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Pod 3.10 B51 — Reject ==='}},
+
+        # B51.id1: reject(A, A) = +0 vector byte-exact
+        {'type':'print','value':{'type':'str','value':'-- id1: reject(A, A) = +0 vector byte-exact --'}},
+        {'type':'let','name':'a1','value':{'type':'embedding_new','vector':v_id1A}},
+        {'type':'let','name':'r1','value':{'type':'embedding_reject','lhs':{'type':'var','name':'a1'},'rhs':{'type':'var','name':'a1'}}},
+        {'type':'print','value':{'type':'str','value':f'r1[0] (expect {_f32_bit_pattern(0.0)} = +0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'r1'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'r1[1] (expect {_f32_bit_pattern(0.0)} = +0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'r1'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':f'r1[5] (expect {_f32_bit_pattern(0.0)} = +0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'r1'},'dim_index':5}},
+
+        # B51.id2: reject(zero, B) = zero
+        {'type':'print','value':{'type':'str','value':'-- id2: reject(zero, B) = zero --'}},
+        {'type':'let','name':'z2','value':{'type':'embedding_new'}},
+        {'type':'let','name':'b2','value':{'type':'embedding_new','vector':v_3_4}},
+        {'type':'let','name':'r2','value':{'type':'embedding_reject','lhs':{'type':'var','name':'z2'},'rhs':{'type':'var','name':'b2'}}},
+        {'type':'print','value':{'type':'str','value':f'r2[0] (expect {_f32_bit_pattern(0.0)} = 0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'r2'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'r2[1] (expect {_f32_bit_pattern(0.0)} = 0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'r2'},'dim_index':1}},
+
+        # B51.id3: reject(A, zero) → CF=1 → Err
+        # Forge order so far: a1=1, r1=2, z2=3, b2=4, r2=5; next forges: a3=6, z3=7
+        {'type':'print','value':{'type':'str','value':'-- id3: reject(A, zero) -> Err(InvalidEmbeddingArg) --'}},
+        {'type':'let','name':'a3','value':{'type':'embedding_new','vector':v_one}},
+        {'type':'let','name':'z3','value':{'type':'embedding_new'}},
+        {'type':'let','name':'o3','value':{'type':'embedding_reject_raw','id_a':6,'id_b':7}},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o3'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o3'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 244 = OP_EMBEDDING_REJECT):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 9 = ERR_INVALID_EMBEDDING_ARG):'}},
+        {'type':'print','value':{'type':'tos'}},
+
+        # B51.c1: reject((1,1), (1,0)) = (0,1,0..)
+        {'type':'print','value':{'type':'str','value':'-- c1: reject((1,1,0..), (1,0,0..)) = (0,1,0..) --'}},
+        {'type':'let','name':'ac1','value':{'type':'embedding_new','vector':v_e0_e1}},
+        {'type':'let','name':'bc1','value':{'type':'embedding_new','vector':v_one}},
+        {'type':'let','name':'rc1','value':{'type':'embedding_reject','lhs':{'type':'var','name':'ac1'},'rhs':{'type':'var','name':'bc1'}}},
+        {'type':'print','value':{'type':'str','value':f'rc1[0] (expect {_f32_bit_pattern(0.0)} = 0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'rc1'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'rc1[1] (expect {_f32_bit_pattern(1.0)} = 1.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'rc1'},'dim_index':1}},
+
+        # drift1: dot(reject((1,1), (1,0)), (1,0)) = 0 byte-exact
+        {'type':'print','value':{'type':'str','value':'-- drift1: dot(rc1, bc1) (expect 0 byte-exact; trivial case) --'}},
+        {'type':'print','value':{'type':'embedding_dot_product','lhs':{'type':'var','name':'rc1'},'rhs':{'type':'var','name':'bc1'}}},
+
+        # B51.c2: reject((3,4), (1,0)) = (0,4,0..)
+        {'type':'print','value':{'type':'str','value':'-- c2: reject((3,4,0..), (1,0,0..)) = (0,4,0..) --'}},
+        {'type':'let','name':'ac2','value':{'type':'embedding_new','vector':v_3_4}},
+        {'type':'let','name':'bc2','value':{'type':'embedding_new','vector':v_one}},
+        {'type':'let','name':'rc2','value':{'type':'embedding_reject','lhs':{'type':'var','name':'ac2'},'rhs':{'type':'var','name':'bc2'}}},
+        {'type':'print','value':{'type':'str','value':f'rc2[0] (expect {_f32_bit_pattern(0.0)} = 0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'rc2'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':f'rc2[1] (expect {_f32_bit_pattern(4.0)} = 4.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'rc2'},'dim_index':1}},
+
+        # drift2: dot(reject((1,1), (3,4)), (3,4)) = 0xB4000000 (DRIFT — R10 self-verifying canon)
+        {'type':'print','value':{'type':'str','value':'-- drift2: reject((1,1,0..), (3,4,0..)) drift panel --'}},
+        {'type':'let','name':'ad2','value':{'type':'embedding_new','vector':v_e0_e1}},
+        {'type':'let','name':'bd2','value':{'type':'embedding_new','vector':v_3_4}},
+        {'type':'let','name':'rd2','value':{'type':'embedding_reject','lhs':{'type':'var','name':'ad2'},'rhs':{'type':'var','name':'bd2'}}},
+        {'type':'print','value':{'type':'str','value':'rd2[0] (expect 0x3E23D708 from R10):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'rd2'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':'rd2[1] (expect 0xBDF5C290 from R10):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'rd2'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':'dot(rd2, bd2) (expect 0xB4000000 = DRIFT not 0; D3.28 self-verifying canon):'}},
+        {'type':'print','value':{'type':'embedding_dot_product','lhs':{'type':'var','name':'rd2'},'rhs':{'type':'var','name':'bd2'}}},
+
+        # drift3: dot(reject((1,2,3), (1,1,1)), (1,1,1)) = 0 byte-exact (clean cancellation)
+        {'type':'print','value':{'type':'str','value':'-- drift3: reject((1,2,3,0..), (1,1,1,0..)) clean-cancellation case --'}},
+        {'type':'let','name':'ad3','value':{'type':'embedding_new','vector':v_1_2_3}},
+        {'type':'let','name':'bd3','value':{'type':'embedding_new','vector':v_1_1_1}},
+        {'type':'let','name':'rd3','value':{'type':'embedding_reject','lhs':{'type':'var','name':'ad3'},'rhs':{'type':'var','name':'bd3'}}},
+        {'type':'print','value':{'type':'str','value':'rd3[0] (expect 0xBF800000 = -1.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'rd3'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':'rd3[1] (expect 0x00000000 = 0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'rd3'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':'rd3[2] (expect 0x3F800000 = 1.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'rd3'},'dim_index':2}},
+        {'type':'print','value':{'type':'str','value':'dot(rd3, bd3) (expect 0 byte-exact; clean cancellation):'}},
+        {'type':'print','value':{'type':'embedding_dot_product','lhs':{'type':'var','name':'rd3'},'rhs':{'type':'var','name':'bd3'}}},
+
+        {'type':'print','value':{'type':'str','value':'=== B51 done ==='}},
+    ]}
+
+
 def demo_pod38_codebook_imported_round_trip():
     """Pod 3.8 B48 — boot-ingestion observation. Substrate built with
     inputs/test_codebook_b48.txt (5 basis vectors); boot_ingest_codebook
@@ -3743,5 +3957,15 @@ if __name__ == '__main__':
         out = sys.argv[sys.argv.index('--pod39-b49-probe-k-build')+1] if len(sys.argv) > sys.argv.index('--pod39-b49-probe-k-build')+1 else 'test_pod39_b49_probe_k.cbc'
         with open(out,'wb') as f: f.write(bc)
         print(f"Pod 3.9 B49 K-Probe test: compiled {len(bc)} bytes -> {out}")
+    elif '--pod310-b50-project-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod310_b50_project())
+        out = sys.argv[sys.argv.index('--pod310-b50-project-build')+1] if len(sys.argv) > sys.argv.index('--pod310-b50-project-build')+1 else 'test_pod310_b50_project.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 3.10 B50 Project test: compiled {len(bc)} bytes -> {out}")
+    elif '--pod310-b51-reject-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod310_b51_reject())
+        out = sys.argv[sys.argv.index('--pod310-b51-reject-build')+1] if len(sys.argv) > sys.argv.index('--pod310-b51-reject-build')+1 else 'test_pod310_b51_reject.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 3.10 B51 Reject test: compiled {len(bc)} bytes -> {out}")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-bitmap,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test} | --bitmap-{root-unbounded,subset-grant-succeeds,superset-grant-fails,authority-check-{passes,fails},accessor-round-trip}-{build,test} | --embedding-{new-basic,accessor-round-trip,invalid-id,authority-check-{passes,fails}}-{build,test} | --sign-{with-embedding,invalid-embedding-handle}-{build,test}")
