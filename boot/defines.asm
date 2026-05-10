@@ -235,6 +235,74 @@
 %define SYNTHESIS_FIELD_SOURCE_B      2
 %define SYNTHESIS_FIELD_SCALAR        3
 
+; --- Pod 3.8 codebook-tier opcodes (D3.31; Q5 0xF0–0xFE row allocation) ---
+; OP_EMBEDDING_IMPORT (0xF0): pop codebook_id + line_index, forge new
+;   embedding from codebook block; bit-check BIT_EMBEDDING_FORGE; write
+;   imported provenance tuple. Forge-class authority shared with synthesis
+;   ops per D3.X (no new bit; FORGE reused).
+; OP_EMBEDDING_IMPORTED_HANDLE (0xF1): GET_DIM-style witness accessor;
+;   pop embedding_id + field_index (0..3), read imported tuple field.
+; 0xF2-0xFE reserved for codebook-tier extensions (multi-codebook, codebook
+;   metadata accessors, etc.) at Pod 3.9+.
+%define OP_EMBEDDING_IMPORT          0xF0
+%define OP_EMBEDDING_IMPORTED_HANDLE 0xF1
+
+; --- Pod 3.8 imported provenance tuple (D3.27 Layout-2 mirror) ---
+; 32-byte quad-tuple at vm_embedding_imported[(embedding_id - 1) * 32].
+; Same shape as vm_embedding_synthesis; mechanical Layout-2 inheritance.
+%define IMPORTED_TUPLE_BYTES                  32
+%define IMPORTED_TUPLE_OFF_CODEBOOK_ID        0
+%define IMPORTED_TUPLE_OFF_LINE_INDEX         8
+%define IMPORTED_TUPLE_OFF_RESERVED_HASH      16
+%define IMPORTED_TUPLE_OFF_RESERVED_TIMESTAMP 24
+
+; --- Pod 3.8 imported tuple field index for OP_EMBEDDING_IMPORTED_HANDLE ---
+; Mirrors SYNTHESIS_FIELD_* shape. field_index 0..3 selects qword to read.
+; Out-of-range → ERR_INVALID_EMBEDDING_ARG.
+%define IMPORTED_FIELD_CODEBOOK_ID          0
+%define IMPORTED_FIELD_LINE_INDEX           1
+%define IMPORTED_FIELD_RESERVED_HASH        2
+%define IMPORTED_FIELD_RESERVED_TIMESTAMP   3
+
+; --- Pod 3.8 CBKBOK01 codebook image header layout ---
+; 64-byte fixed header followed by contiguous f32 vector block.
+; Build-tool tools/codebook_builder.py emits this format.
+%define CBK_HEADER_BYTES                    64
+%define CBK_HEADER_OFF_MAGIC                0    ; "CBKBOK01" 8 ASCII bytes
+%define CBK_HEADER_OFF_COUNT                8    ; u64
+%define CBK_HEADER_OFF_DIM                  16   ; u64
+%define CBK_HEADER_OFF_SCALAR_TYPE          24   ; u32 (low 32 of qword)
+%define CBK_HEADER_OFF_RESERVED1            28   ; u32 reserved
+%define CBK_HEADER_OFF_VECTOR_BLOCK_OFFSET  32   ; u64
+%define CBK_HEADER_OFF_VECTOR_BLOCK_BYTES   40   ; u64
+%define CBK_HEADER_OFF_PAYLOAD_HASH         48   ; 16 bytes SHA-256-truncated
+
+; --- Pod 3.8 CBKBOK01 magic comparator ---
+; "CBKBOK01" ASCII = 0x43 0x42 0x4B 0x42 0x4F 0x4B 0x30 0x31
+; Little-endian u64: byte 0 -> bits[7:0], byte 7 -> bits[63:56]
+;   = 0x31 << 56 | 0x30 << 48 | 0x4B << 40 | 0x4F << 32 | 0x42 << 24 | 0x4B << 16 | 0x42 << 8 | 0x43
+;   = 0x31304B4F424B4243
+%define CBK_MAGIC_QWORD              0x31304B4F424B4243
+
+; --- Pod 3.8 codebook scalar type ---
+%define CBK_SCALAR_TYPE_F32          0
+
+; --- Pod 3.8 codebook ingestion status (vm_codebook_meta +0x18) ---
+%define CBK_STATUS_NOT_RUN           0
+%define CBK_STATUS_SUCCESS           1
+%define CBK_STATUS_ERR_BAD_MAGIC     2
+%define CBK_STATUS_ERR_BAD_DIM       3
+%define CBK_STATUS_ERR_POOL_FULL     4
+%define CBK_STATUS_ERR_OTHER         255
+
+; --- Pod 3.8 vm_codebook_meta block field offsets ---
+%define CBK_META_OFF_COUNT             0    ; qword: imports ingested at boot
+%define CBK_META_OFF_DIM               8    ; qword: codebook dimensionality
+%define CBK_META_OFF_SCALAR_TYPE       16   ; qword: 0=f32
+%define CBK_META_OFF_INGESTION_STATUS  24   ; qword: CBK_STATUS_*
+%define CBK_META_OFF_PAYLOAD_HASH      32   ; 16 bytes
+%define CBK_META_OFF_RESERVED          48   ; 16 bytes future
+
 ; --- Pod 1.10.2a Cap pool / slot constants (D1.10.1.10) ---
 ; CAP_ID_NULL=0 already defined above in canonical-ID null-sentinel block (Pod 1.8.5b).
 %define CAP_POOL_SLOTS   64

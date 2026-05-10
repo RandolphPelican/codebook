@@ -116,6 +116,9 @@ OP_EMBEDDING_SCALE        = 0xCC   # forge result = scalar * a; first scalar-mix
 OP_EMBEDDING_NORMALIZE    = 0xCD   # forge result = a / |a|; Form A; first unary forge + zero-norm rejection (Phase 2.2)
 OP_EMBEDDING_LERP         = 0xCE   # forge result = (1-t)*a + t*b; Form A; first ternary forge (Phase 3.1)
 OP_EMBEDDING_SYNTHESIS_HANDLE = 0xCF   # GET_DIM-style parameterized accessor for synthesis tuple (Phase 3.2)
+# --- Pod 3.8 codebook-tier (Q5 0xF0-0xFE row; D3.31) ---
+OP_EMBEDDING_IMPORT          = 0xF0    # forge embedding from codebook block (Pod 3.8.F)
+OP_EMBEDDING_IMPORTED_HANDLE = 0xF1    # GET_DIM-style parameterized accessor for imported tuple (Pod 3.8.E)
 
 # --- Pod 1.10.3 substrate constants (for default arg values) ---
 # Signed two's-complement representation of 0xFFFFFFFFFFFFFFFF for
@@ -607,6 +610,16 @@ class AtreyuX86:
             e.emit(OP_PUSH); e.emit_i64(n['id'])
             e.emit(OP_PUSH); e.emit_i64(n['field_index'])
             e.emit(OP_EMBEDDING_SYNTHESIS_HANDLE)
+        # --- Pod 3.8 codebook-tier (D3.31; Q5 0xF0-0xFE row) ---
+        elif t == 'embedding_imported_handle':
+            # Stack order: [..., embedding_id, field_index]; mirrors synthesis_handle shape.
+            self._expr(n['operand'])
+            e.emit(OP_PUSH); e.emit_i64(n['field_index'])
+            e.emit(OP_EMBEDDING_IMPORTED_HANDLE); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_imported_handle_raw':
+            e.emit(OP_PUSH); e.emit_i64(n['id'])
+            e.emit(OP_PUSH); e.emit_i64(n['field_index'])
+            e.emit(OP_EMBEDDING_IMPORTED_HANDLE)
 
     def _embedding_new(self, n):
         """Emit OP_EMBEDDING_NEW with inline 1536-byte f32 vector data.
@@ -2780,6 +2793,38 @@ def demo_pod37_mixed_workload_within_capacity():
         {'type':'print','value':{'type':'str','value':'=== B45: mixed workload across 50+ embeddings + synthesis ops handled cleanly ==='}},
     ]}
 
+def demo_pod38_codebook_imported_round_trip():
+    """Pod 3.8 B48 — boot-ingestion observation. Substrate built with
+    inputs/test_codebook_b48.txt (5 basis vectors); boot_ingest_codebook
+    pre-populates embedding_pool + vm_embedding_imported tuples at boot
+    under ROOT_CAP context (D3.31 substrate-private 0j). Canary reads
+    each via dispatch surface: OP_EMBEDDING_IMPORTED_HANDLE for tuple
+    field readback + OP_EMBEDDING_GET_DIM for vector readback.
+
+    Each entry is a basis vector: entry i (1-indexed) has dim (i-1) = 1.0
+    and all other dims = 0. line_index in tuple = i - 1.
+    """
+    body = [{'type':'print','value':{'type':'str','value':'=== Pod 3.8 B48 — Codebook Boot Ingestion ==='}}]
+    for i in range(1, 6):  # ids 1..5
+        body.append({'type':'let','name':f'id{i}','value':{'type':'int','value':i}})
+        # tuple[0] codebook_id (expect 1 for V1.0 single-codebook)
+        body.append({'type':'print','value':{'type':'str','value':f'id={i} cb_id:'}})
+        body.append({'type':'print','value':{'type':'embedding_imported_handle','operand':{'type':'var','name':f'id{i}'},'field_index':0}})
+        # tuple[1] line_index (expect i-1)
+        body.append({'type':'print','value':{'type':'str','value':f'id={i} line_idx:'}})
+        body.append({'type':'print','value':{'type':'embedding_imported_handle','operand':{'type':'var','name':f'id{i}'},'field_index':1}})
+        # tuple[2] reserved_hash (expect 0)
+        body.append({'type':'print','value':{'type':'str','value':f'id={i} hash:'}})
+        body.append({'type':'print','value':{'type':'embedding_imported_handle','operand':{'type':'var','name':f'id{i}'},'field_index':2}})
+        # tuple[3] reserved_timestamp (expect 0)
+        body.append({'type':'print','value':{'type':'str','value':f'id={i} ts:'}})
+        body.append({'type':'print','value':{'type':'embedding_imported_handle','operand':{'type':'var','name':f'id{i}'},'field_index':3}})
+        # vector dim[i-1] readback (expect 0x3F800000 = 1.0)
+        body.append({'type':'print','value':{'type':'str','value':f'id={i} dim[{i-1}]:'}})
+        body.append({'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':f'id{i}'},'dim_index':i-1}})
+    body.append({'type':'print','value':{'type':'str','value':'=== B48 done ==='}})
+    return {'type':'program','body':body}
+
 def demo_energy():
     """Pod 1.8 Energy typed primitive test — hardcoded AST demo"""
     return {'type':'program','body':[
@@ -3517,5 +3562,11 @@ if __name__ == '__main__':
         out = sys.argv[sys.argv.index('--pod37-mixed-workload-build')+1] if len(sys.argv) > sys.argv.index('--pod37-mixed-workload-build')+1 else 'test_pod37_mixed_workload.cbc'
         with open(out,'wb') as f: f.write(bc)
         print(f"Pod 3.7 Mixed Workload test (B45): compiled {len(bc)} bytes -> {out}")
+    # --- Pod 3.8 codebook boot-ingestion canary (B48) ---
+    elif '--pod38-codebook-imported-round-trip-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod38_codebook_imported_round_trip())
+        out = sys.argv[sys.argv.index('--pod38-codebook-imported-round-trip-build')+1] if len(sys.argv) > sys.argv.index('--pod38-codebook-imported-round-trip-build')+1 else 'test_pod38_b48_codebook_imported.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 3.8 B48 Codebook Imported Round-Trip test: compiled {len(bc)} bytes -> {out}")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-bitmap,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test} | --bitmap-{root-unbounded,subset-grant-succeeds,superset-grant-fails,authority-check-{passes,fails},accessor-round-trip}-{build,test} | --embedding-{new-basic,accessor-round-trip,invalid-id,authority-check-{passes,fails}}-{build,test} | --sign-{with-embedding,invalid-embedding-handle}-{build,test}")

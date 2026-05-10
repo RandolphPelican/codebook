@@ -104,6 +104,32 @@ vm_embedding_sign_handle: times EMBEDDING_POOL_SLOTS dq 0
     align 16
 vm_embedding_synthesis: times EMBEDDING_POOL_SLOTS * SYNTHESIS_TUPLE_BYTES db 0
 
+; Embedding imported side-table (Pod 3.8 — D3.31; D3.29 axis-2 inheritance)
+;   Third instance of D3.20-generalized non-MAC parallel linkage convention,
+;   alongside vm_embedding_sign_handle (Pod 3.5 D3.20) + vm_embedding_synthesis
+;   (Pod 3.6 D3.26). Parallel BSS array indexed by (embedding_id - 1) *
+;   IMPORTED_TUPLE_BYTES. D3.27 Layout-2 mirror: 32-byte quad-tuple
+;   (codebook_id, line_index, reserved_hash, reserved_timestamp).
+;   Written at boot_ingest_codebook (substrate-private 0j per D3.31) and at
+;   OP_EMBEDDING_IMPORT user-runtime forge; read via OP_EMBEDDING_IMPORTED_HANDLE.
+;   BSS-zero default = (0, 0, 0, 0) for non-imported embeddings (synthesized
+;   or raw OP_EMBEDDING_NEW). Sized to EMBEDDING_POOL_SLOTS × IMPORTED_TUPLE_BYTES
+;   = 2048 × 32 = 64 KB (D3.29 axis-2 cascades from EMBEDDING_POOL_SLOTS).
+    align 16
+vm_embedding_imported: times EMBEDDING_POOL_SLOTS * IMPORTED_TUPLE_BYTES db 0
+
+; Codebook substrate-private state cache (Pod 3.8 — D3.31)
+;   Substrate-internal state populated at boot_ingest_codebook; read by audit /
+;   diagnostic surfaces post-boot. 64-byte fixed block:
+;     +0x00 count             (qword)  — imports ingested at boot
+;     +0x08 dim                (qword)  — codebook dimensionality (must == EMBEDDING_DIM)
+;     +0x10 scalar_type        (qword)  — 0=f32 (V1.0)
+;     +0x18 ingestion_status   (qword)  — CBK_STATUS_*
+;     +0x20 payload_hash       (16 bytes) — SHA-256-truncated from image
+;     +0x30 reserved           (16 bytes; future: timestamp / format_revision)
+    align 16
+vm_codebook_meta: times 64 db 0
+
 ; Sign registry (Pod 1.8.5b — Move 4)
 ;   Maps sign_id (opaque counter, 1-based) -> slot pointer (u64).
 ;   Each entry = {id: u64, slot_ptr: u64} = 16 bytes.

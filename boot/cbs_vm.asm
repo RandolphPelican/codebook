@@ -243,6 +243,11 @@ cbs_run:
     je      .op_embedding_lerp
     cmp     al, OP_EMBEDDING_SYNTHESIS_HANDLE
     je      .op_embedding_synthesis_handle
+    ; Pod 3.8 — codebook-tier (Q5 0xF0-0xFE row; D3.31)
+    ; OP_EMBEDDING_IMPORT (0xF0) handler lands at Pod 3.8.F (paired with
+    ; build.sh codebook integration). 0xF1 IMPORTED_HANDLE accessor here.
+    cmp     al, OP_EMBEDDING_IMPORTED_HANDLE
+    je      .op_embedding_imported_handle
 
     ; Unknown opcode
     lea     rsi, [rel str_vm_unk]
@@ -3401,6 +3406,71 @@ cbs_run:
 .op_embedding_synthesis_handle_invalid_id:
     mov     rdi, ERR_INVALID_ID
     mov     rsi, OP_EMBEDDING_SYNTHESIS_HANDLE
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_EMBEDDING_IMPORTED_HANDLE (0xF1) Pod 3.8 — Phase 3.8.E witness accessor ---
+; Mirror of .op_embedding_synthesis_handle shape (D3.27 Layout-2 quad-tuple,
+; same shift, same accessor convention) but reads vm_embedding_imported instead
+; of vm_embedding_synthesis. Substrate-runtime dispatched (NOT substrate-private
+; — D3.31 distinction holds; this surface participates in dispatch loop, fires
+; Outcomes via .construct_ok_outcome, drains r14, increments fetch counter).
+;
+; Pop field_index (top of operand stack) + embedding_id; validate field range;
+; registry_lookup_embedding (no MAC verify per D3.20-generalized — imported
+; tuple is non-MAC parallel structure mirroring vm_embedding_synthesis pattern);
+; read tuple[field_index]; wrap in Outcome::Ok. Witness op (D3.13): no bit-check;
+; no forge bit required (matches SYNTHESIS_HANDLE authority pattern).
+.op_embedding_imported_handle:
+    sub     r13, 8
+    mov     rcx, [r13]                              ; field_index (top)
+    sub     r13, 8
+    mov     rdi, [r13]                              ; embedding_id
+
+    cmp     rcx, 4
+    jae     .op_embedding_imported_handle_invalid_field
+
+    test    rdi, rdi
+    jz      .op_embedding_imported_handle_invalid_id
+
+    push    rcx                                     ; preserve field_index across registry call
+    call    registry_lookup_embedding               ; rax = slot_ptr or 0; rdi preserved
+    pop     rcx
+    test    rax, rax
+    jz      .op_embedding_imported_handle_invalid_id
+
+    ; Read tuple[field_index] at vm_embedding_imported + (embedding_id - 1) * 32 + field_index * 8
+    dec     rdi                                     ; embedding_id - 1
+    shl     rdi, 5                                  ; * IMPORTED_TUPLE_BYTES (32)
+    lea     rax, [rel vm_embedding_imported]
+    add     rax, rdi                                ; tuple base addr
+    mov     rdi, [rax + rcx * 8]                    ; tuple[field_index]
+
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_ok_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_embedding_imported_handle_invalid_field:
+    mov     rdi, ERR_INVALID_EMBEDDING_ARG
+    mov     rsi, OP_EMBEDDING_IMPORTED_HANDLE
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_embedding_imported_handle_invalid_id:
+    mov     rdi, ERR_INVALID_ID
+    mov     rsi, OP_EMBEDDING_IMPORTED_HANDLE
     xor     rdx, rdx
     xor     rcx, rcx
     mov     r8, TYPE_CODE_EMBEDDING

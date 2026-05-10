@@ -61,13 +61,30 @@ rm -rf "$SCRIPT_DIR/__pycache__/"
 find "$SCRIPT_DIR" -name "*.pyc" -delete 2>/dev/null || true
 find "$SCRIPT_DIR" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 
-# ---- [3/5] Assemble boot.asm ----
-echo "[3/5] Assembling boot.asm..."
+# ---- [3/6] Generate codebook image (Pod 3.8.F; D3.31) ----
+# Auto-generates boot/codebook_data.asm + boot/codebook.bin via codebook_builder.py.
+# Source: $CODEBOOK_INPUT (default inputs/codebook.txt). Graceful empty fallback
+# when no input file present — substrate boots normally with vm_codebook_meta.count=0
+# and vm_embedding_next staying at 0 (prior-pod canary embedding IDs unaffected).
+echo "[3/6] Generating codebook image..."
+CODEBOOK_INPUT="${CODEBOOK_INPUT:-inputs/codebook.txt}"
+if [ -f "$SCRIPT_DIR/$CODEBOOK_INPUT" ]; then
+    python3 "$SCRIPT_DIR/tools/codebook_builder.py" \
+        --expected-dim 384 \
+        "$SCRIPT_DIR/$CODEBOOK_INPUT" "$BOOT_DIR/codebook_data"
+    echo "      codebook: $CODEBOOK_INPUT"
+else
+    python3 "$SCRIPT_DIR/tools/codebook_builder.py" --empty "$BOOT_DIR/codebook_data"
+    echo "      codebook: empty (no $CODEBOOK_INPUT)"
+fi
+
+# ---- [4/6] Assemble boot.asm ----
+echo "[4/6] Assembling boot.asm..."
 "$NASM" -f bin -o "$BUILD_DIR/$EFI_NAME" "$BOOT_DIR/boot.asm"
 SIZE=$(stat -c %s "$BUILD_DIR/$EFI_NAME" 2>/dev/null || stat -f %z "$BUILD_DIR/$EFI_NAME")
 echo "      $EFI_NAME: $SIZE bytes"
 
-# ---- [4/5] Verify PE32+ MZ magic ----
+# ---- [5/6] Verify PE32+ MZ magic ----
 MAGIC=$(od -A n -t x1 -N 2 "$BUILD_DIR/$EFI_NAME" | tr -d ' ')
 if [ "$MAGIC" != "4d5a" ]; then
     echo "[!] ERROR: Not a valid MZ executable (got: $MAGIC)"
@@ -75,8 +92,8 @@ if [ "$MAGIC" != "4d5a" ]; then
 fi
 echo "      PE32+ MZ header: OK"
 
-# ---- [5/5] Build FAT32 image and install EFI ----
-echo "[5/5] Building ${IMG_SIZE_MB}MB FAT32 image..."
+# ---- [6/6] Build FAT32 image and install EFI ----
+echo "[6/6] Building ${IMG_SIZE_MB}MB FAT32 image..."
 dd if=/dev/zero of="$BUILD_DIR/$IMG_NAME" bs=1M count=$IMG_SIZE_MB status=none
 /sbin/mkfs.vfat -F 32 -n "CODEBOOK" "$BUILD_DIR/$IMG_NAME" >/dev/null 2>&1 || \
     mkfs.vfat -F 32 -n "CODEBOOK" "$BUILD_DIR/$IMG_NAME" >/dev/null 2>&1

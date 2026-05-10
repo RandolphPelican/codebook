@@ -133,6 +133,14 @@ efi_entry:
     call    construct_root_cap       ; build ROOT_CAP slot, compute MAC, register; sanity-check cap_id=1
     call    verify_root_cap_mac      ; E3 — recompute and verify MAC matches (D1.10.2a.5)
 
+    ; Pod 3.8.F D3.31 — substrate-private codebook ingestion. Runs post cap
+    ; substrate init under implicit ROOT_CAP context (current_cap_id=1); 0j
+    ; per D3.10 substrate-bookkeeping doctrine. Empty-default codebook (no
+    ; inputs/codebook.txt configured) → ingests 0 embeddings; vm_embedding_next
+    ; stays at 0; prior-pod canary IDs unaffected. FATAL on bad-magic /
+    ; bad-dim / pool-full per CBK_STATUS_* with auryn_puts diagnostic.
+    call    boot_ingest_codebook
+
     ; Pod 1.8.5c Move 7: SEED → FORM (FAT32 + framebuffer located)
     mov     qword [rel vm_phase], VM_PHASE_FORM
 
@@ -400,6 +408,8 @@ fixup_color:
 %include "boot/babylon.asm"    ; Pod 2.1: Babylon spatial-merge — metabolic accountant
 %include "boot/embedding.asm"  ; Pod 3: Embedding registry — fifth typed primitive (Maid V1.0 substrate-prep)
 %include "boot/maid.asm"       ; Pod 3.5: Maid speaks — semantic operations (cosine + dot + L2 + lookup top-1)
+%include "boot/codebook.asm"   ; Pod 3.8: boot_ingest_codebook helper (substrate-private; D3.31)
+%include "boot/codebook_data.asm" ; Pod 3.8: codebook_image_start/end (stub at 3.8.D; real incbin at 3.8.F)
 %include "boot/bastian.asm"    ; home surface (bastian precedes gmork_main in original)
 %include "boot/gmork_cmds.asm"  ; gmork_main, get_mmap, show_memmap, paint_bars
 %include "drivers/kbd_ps2.asm"  ; PS/2 keyboard driver — native_keyboard_read
