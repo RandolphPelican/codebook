@@ -256,6 +256,9 @@ cbs_run:
     je      .op_embedding_project
     cmp     al, OP_EMBEDDING_REJECT
     je      .op_embedding_reject
+    ; Pod 3.11 — Maid maintains: codebook metadata witness (D3.42; 0xF5 in embedding-tier-extensions row)
+    cmp     al, OP_EMBEDDING_CODEBOOK_META
+    je      .op_embedding_codebook_meta
 
     ; Unknown opcode
     lea     rsi, [rel str_vm_unk]
@@ -3885,6 +3888,45 @@ cbs_run:
     add     rsp, 16
     mov     rdi, ERR_INVALID_EMBEDDING_ARG
     mov     rsi, OP_EMBEDDING_REJECT
+    xor     rdx, rdx
+    xor     rcx, rcx
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_err_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+; --- OP_EMBEDDING_CODEBOOK_META (0xF5) Pod 3.11 D3.42 — Maid maintains ---
+; Substrate-private singleton state accessor; pop field_index (0..3); read qword
+; at vm_codebook_meta + field_index*8; wrap as Outcome::Ok. Simplest handler in
+; the codebase: no embedding_id axis (codebook is singular at V1.0 per Q4 / Pod 3.8
+; D3.32); no registry lookup; no MAC verify; no allocation.
+;
+; D3.37 NASM RIP-relative discipline: lea base into reg, then [reg + idx*8]
+; (NOT [rel vm_codebook_meta + rcx*8] which silently miscompiles).
+;
+; Out-of-range field_index → Err(InvalidEmbeddingArg) per D3.40 hybrid validation.
+.op_embedding_codebook_meta:
+    sub     r13, 8
+    mov     rcx, [r13]                              ; field_index (top of operand stack)
+
+    cmp     rcx, 4
+    jae     .op_embedding_codebook_meta_invalid_field
+
+    ; Read vm_codebook_meta[field_index] — D3.37 discipline (lea base + indexed read)
+    lea     rax, [rel vm_codebook_meta]
+    mov     rdi, [rax + rcx*8]                      ; field value (qword)
+
+    ; Wrap as Outcome::Ok
+    mov     r8, TYPE_CODE_EMBEDDING
+    call    .construct_ok_outcome
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
+.op_embedding_codebook_meta_invalid_field:
+    mov     rdi, ERR_INVALID_EMBEDDING_ARG
+    mov     rsi, OP_EMBEDDING_CODEBOOK_META
     xor     rdx, rdx
     xor     rcx, rcx
     mov     r8, TYPE_CODE_EMBEDDING

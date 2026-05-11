@@ -122,6 +122,13 @@ OP_EMBEDDING_IMPORTED_HANDLE = 0xF1    # GET_DIM-style parameterized accessor fo
 OP_EMBEDDING_LOOKUP_TOP_K    = 0xF2    # top-K + threshold housekeeper recognition; "Maid finds many" (Pod 3.9 D3.35)
 OP_EMBEDDING_PROJECT         = 0xF3    # forge result = (A·B/B·B)*B; "Maid orthogonalizes" (Pod 3.10 D3.38)
 OP_EMBEDDING_REJECT          = 0xF4    # forge result = A - project(A,B); project's twin (Pod 3.10 D3.38)
+OP_EMBEDDING_CODEBOOK_META   = 0xF5    # witness accessor for vm_codebook_meta singleton; "Maid maintains" (Pod 3.11 D3.42)
+
+# Pod 3.11 — codebook META field indices (user-surface constants for embedding_codebook_meta emitter)
+META_FIELD_COUNT             = 0
+META_FIELD_DIM               = 1
+META_FIELD_SCALAR_TYPE       = 2
+META_FIELD_INGESTION_STATUS  = 3
 
 # --- Pod 1.10.3 substrate constants (for default arg values) ---
 # Signed two's-complement representation of 0xFFFFFFFFFFFFFFFF for
@@ -593,6 +600,13 @@ class AtreyuX86:
             e.emit(OP_PUSH); e.emit_i64(n['id_a'])
             e.emit(OP_PUSH); e.emit_i64(n['id_b'])
             e.emit(OP_EMBEDDING_REJECT)
+        elif t == 'embedding_codebook_meta':
+            # Witness accessor; pops field_index, returns Outcome::Ok(value).
+            e.emit(OP_PUSH); e.emit_i64(n['field_index'])
+            e.emit(OP_EMBEDDING_CODEBOOK_META); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'embedding_codebook_meta_raw':
+            e.emit(OP_PUSH); e.emit_i64(n['field_index'])
+            e.emit(OP_EMBEDDING_CODEBOOK_META)
         elif t == 'embedding_scale':
             # Stack order: [..., embedding_id, scalar] (TOS-is-rightmost-arg per GET_DIM convention)
             self._expr(n['operand'])
@@ -3167,6 +3181,49 @@ def demo_pod310_b51_reject():
     ]}
 
 
+def demo_pod311_b52_codebook_meta():
+    """Pod 3.11 B52 — codebook metadata accessor.
+
+    Substrate boot-ingests inputs/test_codebook_b48.txt (5 basis vectors × 384 dims;
+    reused from Pod 3.8); B52 reads vm_codebook_meta via OP_EMBEDDING_CODEBOOK_META
+    field-indexed accessor + tests out-of-range Err path.
+
+    Expected:
+      META(0=COUNT)             = 5     (CBK_META_OFF_COUNT; ingested at boot)
+      META(1=DIM)               = 384   (CBK_META_OFF_DIM; EMBEDDING_DIM)
+      META(2=SCALAR_TYPE)       = 0     (CBK_META_OFF_SCALAR_TYPE; CBK_SCALAR_TYPE_F32)
+      META(3=INGESTION_STATUS)  = 1     (CBK_META_OFF_INGESTION_STATUS; CBK_STATUS_SUCCESS)
+      META(4)                   → Err(InvalidEmbeddingArg, src=0xF5=245, err=9)
+    """
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Pod 3.11 B52 — Codebook Meta ==='}},
+        # Happy paths — 4 field reads
+        {'type':'print','value':{'type':'str','value':'META(0=COUNT) (expect 5):'}},
+        {'type':'print','value':{'type':'embedding_codebook_meta','field_index':0}},
+        {'type':'print','value':{'type':'str','value':'META(1=DIM) (expect 384):'}},
+        {'type':'print','value':{'type':'embedding_codebook_meta','field_index':1}},
+        {'type':'print','value':{'type':'str','value':'META(2=SCALAR_TYPE) (expect 0 = f32):'}},
+        {'type':'print','value':{'type':'embedding_codebook_meta','field_index':2}},
+        {'type':'print','value':{'type':'str','value':'META(3=INGESTION_STATUS) (expect 1 = SUCCESS):'}},
+        {'type':'print','value':{'type':'embedding_codebook_meta','field_index':3}},
+        # Err path — out-of-range field_index
+        {'type':'print','value':{'type':'str','value':'-- META(4) -> Err(InvalidEmbeddingArg) --'}},
+        {'type':'let','name':'o4','value':{'type':'embedding_codebook_meta_raw','field_index':4}},
+        {'type':'print','value':{'type':'str','value':'is_ok (expect 0 = err):'}},
+        {'type':'print','value':{'type':'outcome_is_ok','operand':{'type':'var','name':'o4'}}},
+        {'type':'outcome_unwrap_err_stmt','value':{'type':'var','name':'o4'}},
+        {'type':'print','value':{'type':'str','value':'fetch_counter:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'demod_id:'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'source_op (expect 245 = OP_EMBEDDING_CODEBOOK_META):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'err_code (expect 9 = ERR_INVALID_EMBEDDING_ARG):'}},
+        {'type':'print','value':{'type':'tos'}},
+        {'type':'print','value':{'type':'str','value':'=== B52 done ==='}},
+    ]}
+
+
 def demo_pod38_codebook_imported_round_trip():
     """Pod 3.8 B48 — boot-ingestion observation. Substrate built with
     inputs/test_codebook_b48.txt (5 basis vectors); boot_ingest_codebook
@@ -3967,5 +4024,10 @@ if __name__ == '__main__':
         out = sys.argv[sys.argv.index('--pod310-b51-reject-build')+1] if len(sys.argv) > sys.argv.index('--pod310-b51-reject-build')+1 else 'test_pod310_b51_reject.cbc'
         with open(out,'wb') as f: f.write(bc)
         print(f"Pod 3.10 B51 Reject test: compiled {len(bc)} bytes -> {out}")
+    elif '--pod311-b52-meta-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod311_b52_codebook_meta())
+        out = sys.argv[sys.argv.index('--pod311-b52-meta-build')+1] if len(sys.argv) > sys.argv.index('--pod311-b52-meta-build')+1 else 'test_pod311_b52_codebook_meta.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 3.11 B52 Codebook Meta test: compiled {len(bc)} bytes -> {out}")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-bitmap,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test} | --bitmap-{root-unbounded,subset-grant-succeeds,superset-grant-fails,authority-check-{passes,fails},accessor-round-trip}-{build,test} | --embedding-{new-basic,accessor-round-trip,invalid-id,authority-check-{passes,fails}}-{build,test} | --sign-{with-embedding,invalid-embedding-handle}-{build,test}")

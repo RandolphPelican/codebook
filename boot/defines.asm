@@ -269,6 +269,23 @@
 %define OP_EMBEDDING_PROJECT         0xF3
 %define OP_EMBEDDING_REJECT          0xF4
 
+; --- Pod 3.11 Maid maintains: codebook metadata accessor (D3.42; 0xF5 in embedding-tier-extensions row) ---
+; OP_EMBEDDING_CODEBOOK_META (0xF5): pop field_index (0..3); read qword at
+;   vm_codebook_meta + field_index*8; wrap as Outcome::Ok. Substrate-private
+;   singleton state (no embedding_id; no registry lookup; no MAC verify).
+;   Static cost: 1j (D3.13 witness-tier metabolic minimum).
+;   V1.0 single-codebook; codebook_id parameter deferred to #91 multi-codebook activation.
+;   Field-index ∈ [0, 3]: 0=count, 1=dim, 2=scalar_type, 3=ingestion_status (per CBK_META_OFF_*).
+;   Out-of-range field_index → Err(InvalidEmbeddingArg).
+%define OP_EMBEDDING_CODEBOOK_META   0xF5
+
+; Pod 3.11 — codebook META field indices (D3.42; user-surface field-id constants
+; for OP_EMBEDDING_CODEBOOK_META; mirror CBK_META_OFF_* / 8 offset mapping)
+%define META_FIELD_COUNT             0
+%define META_FIELD_DIM               1
+%define META_FIELD_SCALAR_TYPE       2
+%define META_FIELD_INGESTION_STATUS  3
+
 ; --- Pod 3.9 top-K scratch sizing (D3.X axis-2 mechanical sizing applies) ---
 ; MAX_K bounds the top-K result count + sizes the BSS scratch arrays
 ; (top_k_scratch_ids: MAX_K × 8 = 2048 bytes; top_k_scratch_scores: MAX_K × 4 = 1024 bytes).
