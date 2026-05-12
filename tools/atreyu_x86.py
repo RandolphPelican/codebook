@@ -3204,6 +3204,103 @@ def demo_pod310_b51_reject():
     ]}
 
 
+def demo_pod40f_b54_similarity_browser():
+    """Pod 4.0.F.9 B54 — Similarity browser demo.
+
+    Aux substrate: inputs/test_codebook_b48.txt (5 basis-vector entries
+    e_x, e_y, e_z, e_w, e_v at ids 1-5). Reused per B48/B49/B52 pattern.
+
+    Query approach: self-match via runtime-forged e_x. Cleanest cross-doctrine
+    canary outcome:
+      cos(query=e_x, id=1=e_x) = 1.0 byte-exact (D3.14 cosine same-vector;
+        B30 mulss(1.0, x) endpoint property; sqrt(1)=1 in f32)
+      cos(query=e_x, id=2=e_y) = 0.0 byte-exact (orthogonal basis vectors)
+      cos(query=e_x, id=3..5) = 0.0 byte-exact (same)
+
+    Top-K ordering with K=3:
+      rank 0: id=1, cosine=1.0
+      rank 1: id=2, cosine=0.0 (tie-break: first-encountered in scan order
+              per Pod 3.9 D3.35; find-min JBE skips replacement on tied scores)
+      rank 2: id=3, cosine=0.0
+
+    Validates Pod 3.5 D3.18 (cosine same-vector / orthogonal-vector identities)
+    + Pod 3.9 D3.35 (top_k housekeeper-tier generalization) + Pod 3.11 D3.42
+    (codebook META witness accessor) + Pod 3.8 D3.31 (boot-time codebook
+    ingestion as substrate-private 0j operation) — five doctrines composed
+    in one canary.
+    """
+    v_query = _f32_vector_bytes([1.0, 0.0])     # query = e_x same as codebook id=1
+    NEG_INF_BITS = 0xFF800000
+
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Pod 4.0.F Similarity Browser ==='}},
+        {'type':'print','value':{'type':'str','value':'D3.35 top_k housekeeper-tier - rank codebook by cosine similarity'}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # Read codebook META to confirm aux substrate state
+        {'type':'print','value':{'type':'str','value':'codebook entries (META COUNT; expect 5):'}},
+        {'type':'print','value':{'type':'embedding_codebook_meta','field_index':0}},
+        {'type':'print','value':{'type':'str','value':'codebook dim (META DIM; expect 384):'}},
+        {'type':'print','value':{'type':'embedding_codebook_meta','field_index':1}},
+        {'type':'print','value':{'type':'str','value':'ingestion status (META STATUS; expect 1 = SUCCESS):'}},
+        {'type':'print','value':{'type':'embedding_codebook_meta','field_index':3}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # Forge query embedding (id=6 after 5 codebook entries)
+        {'type':'let','name':'q','value':{'type':'embedding_new','vector':v_query}},
+        {'type':'print','value':{'type':'str','value':'query forged - id (expect 6):'}},
+        {'type':'print','value':{'type':'var','name':'q'}},
+        {'type':'print','value':{'type':'str','value':'query vector = e_x = (1, 0, 0, ...)'}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # lookup_top_k(query, K=3, threshold=-INF)
+        {'type':'print','value':{'type':'str','value':'lookup_top_k(query, K=3, threshold=-INF)'}},
+        {'type':'let','name':'count','value':{'type':'embedding_lookup_top_k',
+            'query':{'type':'var','name':'q'},
+            'k':3,
+            'threshold_bits':NEG_INF_BITS,
+        }},
+        {'type':'print','value':{'type':'str','value':'K-prime returned (expect 3):'}},
+        {'type':'print','value':{'type':'var','name':'count'}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # Capture ids best-to-worst (TOS = id_0 = best after auto-unwrap)
+        {'type':'let','name':'id0','value':{'type':'tos'}},
+        {'type':'let','name':'id1','value':{'type':'tos'}},
+        {'type':'let','name':'id2','value':{'type':'tos'}},
+
+        # Rank 0: best match (expect id=1, cosine=1.0)
+        {'type':'print','value':{'type':'str','value':'rank 0 - best match:'}},
+        {'type':'print','value':{'type':'str','value':'  id (expect 1):'}},
+        {'type':'print','value':{'type':'var','name':'id0'}},
+        {'type':'print','value':{'type':'str','value':'  cosine (expect 1065353216 = 0x3F800000 = 1.0):'}},
+        {'type':'print','value':{'type':'embedding_cosine','lhs':{'type':'var','name':'q'},'rhs':{'type':'var','name':'id0'}}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # Rank 1 (expect id=2 first-encountered, cosine=0.0)
+        {'type':'print','value':{'type':'str','value':'rank 1:'}},
+        {'type':'print','value':{'type':'str','value':'  id (expect 2; tie-break: first-encountered per Pod 3.9 D3.35):'}},
+        {'type':'print','value':{'type':'var','name':'id1'}},
+        {'type':'print','value':{'type':'str','value':'  cosine (expect 0 = orthogonal basis):'}},
+        {'type':'print','value':{'type':'embedding_cosine','lhs':{'type':'var','name':'q'},'rhs':{'type':'var','name':'id1'}}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # Rank 2 (expect id=3, cosine=0.0)
+        {'type':'print','value':{'type':'str','value':'rank 2:'}},
+        {'type':'print','value':{'type':'str','value':'  id (expect 3):'}},
+        {'type':'print','value':{'type':'var','name':'id2'}},
+        {'type':'print','value':{'type':'str','value':'  cosine (expect 0 = orthogonal basis):'}},
+        {'type':'print','value':{'type':'embedding_cosine','lhs':{'type':'var','name':'q'},'rhs':{'type':'var','name':'id2'}}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # Energy trace
+        {'type':'print','value':{'type':'str','value':'joules used (full similarity browse):'}},
+        {'type':'print','value':{'type':'use_cap','token':CAP_ROCKBITER,'cmd':2}},
+        {'type':'print','value':{'type':'str','value':'EVERY OPCODE DECLARES ITS COST'}},
+        {'type':'print','value':{'type':'str','value':'=== B54 done ==='}},
+    ]}
+
+
 def demo_pod40f_b55_vector_composer():
     """Pod 4.0.F.8 B55 — Vector composer demo.
 
@@ -4355,5 +4452,10 @@ if __name__ == '__main__':
         out = sys.argv[sys.argv.index('--pod40f-b55-vector-composer-build')+1] if len(sys.argv) > sys.argv.index('--pod40f-b55-vector-composer-build')+1 else 'test_pod40f_b55_vector_composer.cbc'
         with open(out,'wb') as f: f.write(bc)
         print(f"Pod 4.0.F B55 Vector composer: compiled {len(bc)} bytes -> {out}")
+    elif '--pod40f-b54-similarity-browser-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod40f_b54_similarity_browser())
+        out = sys.argv[sys.argv.index('--pod40f-b54-similarity-browser-build')+1] if len(sys.argv) > sys.argv.index('--pod40f-b54-similarity-browser-build')+1 else 'test_pod40f_b54_similarity_browser.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 4.0.F B54 Similarity browser: compiled {len(bc)} bytes -> {out}")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-bitmap,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test} | --bitmap-{root-unbounded,subset-grant-succeeds,superset-grant-fails,authority-check-{passes,fails},accessor-round-trip}-{build,test} | --embedding-{new-basic,accessor-round-trip,invalid-id,authority-check-{passes,fails}}-{build,test} | --sign-{with-embedding,invalid-embedding-handle}-{build,test}")
