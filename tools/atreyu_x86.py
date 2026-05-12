@@ -618,12 +618,15 @@ class AtreyuX86:
             e.emit(OP_EMBEDDING_CODEBOOK_META)
         elif t == 'use_cap':
             # Pod 4.0.F D4.2 — capability-tokenized I/O dispatch.
-            # AST: {'type':'use_cap', 'token':<u64 const>, 'cmd':<i64 const>}
-            # Emits: push token; push cmd; OP_USE_CAP. Substrate pops in reverse
-            # (cmd then token) and routes to .cap_<service> handler.
-            # Push order matters: cap_vm pops token first (last pushed) then cmd.
-            # Reading cbs_vm.asm:673-680: r13-=8 reads token; r13-=8 reads cmd.
-            # So push cmd FIRST, token SECOND (token at TOS).
+            # AST: {'type':'use_cap', 'token':<u64>, 'cmd':<i64>,
+            #       'args':[<int or AST>, ...]}  # optional; pushed BEFORE cmd/token
+            # Substrate pops token first, cmd second, then service-handler pops args.
+            # Push order: args first (bottom of stack), cmd next, token at TOS.
+            for arg in n.get('args', []):
+                if isinstance(arg, int):
+                    e.emit(OP_PUSH); e.emit_i64(arg)
+                else:
+                    self._expr(arg)
             e.emit(OP_PUSH); e.emit_i64(n['cmd'])
             e.emit(OP_PUSH); e.emit_i64(n['token'])
             e.emit(OP_USE_CAP)
@@ -3201,6 +3204,88 @@ def demo_pod310_b51_reject():
     ]}
 
 
+def demo_pod40f_b57_press_x():
+    """Pod 4.0.F.7 B57 — Press-X interactive demo.
+
+    Polling loop on use_cap(CAP_GMORK_CONIN, 1) (non-blocking keyboard read);
+    on 'x' (ASCII 120) detected, increments fire counter + prints joules-used
+    snapshot. Bounded by max poll count (5000) for canary completion + ESC
+    (ASCII 27) early exit for manual interactive verification.
+
+    First V1.0 CBS program to read keyboard input. Validates D4.2 capability-
+    tokenized I/O surface end-to-end at the interactive boundary.
+
+    Canary verification (B57):
+      - Automated path: canary runs without keypress injection; demo completes
+        via poll-count timeout (5000 iterations); PNG captures intro + final
+        stats showing polls=5000, fires=0. Validates the polling loop runs
+        without hang and the substrate's non-blocking read works as designed.
+      - Manual path: architect runs canary substrate in QEMU, presses 'x'
+        multiple times to verify FIRE counter increments + joules trace updates;
+        presses ESC to exit early. Documented in decision record.
+    """
+    MAX_POLLS = 5000
+    ESC = 27
+    KEY_X = 120  # ASCII 'x' lowercase
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Pod 4.0.F Press-X Interactive Demo ==='}},
+        {'type':'print','value':{'type':'str','value':'D4.2 capability-tokenized I/O surface validated at interactive boundary'}},
+        {'type':'print','value':{'type':'str','value':'Press X to fire energy.  Press ESC to exit.'}},
+        {'type':'print','value':{'type':'str','value':'(automated canary: 5000 polls then timeout; manual: press keys)'}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        {'type':'let','name':'polls','value':{'type':'int','value':0}},
+        {'type':'let','name':'fires','value':{'type':'int','value':0}},
+        {'type':'let','name':'key','value':{'type':'int','value':0}},
+        {'type':'let','name':'done','value':{'type':'int','value':0}},
+
+        # Main polling loop
+        {'type':'while',
+         'cond':{'type':'eq','left':{'type':'var','name':'done'},'right':{'type':'int','value':0}},
+         'body':{'type':'block','stmts':[
+            # Non-blocking keyboard read; returns char or 0
+            {'type':'let','name':'key','value':{'type':'use_cap','token':CAP_GMORK_CONIN,'cmd':1}},
+            {'type':'let','name':'polls','value':{'type':'add','left':{'type':'var','name':'polls'},'right':{'type':'int','value':1}}},
+
+            # If 'x' pressed: increment fires + print event
+            {'type':'if',
+             'cond':{'type':'eq','left':{'type':'var','name':'key'},'right':{'type':'int','value':KEY_X}},
+             'then':{'type':'block','stmts':[
+                {'type':'let','name':'fires','value':{'type':'add','left':{'type':'var','name':'fires'},'right':{'type':'int','value':1}}},
+                {'type':'print','value':{'type':'str','value':'FIRE no. '}},
+                {'type':'print','value':{'type':'var','name':'fires'}},
+                {'type':'print','value':{'type':'str','value':'  joules used: '}},
+                {'type':'print','value':{'type':'use_cap','token':CAP_ROCKBITER,'cmd':2}},
+             ]}},
+
+            # If ESC pressed: signal done
+            {'type':'if',
+             'cond':{'type':'eq','left':{'type':'var','name':'key'},'right':{'type':'int','value':ESC}},
+             'then':{'type':'block','stmts':[
+                {'type':'let','name':'done','value':{'type':'int','value':1}},
+             ]}},
+
+            # Bound poll count
+            {'type':'if',
+             'cond':{'type':'ge','left':{'type':'var','name':'polls'},'right':{'type':'int','value':MAX_POLLS}},
+             'then':{'type':'block','stmts':[
+                {'type':'let','name':'done','value':{'type':'int','value':1}},
+             ]}},
+         ]}},
+
+        {'type':'print','value':{'type':'str','value':''}},
+        {'type':'print','value':{'type':'str','value':'=== Demo complete ==='}},
+        {'type':'print','value':{'type':'str','value':'polls completed:'}},
+        {'type':'print','value':{'type':'var','name':'polls'}},
+        {'type':'print','value':{'type':'str','value':'fires registered:'}},
+        {'type':'print','value':{'type':'var','name':'fires'}},
+        {'type':'print','value':{'type':'str','value':'final joules used:'}},
+        {'type':'print','value':{'type':'use_cap','token':CAP_ROCKBITER,'cmd':2}},
+        {'type':'print','value':{'type':'str','value':'EVERY POLL DECLARES ITS COST'}},
+        {'type':'print','value':{'type':'str','value':'=== B57 done ==='}},
+    ]}
+
+
 def demo_pod40f_b58_drift_anchor():
     """Pod 4.0.F.6 B58 — Drift anchor exhibit.
 
@@ -4161,5 +4246,10 @@ if __name__ == '__main__':
         out = sys.argv[sys.argv.index('--pod40f-b53-fib-energy-build')+1] if len(sys.argv) > sys.argv.index('--pod40f-b53-fib-energy-build')+1 else 'test_pod40f_b53_fib_energy.cbc'
         with open(out,'wb') as f: f.write(bc)
         print(f"Pod 4.0.F B53 Fibonacci with energy trace: compiled {len(bc)} bytes -> {out}")
+    elif '--pod40f-b57-press-x-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod40f_b57_press_x())
+        out = sys.argv[sys.argv.index('--pod40f-b57-press-x-build')+1] if len(sys.argv) > sys.argv.index('--pod40f-b57-press-x-build')+1 else 'test_pod40f_b57_press_x.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 4.0.F B57 Press-X interactive: compiled {len(bc)} bytes -> {out}")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-bitmap,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test} | --bitmap-{root-unbounded,subset-grant-succeeds,superset-grant-fails,authority-check-{passes,fails},accessor-round-trip}-{build,test} | --embedding-{new-basic,accessor-round-trip,invalid-id,authority-check-{passes,fails}}-{build,test} | --sign-{with-embedding,invalid-embedding-handle}-{build,test}")
