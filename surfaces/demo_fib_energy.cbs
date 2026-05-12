@@ -1,0 +1,39 @@
+// =============================================================================
+// Pod 4.0.F — Fibonacci with energy trace demo
+// =============================================================================
+// Recursive Fibonacci computation; energy budget visibly depletes as recursion
+// unfolds. Demonstrates D3.10 substrate-bookkeeping doctrine and per-opcode
+// cost accounting (D3.17 anticipated-worst-case framing).
+//
+// Atreyu editor mock (polish/atreyu_editor.py) displays this file's source
+// at Pod 4.0.E per D4.4 (in-fiction surface discipline / mock-as-narrative).
+//
+// Status: draft; refined at Pod 4.0.F runtime polish.
+
+// --- Constants ---
+const FIB_TARGET     = 12        // compute fib(12) = 144
+const ENERGY_INITIAL = 100000    // starting metabolic budget (joules)
+
+// --- Recursive Fibonacci ---
+func fib(n) {
+    if n < 2 {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+// --- Main: compute, print result, print energy used ---
+let result = fib(FIB_TARGET)
+
+print("fib(")
+print(FIB_TARGET)
+print(") = ")
+print(result)
+
+// Energy accounting: substrate tracks joule consumption per opcode (D3.17).
+// Each addss / mulss / call costs metered joules; deep recursion accumulates.
+let used = energy_used()
+print(" joules used: ")
+print(used)
+
+return result
