@@ -1,0 +1,14 @@
+# Pod 4.0.C — Polish-layer Python dependencies
+# Pinned for reproducibility on John's Windows 11 + WSL2 Ubuntu dev environment.
+# Polish layer is SEPARATE from substrate per D4.1 (polish-vs-credential separation).
+# Substrate is pure NASM x86_64 UEFI; nothing here touches the substrate build.
+
+pygame==2.6.1
+Pillow>=10.0,<13.0
+pytest>=8.0,<10.0
+ffmpeg-python==0.2.0
+
+# Binary system dependencies (NOT pip-installable):
+#   - ffmpeg     (Linux: apt install ffmpeg | macOS: brew install ffmpeg | Windows: scoop install ffmpeg)
+#   - pandoc     (Linux: apt install pandoc | macOS: brew install pandoc | Windows: choco install pandoc)
+# polish/README.md documents setup paths per OS.
