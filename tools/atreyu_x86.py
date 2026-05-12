@@ -3204,6 +3204,113 @@ def demo_pod310_b51_reject():
     ]}
 
 
+def demo_pod40f_b56_cap_lifecycle():
+    """Pod 4.0.F.10 B56 — Capability lifecycle demo.
+
+    Demonstrates V1.0 cap surface: ORIGIN (ROOT_CAP observation) → GRANT
+    (cap_new with restricted bitmap + finite budget) → USE (cap_enter → forge
+    under subcap context → cap_exit). Revocation is V2.0 carry-forward and
+    documented honestly as not-yet-implemented.
+
+    V1.0 cap surface (Pod 1.10 + Pod 2.2 + Pod 1.10.3):
+      cap_new           D2.2.4 signature (granted_bitmap, energy_budget)
+                        subset-on-grant per D2.2.5 (child ⊆ parent)
+      cap_enter         D1.10.2 stack push + cache update + MAC verify
+      cap_exit          D1.10.2 stack pop + cache restore
+      cap_current       substrate state read (no Outcome wrap)
+      cap_bitmap        D2.2.1 structured forge-bit accessor
+      cap_budget/used   D1.10.3 metabolic accessors
+      cap_parent        D1.10.3 lineage accessor
+
+    V2.0 carry-forward (NOT in V1.0):
+      cap_revoke        explicit revocation propagation
+      cap_grant_to      grant to specific principal (not current_cap-derived)
+      federation_total  aggregate substrate state query
+
+    Spatial-merge per D2.2.9 / D3.23: babylon_charge_lineage fires at every
+    Outcome production, so parent caps pay delegation tax for child activity.
+    Visible via ROOT cap_used incrementing during child cap activity.
+    """
+    BIT_OUTCOME_FORGE = 0x04
+    CHILD_BUDGET = 50000
+
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Pod 4.0.F Cap Lifecycle ==='}},
+        {'type':'print','value':{'type':'str','value':'D1.10 + D2.2 cap surface - V1.0 supports grant + use; revoke deferred to V2.0'}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # ORIGIN — observe ROOT_CAP
+        {'type':'print','value':{'type':'str','value':'-- ORIGIN: ROOT_CAP observation --'}},
+        {'type':'print','value':{'type':'str','value':'current cap id (expect 1 = ROOT_CAP_ID per D1.10.1.5):'}},
+        {'type':'print','value':{'type':'cap_current'}},
+        {'type':'let','name':'root_id','value':{'type':'cap_current'}},
+        {'type':'print','value':{'type':'str','value':'ROOT bitmap (expect -1 signed = CAP_BITMAP_UNBOUNDED = 0xFFFFFFFFFFFFFFFF per D2.2.3):'}},
+        {'type':'print','value':{'type':'cap_bitmap','operand':{'type':'var','name':'root_id'}}},
+        {'type':'print','value':{'type':'str','value':'ROOT budget (expect -1 signed = ENERGY_BUDGET_UNBOUNDED = 0xFFFFFFFFFFFFFFFF):'}},
+        {'type':'print','value':{'type':'cap_budget','operand':{'type':'var','name':'root_id'}}},
+        {'type':'print','value':{'type':'str','value':'ROOT used (substrate accumulator; pre-grant snapshot):'}},
+        {'type':'let','name':'root_used_pre','value':{'type':'cap_used','operand':{'type':'var','name':'root_id'}}},
+        {'type':'print','value':{'type':'var','name':'root_used_pre'}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # GRANT — forge subcap with restricted bitmap + finite budget
+        # cap_new returns raw Outcome; explicit unwrap_ok yields cap_id.
+        {'type':'print','value':{'type':'str','value':'-- GRANT: forge subcap (BIT_OUTCOME_FORGE only, 50000j budget) --'}},
+        {'type':'let','name':'child_outcome','value':{'type':'cap_new','granted_bitmap':BIT_OUTCOME_FORGE,'energy_budget':CHILD_BUDGET}},
+        {'type':'let','name':'child','value':{'type':'outcome_unwrap_ok','operand':{'type':'var','name':'child_outcome'}}},
+        {'type':'print','value':{'type':'str','value':'child cap id (expect 2 = first user-forged cap):'}},
+        {'type':'print','value':{'type':'var','name':'child'}},
+        {'type':'print','value':{'type':'str','value':'child bitmap (expect 4 = BIT_OUTCOME_FORGE):'}},
+        {'type':'print','value':{'type':'cap_bitmap','operand':{'type':'var','name':'child'}}},
+        {'type':'print','value':{'type':'str','value':'child budget (expect 50000):'}},
+        {'type':'print','value':{'type':'cap_budget','operand':{'type':'var','name':'child'}}},
+        {'type':'print','value':{'type':'str','value':'child used at grant (expect 0):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'child'}}},
+        {'type':'print','value':{'type':'str','value':'child parent (expect 1 = ROOT per D1.10.1.12 strict-delegation):'}},
+        {'type':'print','value':{'type':'cap_parent','operand':{'type':'var','name':'child'}}},
+        {'type':'print','value':{'type':'str','value':'ROOT used post-grant (delegation tax per D2.2 spatial-merge):'}},
+        {'type':'let','name':'root_used_post_grant','value':{'type':'cap_used','operand':{'type':'var','name':'root_id'}}},
+        {'type':'print','value':{'type':'var','name':'root_used_post_grant'}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # USE — enter child context, observe cap_stack state transition, exit
+        # cap_enter / cap_exit both push Outcome<NONE>; bind to let-vars to drop from stack.
+        {'type':'print','value':{'type':'str','value':'-- USE: cap_enter child + observe state + cap_exit --'}},
+        {'type':'let','name':'enter_outcome','value':{'type':'cap_enter','operand':{'type':'var','name':'child'}}},
+        {'type':'print','value':{'type':'str','value':'current cap id post-enter (expect 2 = child):'}},
+        {'type':'print','value':{'type':'cap_current'}},
+        # Observe child state in child context
+        {'type':'print','value':{'type':'str','value':'child bitmap in child context (expect 4):'}},
+        {'type':'print','value':{'type':'cap_bitmap','operand':{'type':'var','name':'child'}}},
+        {'type':'print','value':{'type':'str','value':'child budget in child context (expect 50000):'}},
+        {'type':'print','value':{'type':'cap_budget','operand':{'type':'var','name':'child'}}},
+        {'type':'let','name':'exit_outcome','value':{'type':'cap_exit'}},
+        {'type':'print','value':{'type':'str','value':'current cap id post-exit (expect 1 = ROOT restored):'}},
+        {'type':'print','value':{'type':'cap_current'}},
+        {'type':'print','value':{'type':'str','value':'child used post-cycle (substrate-tracked):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'child'}}},
+        {'type':'print','value':{'type':'str','value':'ROOT used post-cycle (substrate-tracked - babylon ripple per D2.2.9):'}},
+        {'type':'print','value':{'type':'cap_used','operand':{'type':'var','name':'root_id'}}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # REVOKE — V2.0 carry-forward; honest framing
+        {'type':'print','value':{'type':'str','value':'-- REVOKE: deferred to V2.0 --'}},
+        {'type':'print','value':{'type':'str','value':'V1.0 cap surface implements grant + use + accounting + lineage.'}},
+        {'type':'print','value':{'type':'str','value':'Revocation propagation is V2.0 carry-forward per RECONSTITUTION cap_graph design.'}},
+        {'type':'print','value':{'type':'str','value':'Caps in V1.0 are MAC-protected; lifetime = boot-session.'}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # Final state
+        {'type':'print','value':{'type':'str','value':'-- Final state --'}},
+        {'type':'print','value':{'type':'str','value':'final current cap (expect 1 = ROOT):'}},
+        {'type':'print','value':{'type':'cap_current'}},
+        {'type':'print','value':{'type':'str','value':'joules used (full lifecycle):'}},
+        {'type':'print','value':{'type':'use_cap','token':CAP_ROCKBITER,'cmd':2}},
+        {'type':'print','value':{'type':'str','value':'EVERY OPCODE DECLARES ITS COST  |  EVERY GRANT DECLARES ITS PARENT'}},
+        {'type':'print','value':{'type':'str','value':'=== B56 done ==='}},
+    ]}
+
+
 def demo_pod40f_b54_similarity_browser():
     """Pod 4.0.F.9 B54 — Similarity browser demo.
 
@@ -4457,5 +4564,10 @@ if __name__ == '__main__':
         out = sys.argv[sys.argv.index('--pod40f-b54-similarity-browser-build')+1] if len(sys.argv) > sys.argv.index('--pod40f-b54-similarity-browser-build')+1 else 'test_pod40f_b54_similarity_browser.cbc'
         with open(out,'wb') as f: f.write(bc)
         print(f"Pod 4.0.F B54 Similarity browser: compiled {len(bc)} bytes -> {out}")
+    elif '--pod40f-b56-cap-lifecycle-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod40f_b56_cap_lifecycle())
+        out = sys.argv[sys.argv.index('--pod40f-b56-cap-lifecycle-build')+1] if len(sys.argv) > sys.argv.index('--pod40f-b56-cap-lifecycle-build')+1 else 'test_pod40f_b56_cap_lifecycle.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 4.0.F B56 Cap lifecycle: compiled {len(bc)} bytes -> {out}")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-bitmap,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test} | --bitmap-{root-unbounded,subset-grant-succeeds,superset-grant-fails,authority-check-{passes,fails},accessor-round-trip}-{build,test} | --embedding-{new-basic,accessor-round-trip,invalid-id,authority-check-{passes,fails}}-{build,test} | --sign-{with-embedding,invalid-embedding-handle}-{build,test}")
