@@ -3204,6 +3204,105 @@ def demo_pod310_b51_reject():
     ]}
 
 
+def demo_pod40f_b55_vector_composer():
+    """Pod 4.0.F.8 B55 — Vector composer demo.
+
+    Synthesis chain demonstrating Pod 3.6 + 3.10 ops composed end-to-end.
+    Source vectors chosen for legibility (clean intermediate magnitudes):
+
+      A = (1, 0, 0, ...)   unit X axis
+      B = (0, 1, 0, ...)   unit Y axis
+      C = (1, 0, 0, ...)   project target (X axis)
+      D = (1, 1, 0, ...)   reject target (X+Y diagonal)
+
+    Chain produces halving magnitudes-squared (2.0 → 0.5 → 0.25 → 0.125),
+    and final dot(reject_result, D) = 0.0 byte-exact (clean cancellation;
+    not a drift case — symmetric values).
+
+    Steps:
+      S1 = A + B               = (1, 1, 0..);   dot(S1, S1) = 2.0
+      S2 = SCALE(S1, 0.5)      = (0.5, 0.5..);  dot(S2, S2) = 0.5
+      S3 = PROJECT(S2, C)      = (0.5, 0, 0..); dot(S3, S3) = 0.25
+      S4 = REJECT(S3, D)       = (0.25, -0.25, 0..); dot(S4, S4) = 0.125
+      dot(S4, D) = 0.0  byte-exact   (orthogonality; D3.40 clean-cancellation case)
+
+    Cites D3.6 (synthesis-tier composition), D3.10 (compound geometric),
+    D3.38 (project-reject duality), D3.40 (hybrid IEEE-degeneracy) in
+    displayed text per credential-narrative coherence.
+    """
+    v_X = _f32_vector_bytes([1.0, 0.0])      # A and C
+    v_Y = _f32_vector_bytes([0.0, 1.0])      # B
+    v_diag = _f32_vector_bytes([1.0, 1.0])   # D
+    HALF_BITS = 0x3F000000   # f32(0.5)
+
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Pod 4.0.F Vector Composer ==='}},
+        {'type':'print','value':{'type':'str','value':'D3.6 + D3.10 synthesis tier composed end-to-end'}},
+        {'type':'print','value':{'type':'str','value':'A=(1,0..) B=(0,1..) C=(1,0..) D=(1,1..)'}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # Forge source vectors
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':v_X}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':v_Y}},
+        {'type':'let','name':'c','value':{'type':'embedding_new','vector':v_X}},
+        {'type':'let','name':'d','value':{'type':'embedding_new','vector':v_diag}},
+
+        # Step 1: ADD A + B (D3.6 synthesis-tier vector arithmetic)
+        {'type':'print','value':{'type':'str','value':'Step 1: ADD A + B   (D3.6 synthesis)'}},
+        {'type':'let','name':'s1','value':{'type':'embedding_add','lhs':{'type':'var','name':'a'},'rhs':{'type':'var','name':'b'}}},
+        {'type':'print','value':{'type':'str','value':'S1[0] (expect 1065353216 = 1.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'s1'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':'S1[1] (expect 1065353216 = 1.0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'s1'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':'|S1|^2 = dot(S1, S1) (expect 1073741824 = 2.0):'}},
+        {'type':'print','value':{'type':'embedding_dot_product','lhs':{'type':'var','name':'s1'},'rhs':{'type':'var','name':'s1'}}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # Step 2: SCALE S1 by 0.5
+        {'type':'print','value':{'type':'str','value':'Step 2: SCALE(S1, 0.5)   (D3.6 synthesis)'}},
+        {'type':'let','name':'s2','value':{'type':'embedding_scale','operand':{'type':'var','name':'s1'},'scalar_bits':HALF_BITS}},
+        {'type':'print','value':{'type':'str','value':'S2[0] (expect 1056964608 = 0.5):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'s2'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':'|S2|^2 = dot(S2, S2) (expect 1056964608 = 0.5):'}},
+        {'type':'print','value':{'type':'embedding_dot_product','lhs':{'type':'var','name':'s2'},'rhs':{'type':'var','name':'s2'}}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # Step 3: PROJECT S2 onto C (D3.10/D3.38 geometric decomposition)
+        {'type':'print','value':{'type':'str','value':'Step 3: PROJECT(S2, C)   (D3.10 + D3.38 geometric)'}},
+        {'type':'let','name':'s3','value':{'type':'embedding_project','lhs':{'type':'var','name':'s2'},'rhs':{'type':'var','name':'c'}}},
+        {'type':'print','value':{'type':'str','value':'S3[0] (expect 1056964608 = 0.5):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'s3'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':'S3[1] (expect 0 = 0):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'s3'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':'|S3|^2 = dot(S3, S3) (expect 1048576000 = 0.25):'}},
+        {'type':'print','value':{'type':'embedding_dot_product','lhs':{'type':'var','name':'s3'},'rhs':{'type':'var','name':'s3'}}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # Step 4: REJECT S3 from D (D3.38 reject)
+        {'type':'print','value':{'type':'str','value':'Step 4: REJECT(S3, D)   (D3.38 reject - project complement)'}},
+        {'type':'let','name':'s4','value':{'type':'embedding_reject','lhs':{'type':'var','name':'s3'},'rhs':{'type':'var','name':'d'}}},
+        {'type':'print','value':{'type':'str','value':'S4[0] (expect 1048576000 = 0.25):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'s4'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':'S4[1] (expect 3196059648 = -0.25):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'s4'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':'|S4|^2 = dot(S4, S4) (expect 1040187392 = 0.125):'}},
+        {'type':'print','value':{'type':'embedding_dot_product','lhs':{'type':'var','name':'s4'},'rhs':{'type':'var','name':'s4'}}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # Orthogonality verification: dot(S4, D) should be byte-exact 0
+        {'type':'print','value':{'type':'str','value':'Orthogonality verification:'}},
+        {'type':'print','value':{'type':'str','value':'dot(S4, D) (expect 0 byte-exact - clean cancellation per D3.40):'}},
+        {'type':'print','value':{'type':'embedding_dot_product','lhs':{'type':'var','name':'s4'},'rhs':{'type':'var','name':'d'}}},
+        {'type':'print','value':{'type':'str','value':''}},
+
+        # Energy trace
+        {'type':'print','value':{'type':'str','value':'joules used (full synthesis chain):'}},
+        {'type':'print','value':{'type':'use_cap','token':CAP_ROCKBITER,'cmd':2}},
+        {'type':'print','value':{'type':'str','value':'EVERY OPCODE DECLARES ITS COST'}},
+        {'type':'print','value':{'type':'str','value':'=== B55 done ==='}},
+    ]}
+
+
 def demo_pod40f_b57_press_x():
     """Pod 4.0.F.7 B57 — Press-X interactive demo.
 
@@ -4251,5 +4350,10 @@ if __name__ == '__main__':
         out = sys.argv[sys.argv.index('--pod40f-b57-press-x-build')+1] if len(sys.argv) > sys.argv.index('--pod40f-b57-press-x-build')+1 else 'test_pod40f_b57_press_x.cbc'
         with open(out,'wb') as f: f.write(bc)
         print(f"Pod 4.0.F B57 Press-X interactive: compiled {len(bc)} bytes -> {out}")
+    elif '--pod40f-b55-vector-composer-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod40f_b55_vector_composer())
+        out = sys.argv[sys.argv.index('--pod40f-b55-vector-composer-build')+1] if len(sys.argv) > sys.argv.index('--pod40f-b55-vector-composer-build')+1 else 'test_pod40f_b55_vector_composer.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 4.0.F B55 Vector composer: compiled {len(bc)} bytes -> {out}")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-bitmap,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test} | --bitmap-{root-unbounded,subset-grant-succeeds,superset-grant-fails,authority-check-{passes,fails},accessor-round-trip}-{build,test} | --embedding-{new-basic,accessor-round-trip,invalid-id,authority-check-{passes,fails}}-{build,test} | --sign-{with-embedding,invalid-embedding-handle}-{build,test}")
