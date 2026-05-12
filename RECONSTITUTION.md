@@ -1,11 +1,183 @@
-# CodebookOS — RECONSTITUTION MANIFESTO (v10)
+# CodebookOS — RECONSTITUTION MANIFESTO (v11 — V1.0 SEAL)
 
-## Post-Pod-1.10.1 — Cap Canon Sealed (Outcome + Conduits + Cap Design)
+## Post-Pod-3.12 — V1.0 SEAL (Maid V1.0 surface complete; substrate canon-bound)
 
 **Project:** CodebookOS x86_64 UEFI
 **Repo:** github.com/RandolphPelican/codebook
 **Author:** Randolph Pelican III / StableTech Enterprises LLC
 **Compiled by:** Chauncey (Claude)
+**Compiled:** April 27, 2026 (v1)
+**Updated:** April 27 – May 03, 2026 (v2–v10; Cap canon sealed at Pod 1.10.1)
+**Updated:** May 11, 2026 (v11 — V1.0 SEAL: Maid V1.0 surface complete across Pods 3.5–3.11; substrate canon-bound at `c9923b8c…`; 44 codified doctrines through V1.0 SEAL; Pod 4.0 wrapper-pivot redirect absorbed; D3.43 broad + D3.44 land at this SEAL)
+**Companion to:** ARCHAEOLOGY.md, ARCHAEOLOGY_REPO_RECORD.md, RECON_PROTOCOL.md, recon/POD3.12_DECISION_RECORD.md, recon/POD4.0_RECON_NOTES.md, recon/POD3.5_DECISION_RECORD.md through recon/POD3.11_DECISION_RECORD.md
+**Supersedes:** RECONSTITUTION.md v10
+
+## Why v11 exists — V1.0 SEAL canon-binding moment
+
+v10 sealed Cap design canon (Pod 1.10.1) and Pod 1.10 split. v11 records what happened next: Pod 1.10.2a (Cap substrate landing) → Pod 1.10.2b1/b2 (Cap conduits + accessors) → Pod 1.10.3 (Cap metabolic wiring) → Pod 2.1/2.2 (Babylon spatial-merge + cap_bitmap activation) → Pod 3 (Embedding typed-primitive substrate-prep) → **Pod 3.5–3.11 Maid V1.0 surface complete** → Pod 3.12 V1.0 SEAL.
+
+**The substrate is V1.0.** Six Maid capability variants live; five typed pools; 44 codified architectural doctrines; ~25 KB of hand-crafted NASM auditable in a fortnight; SipHash MAC integrity per primitive; F32 IEEE 754 byte-exact determinism per Form A canon; energy accounting at opcode level; capability-typed security from layer 1; two-build determinism preserved across the V1.0 sequence.
+
+V1.0 SEAL contract: **`c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900`** (load-bearing reference for regression discipline across Pod 4.0 polish work).
+
+---
+
+## V1.0 SEAL state — what the substrate IS
+
+### Maid V1.0 capability surface (six variants live)
+
+| Pod | Surface | Capabilities |
+|---|---|---|
+| 3.5 | **Housekeeper** | cosine + dot + L2 + lookup_top1 + sign_handle |
+| 3.6 | **Composer** | add + subtract + scale + normalize + lerp + synthesis_handle |
+| 3.8 | **Importer** | boot_ingest_codebook + imported_handle |
+| 3.9 | **Finder-of-many** | lookup_top_k |
+| 3.10 | **Orthogonalizer** | project + reject |
+| 3.11 | **Maintainer** | codebook_meta |
+
+**Recognition axis** (Pod 3.5 + 3.9): single-best (lookup_top1) + K-best with threshold (lookup_top_k).
+**Synthesis axis** (Pod 3.6 + 3.10): vector arithmetic (add/subtract/scale/normalize/lerp) + geometric decomposition (project/reject).
+**Import axis** (Pod 3.8 + 3.11): boot-time codebook ingestion + per-embedding provenance (imported_handle) + codebook-level metadata (codebook_meta).
+
+### Five typed pools (each SipHash-MAC-protected where applicable; each with cap_bitmap authority enforcement)
+
+- **Sign** (Pod 1.6-1.8.5b; identity + provenance; 64 slots)
+- **Energy** (Pod 1.8; metabolic budget primitive; 64 slots)
+- **Outcome** (Pod 1.9.1-1.9.3; Result<T,E> with byte-exact MAC; 4096 slots per Pod 3.7 D3.29 proportional sizing)
+- **Cap** (Pod 1.10.1-1.10.2b2; capability-typed authority; 64 slots; SipHash MAC; arena/owner/bitmap)
+- **Embedding** (Pod 3; F32 vectors with SipHash MAC over 196 qwords; 2048 slots per Pod 3.7 production-scale)
+
+### 44 codified architectural doctrines through V1.0 SEAL
+
+- **D1.x** — Pre-Cap substrate doctrines (Pod 1.x)
+- **D2.x** — Babylon doctrines (Pod 2.x; spatial-merge + cap_bitmap)
+- **D3.1–3.44** — Embedding/Maid doctrines (Pod 3.x):
+  - **D3.1–D3.11** Embedding substrate-prep (Pod 3)
+  - **D3.12–D3.24** Maid speaks (Pod 3.5; FP-determinism canon)
+  - **D3.25–D3.28** Maid composes (Pod 3.6; synthesis tier)
+  - **D3.29** Substrate scales (Pod 3.7; axis-2 mechanical sizing)
+  - **D3.30–D3.32** Maid imports (Pod 3.8; codebook ingestion)
+  - **D3.33–D3.36** Maid finds many (Pod 3.9; result-rep + variable-cardinality Outcome)
+  - **D3.37** NASM RIP-relative indexed-BSS-access discipline (substrate-catch landing)
+  - **D3.38–D3.41** Maid orthogonalizes (Pod 3.10; project-reject + scalar discipline + IEEE-degeneracy + raw-emitter literal-id)
+  - **D3.42** Maid maintains (Pod 3.11; codebook metadata witness; axis-removal inheritance)
+  - **D3.43** V1.0-deferral framework (broad; three convergent patterns + forensic-record retention)
+  - **D3.44** Catch-surface-migration tri-tier doctrine (Mechanical / Substrate-behavior / Inheritance)
+
+### Substrate metrics
+
+- **Code + non-zero data**: ~25.4 KB (26,031 non-zero bytes in BOOTX64.EFI)
+- **BSS pool reservations**: ~3.7 MB (embedding pool 3.08 MB + outcome pool ~320 KB + side-tables ~144 KB + caps/signs/energy/registries/scratch)
+- **PE32+ binary file size**: 5,243,904 bytes (5.0 MB total; dominated by BSS pre-allocation per Pod 3.7 TEXT_RAWSZ expansion)
+- **Auditability**: ~25 KB of hand-crafted NASM is auditable in a fortnight by a competent reviewer
+- **Build chain**: NASM 2.16.01 / mtools 4.0.43 / QEMU 8.2.2 in WSL; pinned absolute paths + version-grep per Pod 3.7 D3.29 axis-1 build-shell discipline
+
+### Two-build determinism
+
+Substrate compiles to byte-exact identical BOOTX64.EFI across two clean rebuilds at **`c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900`** — V1.0 SEAL contract sha.
+
+Two-build determinism preserved across the full V1.0 sequence (Pod 1.6 → Pod 3.12; 16+ substrate-pod commits).
+
+### Canary regression discipline
+
+- **36+ prior-pod canaries** (Pod 3.5 17 + Pod 3.6 16 + Pod 3.7 3) pass byte-exact at canonical contract
+- **Pod 3.8 B48** codebook-import canary PASSES (auxiliary substrate; canonical preserved post-canary)
+- **Pod 3.9 B49** top-K canary PASSES (auxiliary substrate; predicted ordering [1,2,3,4,5] byte-exact)
+- **Pod 3.10 B50/B51** project/reject canaries PASS (drift panel byte-exact at 0xB4000000 — D3.28 self-verifying canon extends to compound geometric ops)
+- **Pod 3.11 B52** codebook-meta canary PASSES (all 5 META readbacks byte-exact)
+
+### CBS language (Custom Bytecode Substrate)
+
+- Custom assembly-level bytecode with typed-primitive opcodes (0x00–0xFF range; embedding ops 0xC0–0xCF + 0xF0–0xF5)
+- **Compiler/lexer/parser**: `tools/atreyu_x86.py` (Python build-tool; AST → bytecode emit; ~3000 lines)
+- **Stack-VM**: `boot/cbs_vm.asm` (NASM; ~3900 lines; per-opcode handlers with energy accounting; SipHash MAC verify per primitive)
+- **Energy accounting**: per-opcode cost table at `boot/energy_costs.asm`; metabolic budget enforced at every fetch; D3.17 anticipated-worst-case static pricing
+- **Demonstrably working**: 50+ canaries verify substrate behavior across every V1.0 capability surface
+
+---
+
+## DEFERRED state at V1.0 SEAL
+
+### Closed at V1.0 SEAL
+
+| # | Description | Closed at |
+|---|---|---|
+| #80 | Maid semantic operations | Pod 3.8 (Maid V1.0 surface complete) |
+| #83 | Embedding pool capacity | Pod 3.7 (256→2048) |
+| **#84** | **Pod 3 throwaway test scripts** | **Pod 3.12 V1.0 SEAL** (light consolidation: 4 actively-used scripts added to git; deprecated stays untracked per documented audit) |
+| **#85** | **RECONSTITUTION.md ongoing canon refresh** | **Pod 3.12 V1.0 SEAL** (this v11 refresh) |
+| #89 | Build-shell-determinism hazard | Pod 3.7 |
+| #90 | Outcome pool capacity below embedding pool | Pod 3.7 |
+| **#93** | **Diagnostic-probe-scaffolding policy** | **Pod 3.12 V1.0 SEAL** (D3.43.x forensic-record retention ratified) |
+
+### V2.0-candidate forward
+
+| # | Description |
+|---|---|
+| #1 | LLC / signing entity rename (cosmetic; awaiting architect decision) |
+| #2 | ide_pio.asm NASM warnings (cosmetic; substrate-functional) |
+| #82 | Sign.provenance_handle activation candidate |
+| #91 | Codebook-symmetry: runtime IMPORT + multi-codebook |
+| #92 | Stream-stability: aggregation / cross-result analogical / Result[T] sixth pool |
+
+Each V2.0 candidate framework-tested at activation per D3.43 broad — no V2.0 surface is presumed; concrete production demand justifies substrate addition.
+
+---
+
+## What's coming — V1.0 SHIP + V2.0 forward
+
+### V1.0 SHIP (Pod 4.0; in flight)
+
+Pod 4.0 = the resume-piece polish campaign. Substrate stays unchanged at V1.0 SEAL state except for OP_READ_KEY substrate addition (D4.2; enables interactive CBS demos). Polish layer goes Python:
+
+- Boot animation (searchlights → Pelican III → CodebookOS title)
+- About demo (scrolling text + visual flourishes)
+- In-fiction surface mocks (Falkor browser / Atreyu editor / Rockbiter scheduler)
+- Demo video pipeline (90-second MP4)
+- Manifesto PDF (~40-60 pages)
+- Documentation pass (GETTING_STARTED / CBS_LANGUAGE / ARCHITECTURE / CONTRIBUTING / README)
+
+**D4.X doctrine corpus** (8 entries through V1.0 SHIP):
+- **D4.1** Polish-vs-credential separation (architecturally load-bearing — codifies why substrate stays NASM and polish goes Python)
+- **D4.2** CBS interactive input surface (OP_READ_KEY substrate addition)
+- **D4.3** Boot animation discipline
+- **D4.4** In-fiction surface discipline
+- **D4.5** Demo-program discipline
+- **D4.6** Release-artifact discipline
+- **D4.7** Public-repo-flip discipline
+- **D4.8** Polish-layer verification discipline
+
+V1.0 SHIP at Pod 4.0.J: public repo flip + v1.0-ship tag + demo video + USB image + manifesto PDF + HN/Reddit/Twitter drafts.
+
+### V2.0 forward (post-SHIP)
+
+- **Cop** (capability-typed security inspector — the trinity's second pillar)
+- **Interpreter** (text-to-bytecode runtime — the trinity's third pillar)
+- **Hormonal substrate** (federated cognitive organism vision; metabolism across surfaces)
+- **Demod-tier surface** activation (0xE8–0xEF reserved row from Pod 1.12 forward-anchor)
+- **Cross-substrate operations** (federation; multi-substrate coordination)
+- **V2.0-candidate forward** items (#1, #2, #82, #91, #92) framework-tested per D3.43 broad
+
+V1.0 SEAL is the **canon-binding boundary** between substrate-USE-completion-state (V1.0) and substrate-evolution-continuation-state (V2.0+).
+
+---
+
+## V1.0 SEAL — the resume-piece anchor
+
+What V1.0 SEAL ratifies as credential:
+
+- **Custom programming language (CBS)** with lexer + parser + bytecode compiler + stack-VM, all hand-crafted, all operationally complete at V1.0
+- **Custom bare-metal operating system (CodebookOS)** in pure x86_64 NASM UEFI, ~25 KB of substrate code, demonstrably booting in QEMU, demonstrably running CBS programs, demonstrably executing the six Maid V1.0 capability variants
+- **Built solo** by Randolph Pelican III over 30 architect-hours across 3 months (April–May 2026), with every architectural decision codified as one of 44 doctrines
+
+The Maid recognizes; the Maid composes; the Maid imports; the Maid finds many; the Maid orthogonalizes; the Maid maintains. **V1.0 SEAL.**
+
+---
+
+# Historical sections (v10 and earlier — preserved as archaeology)
+
+## Post-Pod-1.10.1 — Cap Canon Sealed (Outcome + Conduits + Cap Design)
+
 **Compiled:** April 27, 2026 (v1)
 **Updated:** April 27, 2026 (v2 — post-Pod-0.2.5 recon)
 **Updated:** April 27, 2026 (v3 — post-Pod-0.9 cap_graph deep read)
