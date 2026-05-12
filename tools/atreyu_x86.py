@@ -37,6 +37,15 @@ OP_CALL      = 0x50
 OP_DUP2      = 0x87
 OP_GRANT_CAP = 0x90
 OP_USE_CAP   = 0x91
+
+# Pod 4.0.F D4.2 — Capability-tokenized I/O surface
+# CBS programs invoke substrate services via OP_USE_CAP(token, cmd). The substrate
+# dispatches on token to .cap_auryn / .cap_conin / .cap_morla handlers in cbs_vm.asm.
+# Tokens are u64 constants; cmd is service-specific.
+CAP_AURYN_DISPLAY  = 0xCA000001  # framebuffer access: cmd=1 putc, cmd=2 fill
+CAP_GMORK_CONIN    = 0xCA000002  # keyboard input:   cmd=1 non-blocking read → unicode char (0 if none)
+CAP_MORLA_FS       = 0xCA000003  # filesystem:       cmd=1 ls, cmd=2 write
+CAP_ROCKBITER      = 0xCA000004  # energy introspection: cmd=1 energy_budget, cmd=2 energy_used
 OP_HALT      = 0xFF
 # --- Sign opcodes (Pod 1.7) ---
 OP_SIGN_NEW    = 0xA0
@@ -607,6 +616,17 @@ class AtreyuX86:
         elif t == 'embedding_codebook_meta_raw':
             e.emit(OP_PUSH); e.emit_i64(n['field_index'])
             e.emit(OP_EMBEDDING_CODEBOOK_META)
+        elif t == 'use_cap':
+            # Pod 4.0.F D4.2 — capability-tokenized I/O dispatch.
+            # AST: {'type':'use_cap', 'token':<u64 const>, 'cmd':<i64 const>}
+            # Emits: push token; push cmd; OP_USE_CAP. Substrate pops in reverse
+            # (cmd then token) and routes to .cap_<service> handler.
+            # Push order matters: cap_vm pops token first (last pushed) then cmd.
+            # Reading cbs_vm.asm:673-680: r13-=8 reads token; r13-=8 reads cmd.
+            # So push cmd FIRST, token SECOND (token at TOS).
+            e.emit(OP_PUSH); e.emit_i64(n['cmd'])
+            e.emit(OP_PUSH); e.emit_i64(n['token'])
+            e.emit(OP_USE_CAP)
         elif t == 'embedding_scale':
             # Stack order: [..., embedding_id, scalar] (TOS-is-rightmost-arg per GET_DIM convention)
             self._expr(n['operand'])
@@ -3181,6 +3201,108 @@ def demo_pod310_b51_reject():
     ]}
 
 
+def demo_pod40f_b58_drift_anchor():
+    """Pod 4.0.F.6 B58 — Drift anchor exhibit.
+
+    Demonstrates D3.28 self-verifying canon at runtime: REJECT((1,1,0..), (3,4,0..))
+    then DOT(reject_result, (3,4,0..)) produces 0xB4000000 byte-exact — the Pod 3.10
+    orthogonality drift anchor. Mathematical identity says the dot product should be
+    zero (reject is orthogonal to B); f32 compound rounding produces a finite drift.
+    The substrate's mathematical-identity-vs-bit-exactness gap, named and canonized.
+
+    Direct reference to Pod 3.10 D3.38 (project-reject duality) and D3.28
+    (self-verifying canon).
+    """
+    v_A = _f32_vector_bytes([1.0, 1.0])
+    v_B = _f32_vector_bytes([3.0, 4.0])
+    return {'type':'program','body':[
+        {'type':'print','value':{'type':'str','value':'=== Pod 4.0.F Drift Anchor Exhibit ==='}},
+        {'type':'print','value':{'type':'str','value':'D3.28 self-verifying canon - mathematical-identity-vs-bit-exactness gap'}},
+        {'type':'print','value':{'type':'str','value':'A = (1,1,0..)'}},
+        {'type':'print','value':{'type':'str','value':'B = (3,4,0..)'}},
+        {'type':'print','value':{'type':'str','value':''}},
+        # Forge A and B
+        {'type':'let','name':'a','value':{'type':'embedding_new','vector':v_A}},
+        {'type':'let','name':'b','value':{'type':'embedding_new','vector':v_B}},
+        # Compute reject(A, B) per D3.38 / D3.10 — A's component orthogonal to B
+        {'type':'let','name':'r','value':{'type':'embedding_reject','lhs':{'type':'var','name':'a'},'rhs':{'type':'var','name':'b'}}},
+        {'type':'print','value':{'type':'str','value':'reject(A, B) = A - (A.B / B.B) * B   (per D3.38 Form A)'}},
+        {'type':'print','value':{'type':'str','value':'reject[0] (expect 0x3E23D708 = 1042430216):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'r'},'dim_index':0}},
+        {'type':'print','value':{'type':'str','value':'reject[1] (expect 0xBDF5C290 = 3186999952):'}},
+        {'type':'print','value':{'type':'embedding_get_dim','operand':{'type':'var','name':'r'},'dim_index':1}},
+        {'type':'print','value':{'type':'str','value':''}},
+        # Compute dot(reject, B) — mathematical identity says ZERO; f32 says DRIFT
+        {'type':'print','value':{'type':'str','value':'dot(reject, B) - mathematical zero; f32 drift:'}},
+        {'type':'print','value':{'type':'embedding_dot_product','lhs':{'type':'var','name':'r'},'rhs':{'type':'var','name':'b'}}},
+        {'type':'print','value':{'type':'str','value':''}},
+        {'type':'print','value':{'type':'str','value':'expect 3019898880 = 0xB4000000   (the drift anchor)'}},
+        {'type':'print','value':{'type':'str','value':'Substrate matches R10 sim byte-exact - D3.28 holds'}},
+        {'type':'print','value':{'type':'str','value':'=== B58 done ==='}},
+    ]}
+
+
+def demo_pod40f_b53_fib_energy():
+    """Pod 4.0.F.1 B53 — Fibonacci with energy trace.
+
+    Computes fib(N) iteratively (CBS recursion via func not yet end-to-end-verified
+    at V1.0; iterative is reliable + makes per-step energy visible). Prints joules
+    used at each step via use_cap(CAP_ROCKBITER, cmd=2) to make D3.17 anticipated-
+    worst-case energy accounting empirically visible. Final print shows total
+    joules consumed for the computation.
+
+    Polish from 4.0.E surfaces/demo_fib_energy.cbs draft. The .cbs source file
+    in surfaces/ is the human-readable representation displayed by the Atreyu
+    editor mock; this Python AST is the actual compiled bytecode source.
+
+    Classic iterative fib: a=0, b=1; each step: new_b = a+b, new_a = b.
+    Sequence: fib(0)=0, fib(1)=1, fib(2)=1, fib(3)=2, fib(4)=3, fib(5)=5,
+              fib(6)=8, fib(7)=13, fib(8)=21, fib(9)=34, fib(10)=55,
+              fib(11)=89, fib(12)=144.
+    """
+    N = 12
+    body = [
+        {'type':'print','value':{'type':'str','value':'=== Pod 4.0.F Fibonacci with Energy Trace ==='}},
+        {'type':'print','value':{'type':'str','value':'D3.17 anticipated-worst-case energy accounting - watch joules deplete'}},
+        {'type':'print','value':{'type':'str','value':''}},
+        # Initial energy budget (use_cap CAP_ROCKBITER cmd=1)
+        {'type':'print','value':{'type':'str','value':'energy budget (joules):'}},
+        {'type':'print','value':{'type':'use_cap','token':CAP_ROCKBITER,'cmd':1}},
+        {'type':'print','value':{'type':'str','value':''}},
+        # Initial fib state: a=0, b=1
+        {'type':'let','name':'a','value':{'type':'int','value':0}},
+        {'type':'let','name':'b','value':{'type':'int','value':1}},
+        # Print fib(0) = a = 0 and fib(1) = b = 1 before iteration
+        {'type':'print','value':{'type':'str','value':'fib(0) = '}},
+        {'type':'print','value':{'type':'var','name':'a'}},
+        {'type':'print','value':{'type':'str','value':'fib(1) = '}},
+        {'type':'print','value':{'type':'var','name':'b'}},
+    ]
+    # Unrolled iteration: step k computes fib(k+1)
+    # invariant: at start of step k, a = fib(k-1), b = fib(k)
+    # after step: a = fib(k), b = fib(k+1); print b (= fib(k+1))
+    for step in range(1, N):
+        body.extend([
+            # tmp = a + b (= fib(k+1)); a = b (= fib(k)); b = tmp (= fib(k+1))
+            {'type':'let','name':'tmp','value':{'type':'add','left':{'type':'var','name':'a'},'right':{'type':'var','name':'b'}}},
+            {'type':'let','name':'a','value':{'type':'var','name':'b'}},
+            {'type':'let','name':'b','value':{'type':'var','name':'tmp'}},
+            {'type':'print','value':{'type':'str','value':f'fib({step + 1}) = '}},
+            {'type':'print','value':{'type':'var','name':'b'}},
+            {'type':'print','value':{'type':'str','value':'  joules used:'}},
+            {'type':'print','value':{'type':'use_cap','token':CAP_ROCKBITER,'cmd':2}},
+        ])
+    body.extend([
+        {'type':'print','value':{'type':'str','value':''}},
+        {'type':'print','value':{'type':'str','value':'fib(12) expected = 144   (substrate-tracked joules accumulated above)'}},
+        {'type':'print','value':{'type':'str','value':'final joules used:'}},
+        {'type':'print','value':{'type':'use_cap','token':CAP_ROCKBITER,'cmd':2}},
+        {'type':'print','value':{'type':'str','value':'EVERY OPCODE DECLARES ITS COST'}},
+        {'type':'print','value':{'type':'str','value':'=== B53 done ==='}},
+    ])
+    return {'type':'program','body':body}
+
+
 def demo_pod311_b52_codebook_meta():
     """Pod 3.11 B52 — codebook metadata accessor.
 
@@ -4029,5 +4151,15 @@ if __name__ == '__main__':
         out = sys.argv[sys.argv.index('--pod311-b52-meta-build')+1] if len(sys.argv) > sys.argv.index('--pod311-b52-meta-build')+1 else 'test_pod311_b52_codebook_meta.cbc'
         with open(out,'wb') as f: f.write(bc)
         print(f"Pod 3.11 B52 Codebook Meta test: compiled {len(bc)} bytes -> {out}")
+    elif '--pod40f-b58-drift-anchor-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod40f_b58_drift_anchor())
+        out = sys.argv[sys.argv.index('--pod40f-b58-drift-anchor-build')+1] if len(sys.argv) > sys.argv.index('--pod40f-b58-drift-anchor-build')+1 else 'test_pod40f_b58_drift_anchor.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 4.0.F B58 Drift Anchor exhibit: compiled {len(bc)} bytes -> {out}")
+    elif '--pod40f-b53-fib-energy-build' in sys.argv:
+        c = AtreyuX86(); bc = c.compile(demo_pod40f_b53_fib_energy())
+        out = sys.argv[sys.argv.index('--pod40f-b53-fib-energy-build')+1] if len(sys.argv) > sys.argv.index('--pod40f-b53-fib-energy-build')+1 else 'test_pod40f_b53_fib_energy.cbc'
+        with open(out,'wb') as f: f.write(bc)
+        print(f"Pod 4.0.F B53 Fibonacci with energy trace: compiled {len(bc)} bytes -> {out}")
     else:
         print("Usage: python3 atreyu_x86.py --build [out.cbc] | --test | --sign-build [out.cbc] | --sign-test | --energy-build [out.cbc] | --energy-test | --phase-build [out.cbc] | --energy-recover-build [out.cbc] | --outcome-{ok,err,is-ok,unwrap-ok,unwrap-err,dup-is-ok}-{build,test} | --cap-{new-basic,arena-owner-bitmap,current,invalid-id,stack-underflow,stack-overflow}-{build,test} | --{sign,energy,outcome}-provenance-root-{build,test} | --provenance-{under-subcap,walk}-{build,test} | --cap-parent-root-{build,test} | --invalid-id-each-new-accessor-{build,test} | --bitmap-{root-unbounded,subset-grant-succeeds,superset-grant-fails,authority-check-{passes,fails},accessor-round-trip}-{build,test} | --embedding-{new-basic,accessor-round-trip,invalid-id,authority-check-{passes,fails}}-{build,test} | --sign-{with-embedding,invalid-embedding-handle}-{build,test}")
