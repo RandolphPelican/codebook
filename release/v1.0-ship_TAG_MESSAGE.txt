@@ -1,0 +1,54 @@
+CodebookOS V1.0 SHIP
+
+Public-flip release of CodebookOS V1.0: a 25.4 KB bare-metal x86_64 OS
+with a custom programming language. Built solo in 30 architect-hours
+across April-May 2026.
+
+Substrate (V1.0 SEAL contract, byte-locked across the polish/SHIP arc):
+  c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900
+
+Five typed primitive pools (Sign / Energy / Outcome / Cap / Embedding),
+each SipHash-2-4 MAC-protected where applicable. Capability framework
+enforced from layer 1; ROOT_CAP with subset-on-grant semantics.
+Energy-accounted opcodes; F32 IEEE 754 byte-exact determinism per Form
+A canonical evaluation order. Two-build determinism preserved across
+16+ substrate-evolution pods.
+
+Maid V1.0 capability surface (the lexical-computation pole of the
+planned cognitive trinity, complete at V1.0):
+
+  Pod 3.5  Housekeeper      cosine + dot + L2 + lookup_top1 + sign_handle
+  Pod 3.6  Composer         add + subtract + scale + normalize + lerp + synthesis_handle
+  Pod 3.8  Importer         boot_ingest_codebook + imported_handle
+  Pod 3.9  Finder-of-many   lookup_top_k with threshold
+  Pod 3.10 Orthogonalizer   project + reject
+  Pod 3.11 Maintainer       codebook_meta
+
+The other two pillars (Cop = capability inspector; Interpreter =
+text-to-bytecode runtime) carry forward to V2.0 framework-tested per
+the D3.43 deferral discipline.
+
+Doctrinal corpus:
+  D1.X — substrate plumbing era (Pods 1.x)
+  D2.X — Babylon spatial-merge era (Pods 2.x)
+  D3.X — Embedding + Maid V1.0 era (Pods 3.x; D3.1-D3.44)
+  D4.X — V1.0 SHIP polish-layer era (Pod 4.0.x; D4.1-D4.8)
+
+  44 codified through V1.0 SEAL + 8 D4.X through V1.0 SHIP.
+  Full corpus: recon/POD*_DECISION_RECORD.md
+
+V1.0 SHIP artifacts:
+  release/codebookos_v1.0.img            Bootable FAT32 USB image (~64 MB)
+  release/codebookos_v1.0_demo.mp4       90-second demo video (~9.4 MB)
+  release/codebookos_v1.0_manifesto.pdf  22-page depth-doc PDF (~32 KB)
+  release/SHA256SUMS                     Integrity checksums
+  release/RELEASE_NOTES.md               GitHub Releases page copy
+
+Predecessor: v1.0-seal (substrate canon-binding moment).
+  https://github.com/RandolphPelican/codebook/releases/tag/v1.0-seal
+
+Author: Randolph Pelican III / StableTech Enterprises LLC.
+Mythology naming honors Michael Ende's The Neverending Story (1979).
+
+Every opcode declares its cost. Every grant declares its parent.
+Every doctrine declares its scope.
