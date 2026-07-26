@@ -1817,6 +1817,10 @@ cbs_run:
     mov     [rel current_cap_arena_id_cache], rax
     mov     rax, [rbx + CAP_OFF_OWNER_DEMOD_ID]
     mov     [rel current_cap_owner_demod_id_cache], rax
+    ; V1.1 - cache slot ptr + budget; rbx holds slot ptr (budget is MAC-covered = immutable)
+    mov     [rel current_cap_slot_ptr_cache], rbx
+    mov     rax, [rbx + CAP_OFF_ENERGY_BUDGET]
+    mov     [rel current_cap_budget_cache], rax
 
     ; Outcome::Ok with TYPE_CODE_NONE (succeeded, no meaningful value)
     xor     edi, edi
@@ -1879,6 +1883,10 @@ cbs_run:
     mov     [rel current_cap_arena_id_cache], rax
     mov     rax, [rbx + CAP_OFF_OWNER_DEMOD_ID]
     mov     [rel current_cap_owner_demod_id_cache], rax
+    ; V1.1 - cache slot ptr + budget; rbx holds slot ptr (budget is MAC-covered = immutable)
+    mov     [rel current_cap_slot_ptr_cache], rbx
+    mov     rax, [rbx + CAP_OFF_ENERGY_BUDGET]
+    mov     [rel current_cap_budget_cache], rax
 
     ; Outcome::Ok with TYPE_CODE_NONE
     xor     edi, edi

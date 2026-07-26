@@ -125,7 +125,7 @@ energy_cost_table:
     dq 1                    ; 0xB8 — OP_CAP_BUDGET (Pod 1.10.3; metabolic; lookup + MAC verify + energy_budget read)
     dq 1                    ; 0xB9 — OP_CAP_USED (Pod 1.10.3; metabolic; lookup + MAC verify + energy_used read)
     dq 1                    ; 0xBA — OP_CAP_BITMAP (Pod 2.2; metabolic; lookup + MAC verify + cap_bitmap read per D2.2.1)
-    dq 1                    ; 0xBB — reserved
+    dq 1                    ; 0xBB - OP_CAP_DISPATCHED (V1.1; metabolic; lookup + MAC verify + energy_dispatched read; mirrors 0xB9)
     dq 1, 1, 1, 1           ; 0xBC–0xBF — reserved
 ; Row 0xC0–0xCF — Embedding opcodes (Pod 3 substrate-prep + Pod 3.5 semantic ops)
     dq 100                  ; 0xC0 — OP_EMBEDDING_NEW (Pod 3; metabolic; pool alloc + 1536-byte vector copy + MAC over 196 qwords + registry register; D3.X cost basis matches Sign content-bearing primitive convention)

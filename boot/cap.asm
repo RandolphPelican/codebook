@@ -341,6 +341,10 @@ construct_root_cap:
     call    siphash_compute
     pop     rdi
     mov     [rdi + CAP_OFF_MAC], rax
+    ; V1.1 - runtime cache init; rdi still holds ROOT slot ptr (no baked absolute)
+    mov     [rel current_cap_slot_ptr_cache], rdi
+    mov     rax, [rdi + CAP_OFF_ENERGY_BUDGET]
+    mov     [rel current_cap_budget_cache], rax
     ; Increment vm_cap_next (slot consumed)
     inc     qword [rel vm_cap_next]
     ; Register in cap_registry — assigns cap_id (must be 1 on first registration)

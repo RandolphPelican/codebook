@@ -211,6 +211,8 @@ current_demod_prov_enabled:    dq 0
 current_cap_id:                    dq 1   ; initialized to ROOT_CAP_ID
 current_cap_arena_id_cache:        dq 0
 current_cap_owner_demod_id_cache:  dq 0
+current_cap_slot_ptr_cache:        dq 0   ; V1.1 init at runtime in construct_root_cap (relocatable image; no baked absolute)
+current_cap_budget_cache:          dq 0   ; V1.1 mirror of current cap energy_budget (MAC-covered = immutable)
 
 ; Pod 2.1 — Babylon spatial-merge cost stash (D2.1 / A1 ratification)
 ; Stashed at fetch loop after energy_cost_lookup; read at construction

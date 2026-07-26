@@ -137,6 +137,7 @@
 %define ERR_CAP_AUTHORITY_EXCEEDED      7   ; OP_CAP_NEW subset-on-grant violation: granted_bitmap exceeds parent cap's bitmap (Pod 1.10.2a forward-anchor; activated Pod 2.2 per D2.2.5)
 %define ERR_CAP_INSUFFICIENT_AUTHORITY  8   ; Bit-check failure at primitive-forge dispatch site: current_cap's bitmap lacks required BIT_*_FORGE (Pod 2.2 per D2.2.6)
 %define ERR_INVALID_EMBEDDING_ARG       9   ; Pod 3 — OP_EMBEDDING_NEW invalid vector_addr / OP_EMBEDDING_GET_DIM dim_index out-of-bounds (>=384)
+%define ERR_CAP_ENERGY_EXHAUSTED        10  ; V1.1 cap energy exhausted at .fetch
 
 ; --- Pod 1.10.2a Cap opcode constants (D1.10.1.2 / D1.10.1.3) ---
 ; Cross-asset constants verification per D1.9.2b.10: opcode constants
@@ -161,6 +162,7 @@
 %define OP_CAP_USED      0xB9   ; pop cap_id, MAC verify, push Outcome<energy_used>
 ; Pod 2.2 — Cap texture accessor
 %define OP_CAP_BITMAP    0xBA   ; pop cap_id, MAC verify, push Outcome<cap_bitmap> per D2.2.1
+%define OP_CAP_DISPATCHED 0xBB  ; V1.1 pop cap_id, MAC verify, push Outcome<energy_dispatched>
 
 ; --- Pod 3 Embedding opcodes (D3.1; range 0xC0-0xCF allocated) ---
 ; Fifth typed primitive joins Sign/Energy/Outcome/Cap. Substrate-prep mode:
@@ -370,6 +372,8 @@
 %define CAP_OFF_ENERGY_BUDGET      0x30   ; Pod 1.10.3 — MAC-input, immutable identity component
 %define CAP_OFF_MAC                0x38   ; was 0x30 pre-1.10.3
 %define CAP_OFF_ENERGY_USED        0x40   ; Pod 1.10.3 — non-MAC, substrate-managed mutable state
+%define CAP_OFF_ENERGY_DISPATCHED  0x48   ; V1.1 non-MAC per-fetch dispatch debit + settled descendant dispatch
+%define CAP_OFF_ENERGY_SETTLED     0x50   ; V1.1 non-MAC watermark; fold = dispatched - settled
 %define CAP_MAC_INPUT_QWORDS       7   ; was 6 pre-1.10.3 — cap_id_self through energy_budget (56 bytes)
 %define ENERGY_BUDGET_UNBOUNDED    0xFFFFFFFFFFFFFFFF   ; Pod 1.10.3 — ROOT_CAP and any future unbounded grants
 %define CAP_BITMAP_UNBOUNDED       0xFFFFFFFFFFFFFFFF   ; Pod 2.2 — ROOT_CAP texture pole (parallel to ENERGY_BUDGET_UNBOUNDED metabolic pole; D2.2.3)
