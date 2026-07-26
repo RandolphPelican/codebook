@@ -282,6 +282,7 @@ str_vm_jl:    db 'j remaining',10,0
 str_vm_rsv:   db '  Reserve ',0
 str_vm_jok:   db 'j: OK',10,0
 str_vm_deg:   db '  DEGRADED: insufficient energy',10,0
+str_vm_cap_deg: db '  CAP BANKRUPT: energy_dispatched would exceed budget; cap_id=',0
 str_vm_unk:   db '  Unknown opcode: ',0
 str_ret_underflow: db '  VIOLATION: return stack underflow',10,0
 str_call_overflow: db '  VIOLATION: return stack overflow',10,0

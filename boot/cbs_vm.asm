@@ -63,12 +63,34 @@ cbs_run:
     ; Bankruptcy check: can we afford this opcode?
     cmp     r14, rbx
     jl      .fatigue
+    ; V1.1 per-cap affordability - all checks precede mutation; unsigned cmp
+    ; (ENERGY_BUDGET_UNBOUNDED = -1 signed); rax holds live opcode - no calls
+    mov     rcx, [rel current_cap_budget_cache]
+    mov     rdx, ENERGY_BUDGET_UNBOUNDED
+    cmp     rcx, rdx
+    je      .cap_afford_ok
+    mov     rdx, [rel current_cap_slot_ptr_cache]
+    test    rdx, rdx
+    jz      .cap_afford_ok
+    mov     rdx, [rdx + CAP_OFF_ENERGY_DISPATCHED]
+    cmp     rdx, rcx
+    jae     .cap_fatigue
+    sub     rcx, rdx
+    cmp     rcx, rbx
+    jb      .cap_fatigue
+.cap_afford_ok:
     ; Debit energy
     sub     r14, rbx
     add     [rel energy_used], rbx
     ; Pod 2.1 — Babylon cost stash (R3.2: after cost lookup, before dispatch).
     ; Construction-site spatial-merge reads this to charge ancestors with
     ; the dispatching opcode's cost.
+    ; V1.1 - debit current cap via cached slot ptr (0j bookkeeping per D2.2.9)
+    mov     rcx, [rel current_cap_slot_ptr_cache]
+    test    rcx, rcx
+    jz      .cap_debit_skip
+    add     [rcx + CAP_OFF_ENERGY_DISPATCHED], rbx
+.cap_debit_skip:
     mov     [rel current_dispatch_cost], rbx
 
     cmp     al, OP_HALT
@@ -264,6 +286,18 @@ cbs_run:
     lea     rsi, [rel str_vm_unk]
     call    auryn_puts
     movzx   edi, al
+    call    print_hex32
+    lea     rsi, [rel str_nl]
+    call    auryn_puts
+    jmp     .done
+
+.cap_fatigue:
+    ; V1.1 - cap bankruptcy. No Outcome::Err: the fetch loop is not at an
+    ; Outcome boundary and arbitrary opcodes have no error path. Deterministic
+    ; death, named cap. Banner is 0j (off-ledger, post-decision).
+    lea     rsi, [rel str_vm_cap_deg]
+    call    auryn_puts
+    mov     edi, [rel current_cap_id]
     call    print_hex32
     lea     rsi, [rel str_nl]
     call    auryn_puts
