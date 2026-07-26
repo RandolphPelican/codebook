@@ -228,6 +228,9 @@ cbs_run:
     cmp     al, OP_CAP_USED
     je      .op_cap_used
     ; Pod 2.2 — Cap texture accessor
+    ; V1.1 - Cap dispatch accessor
+    cmp     al, OP_CAP_DISPATCHED
+    je      .op_cap_dispatched
     cmp     al, OP_CAP_BITMAP
     je      .op_cap_bitmap
     ; Pod 3 — Embedding typed primitive (fifth typed pool; substrate-prep mode)
@@ -2213,6 +2216,20 @@ cbs_run:
     jmp     .fetch
 
 ; --- OP_CAP_USED (0xB9) Pod 1.10.3 — fourth consumer of .cap_accessor_common ---
+; --- OP_CAP_DISPATCHED (0xBB) V1.1 - eighth consumer of .cap_accessor_common ---
+; Reads the V1.1 dispatch ledger (+0x48). Note the observer effect: this op
+; costs 1j and .fetch debits before the handler runs, so a cap reading its own
+; consumption includes the cost of the read.
+.op_cap_dispatched:
+    sub     r13, 8
+    mov     rdi, [r13]                      ; cap_id
+    mov     rcx, CAP_OFF_ENERGY_DISPATCHED  ; 0x48
+    mov     rsi, OP_CAP_DISPATCHED
+    call    .cap_accessor_common
+    mov     [r13], rax
+    add     r13, 8
+    jmp     .fetch
+
 .op_cap_used:
     sub     r13, 8
     mov     rdi, [r13]                      ; cap_id
