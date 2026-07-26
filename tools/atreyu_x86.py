@@ -690,6 +690,12 @@ class AtreyuX86:
             e.emit(OP_PUSH); e.emit_i64(n['k'])
             e.emit(OP_PUSH); e.emit_i64(n['threshold_bits'])
             e.emit(OP_EMBEDDING_LOOKUP_TOP_K)
+        else:
+            # V1.1 - raise on unknown expression node. This previously fell off
+            # the end of the dispatch chain silently, emitting nothing: bytecode
+            # compiled clean with a hole where a push belonged, and the program
+            # ran on stack garbage with no diagnostic. Fail loud instead.
+            raise ValueError('atreyu: unknown expression node type %r (keys: %s)' % (t, sorted(n.keys())))
 
     def _embedding_new(self, n):
         """Emit OP_EMBEDDING_NEW with inline 1536-byte f32 vector data.
