@@ -42,7 +42,7 @@ else
     PFLASH=(-bios "$OVMF_CODE")
 fi
 
-COMMON=(-machine q35 -m 256M "${PFLASH[@]}"
+COMMON=(-machine q35 -m 256M -cpu qemu64,+rdrand,+rdseed "${PFLASH[@]}"
         -drive "file=$IMG,format=raw,if=virtio")
 
 echo "=== CodebookOS QEMU Smoke Test ==="
@@ -72,5 +72,5 @@ else
     echo ""
     echo "You should see: splash -> Bastian home -> '1' enters Gmork terminal."
     echo ""
-    exec qemu-system-x86_64 "${COMMON[@]}" -display gtk -serial stdio
+    exec qemu-system-x86_64 "${COMMON[@]}" -display gtk,zoom-to-fit=on -serial stdio
 fi
