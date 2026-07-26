@@ -44,6 +44,23 @@ cbs_run:
     lea     r13, [rel vm_stack]     ; VM stack base
     mov     qword [rel energy_used], 0
     mov     qword [rel vm_ret_ptr], 0   ; reset return stack per invocation
+    ; V1.1 - reset cap state per invocation. Without this, a program that halts
+    ; while nested inside an exhausted cap leaves current_cap pointed at it and
+    ; the next run instant-fatigues on a cap the user believes they already left
+    ; (substrate eats itself after one demo). ROOT is slot 0 by construct_root_cap;
+    ; lea [rel] keeps it relocation-safe. rbx is callee-saved at the prologue push.
+    ; energy_dispatched / energy_settled are NOT reset - lifetime accounting.
+    mov     qword [rel cap_stack_ptr], 0
+    lea     rbx, [rel vm_cap_pool]
+    mov     rax, [rbx + CAP_OFF_CAP_ID_SELF]
+    mov     [rel current_cap_id], rax
+    mov     rax, [rbx + CAP_OFF_ARENA_ID]
+    mov     [rel current_cap_arena_id_cache], rax
+    mov     rax, [rbx + CAP_OFF_OWNER_DEMOD_ID]
+    mov     [rel current_cap_owner_demod_id_cache], rax
+    mov     [rel current_cap_slot_ptr_cache], rbx
+    mov     rax, [rbx + CAP_OFF_ENERGY_BUDGET]
+    mov     [rel current_cap_budget_cache], rax
 
     ; Print header
     lea     rsi, [rel str_vm_start]
