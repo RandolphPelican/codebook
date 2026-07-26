@@ -1910,6 +1910,24 @@ cbs_run:
     jz      .op_cap_exit_underflow          ; defensive — should not fire if substrate consistent
     mov     rbx, rax
 
+    ; V1.1 settlement-on-exit: fold the departing cap unsettled dispatch into
+    ; the caller. Watermark is load-bearing - without it, re-entering a cap
+    ; re-folds its whole lifetime and double-bills every prior session.
+    ; Follows the cap_stack (dynamic caller), NOT parent_cap_id (static lineage,
+    ; which is what babylon_charge_lineage walks) - two different notions of
+    ; parent, deliberately. OP_CAP_EXIT is already priced 0j in energy_costs.
+    ; rbx = caller slot ptr; cache still holds the departing cap slot ptr.
+    mov     rcx, [rel current_cap_slot_ptr_cache]
+    test    rcx, rcx
+    jz      .cap_settle_skip
+    mov     rdx, [rcx + CAP_OFF_ENERGY_DISPATCHED]
+    mov     rsi, rdx
+    sub     rdx, [rcx + CAP_OFF_ENERGY_SETTLED]
+    jz      .cap_settle_skip
+    mov     [rcx + CAP_OFF_ENERGY_SETTLED], rsi
+    add     [rbx + CAP_OFF_ENERGY_DISPATCHED], rdx
+.cap_settle_skip:
+
     ; Restore current_cap state from slot
     mov     rax, [rbx + CAP_OFF_CAP_ID_SELF]
     mov     [rel current_cap_id], rax
