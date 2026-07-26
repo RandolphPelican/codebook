@@ -1712,6 +1712,18 @@ cbs_run:
     and     rcx, r11                        ; granted & parent
     cmp     rcx, r10                        ; == granted? (subset rule)
     jne     .cap_new_authority_exceeded
+    ; V1.1 sentinel-grant closure. energy_budget is deliberately NOT subset-
+    ; checked: V1.1 keeps the limit model, where a child budget bounds without
+    ; reserving from the parent - parallel to subset-on-grant bounding a bitmap
+    ; without consuming it. But UNBOUNDED is the one grantable value that is not
+    ; a limit; it exempts the child from bankruptcy entirely, one PUSH away.
+    ; Close only that. rax still holds the parent slot ptr from stage 2.
+    mov     rcx, ENERGY_BUDGET_UNBOUNDED
+    cmp     r9, rcx
+    jne     .cap_new_budget_ok
+    cmp     [rax + CAP_OFF_ENERGY_BUDGET], rcx
+    jne     .cap_new_authority_exceeded
+.cap_new_budget_ok:
 
     ; Pool capacity check
     mov     rcx, [rel vm_cap_next]
