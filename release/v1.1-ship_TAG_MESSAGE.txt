@@ -1,0 +1,22 @@
+CodebookOS V1.1 SHIP — Metabolic Enforcement
+
+V1.0 shipped capabilities that carried energy budgets; V1.1 makes the
+substrate enforce them. Per-fetch metabolic debit against the current
+capability, overflow-safe bankruptcy check, deterministic CAP BANKRUPT
+halt, settlement-on-exit with watermark fold (re-entry cannot
+double-bill), per-invocation lifecycle reset, and sentinel-grant
+closure (bounded caps cannot forge unbounded children).
+
+Ledger separation axiom: bankruptcy checks a NEW energy_dispatched
+field; Babylon's energy_used decayed-ripple ledger is untouched, so
+every sealed OP_CAP_USED canary number holds verbatim.
+
+SEAL chain (chained, never overwritten):
+  V1.0  c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900
+  V1.1  58823aa9e9ad17c3fd0975cad557c934599c22588c38506d4454b6dbe1b5db6a
+
+124 hand-written substrate lines across 8 chunks. Decision record:
+recon/POD5_DECISION_RECORD.md. Demos B61-B64. Two-build determinism
+preserved.
+
+The budget field stops being a promise and starts being a law.

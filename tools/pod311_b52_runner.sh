@@ -60,9 +60,10 @@ rm -f build/BOOTX64.EFI
 ./build.sh > /tmp/build_canonical.log 2>&1
 CANONICAL_SHA=$(sha256sum build/BOOTX64.EFI | awk '{print $1}')
 echo "      canonical sha: $CANONICAL_SHA"
-echo "      (expected:     c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900)"
+echo "      (expected:     58823aa9e9ad17c3fd0975cad557c934599c22588c38506d4454b6dbe1b5db6a)"
+echo "      (chain: V1.0 c9923b8cf9fb6caf... -> V1.1, per Pod 5 reseal)"
 
-if [ "$CANONICAL_SHA" = "c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900" ]; then
+if [ "$CANONICAL_SHA" = "58823aa9e9ad17c3fd0975cad557c934599c22588c38506d4454b6dbe1b5db6a" ]; then
     echo
     echo "=== Pod 3.11.D B52 runner: PASS — canonical contract preserved ==="
 else

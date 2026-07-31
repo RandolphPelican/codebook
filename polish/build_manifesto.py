@@ -16,9 +16,23 @@ import sys
 from fpdf import FPDF
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-OUTPUT = os.path.join(REPO_ROOT, 'release', 'codebookos_v1.0_manifesto.pdf')
+# ── SEAL chain (per Pod 5 supersession convention: chain, never overwrite) ──
+SEAL_CHAIN = [
+    ('V1.0', 'c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900'),
+    ('V1.1', '58823aa9e9ad17c3fd0975cad557c934599c22588c38506d4454b6dbe1b5db6a'),
+]
+import sys as _sys
+_ver = 'v1.1'
+for _a in _sys.argv[1:]:
+    if _a.startswith('--version='):
+        _ver = _a.split('=', 1)[1]
+VERSION = _ver.upper()            # 'V1.0' / 'V1.1'
+SEAL_SHA = dict(SEAL_CHAIN)[_ver.upper()]
+OUTPUT = os.path.join(REPO_ROOT, 'release', f'codebookos_{_ver.lower()}_manifesto.pdf')
+# release/codebookos_v1.0_manifesto.pdf is a FROZEN dated artifact —
+# regenerate it only via --version=v1.0, and only with cause.
 
-V1_0_SEAL_SHA = 'c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900'
+V1_0_SEAL_SHA = SEAL_SHA  # legacy name kept so render code below needs no rewrite
 DEMO_VIDEO_DURATION = '90.000000s'
 
 

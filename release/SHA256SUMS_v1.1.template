@@ -1,0 +1,10 @@
+# Regenerate on your machine after the V1.1 image build:
+#   cd release && sha256sum codebookos_v1.1.img BOOTX64.EFI codebookos_v1.1_manifesto.pdf ../surfaces/test_b6*.cbc > SHA256SUMS_v1.1
+# BOOTX64.EFI line MUST read:
+58823aa9e9ad17c3fd0975cad557c934599c22588c38506d4454b6dbe1b5db6a  BOOTX64.EFI
+TODO  codebookos_v1.1.img
+TODO  codebookos_v1.1_manifesto.pdf
+TODO  test_b61_cap_bankruptcy.cbc
+TODO  test_b62_f32_canary.cbc
+TODO  test_b63_energy_golf.cbc
+TODO  test_b64_surprise_gate.cbc

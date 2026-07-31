@@ -47,7 +47,7 @@ from atreyu_x86 import AtreyuX86, CAP_BITMAP_UNBOUNDED  # noqa: E402
 # cap survives entry and a few prints, so the death is visibly mid-stride
 # rather than immediate.
 CHILD_BUDGET = 600
-LOOP_ITERATIONS = 400
+BURN_PER_ROUND = 10   # inner burn per climb reading
 
 
 def demo_b61_cap_bankruptcy():
@@ -77,6 +77,10 @@ def demo_b61_cap_bankruptcy():
          'value': 'child used (Babylon ledger, expect 0):'}},
         {'type': 'print', 'value': {'type': 'cap_used',
          'operand': {'type': 'var', 'name': 'cap_child'}}},
+        {'type': 'print', 'value': {'type': 'str',
+         'value': 'child dispatched (metabolic ledger, expect 0):'}},
+        {'type': 'print', 'value': {'type': 'cap_dispatched',
+         'operand': {'type': 'var', 'name': 'cap_child'}}},
 
         # --- Step 3: enter and outspend ------------------------------------
         {'type': 'print', 'value': {'type': 'str',
@@ -84,16 +88,38 @@ def demo_b61_cap_bankruptcy():
         {'type': 'let', 'name': 'enter', 'value': {
             'type': 'cap_enter', 'operand': {'type': 'var', 'name': 'cap_child'}}},
 
-        {'type': 'let', 'name': 'i', 'value': {'type': 'int', 'value': 0}},
+        # Climb structure: rounds of burn work with a metabolic self-read
+        # between rounds. The framebuffer shows a rising column of joules
+        # terminating in the substrate's banner — the thesis, not an error
+        # message. Reading the climb costs joules too (observer effect):
+        # each printed reading includes the cost of reading it.
+        {'type': 'print', 'value': {'type': 'str',
+         'value': 'dispatched climb:'}},
+        {'type': 'let', 'name': 'r', 'value': {'type': 'int', 'value': 0}},
         {'type': 'while',
          'cond': {'type': 'lt',
-                  'left': {'type': 'var', 'name': 'i'},
-                  'right': {'type': 'int', 'value': LOOP_ITERATIONS}},
+                  'left': {'type': 'var', 'name': 'r'},
+                  'right': {'type': 'int', 'value': 999}},
          'body': {'type': 'block', 'stmts': [
-             {'type': 'let', 'name': 'i', 'value': {
+             {'type': 'let', 'name': 'r', 'value': {
                  'type': 'add',
-                 'left': {'type': 'var', 'name': 'i'},
+                 'left': {'type': 'var', 'name': 'r'},
                  'right': {'type': 'int', 'value': 1}}},
+             # burn round: BURN_PER_ROUND inner iterations
+             {'type': 'let', 'name': 'k', 'value': {'type': 'int', 'value': 0}},
+             {'type': 'while',
+              'cond': {'type': 'lt',
+                       'left': {'type': 'var', 'name': 'k'},
+                       'right': {'type': 'int', 'value': BURN_PER_ROUND}},
+              'body': {'type': 'block', 'stmts': [
+                  {'type': 'let', 'name': 'k', 'value': {
+                      'type': 'add',
+                      'left': {'type': 'var', 'name': 'k'},
+                      'right': {'type': 'int', 'value': 1}}},
+              ]}},
+             # metabolic self-read between rounds
+             {'type': 'print', 'value': {'type': 'cap_dispatched',
+              'operand': {'type': 'var', 'name': 'cap_child'}}},
          ]}},
 
         # --- Step 4: unreachable on V1.1 -----------------------------------
@@ -115,7 +141,7 @@ def main():
     with open(out, 'wb') as f:
         f.write(bc)
     print('B61: compiled %d bytes -> %s' % (len(bc), out))
-    print('     child budget = %dj, loop = %d iterations' % (CHILD_BUDGET, LOOP_ITERATIONS))
+    print('     child budget = %dj, climb rounds of %d burn iters + dispatched read' % (CHILD_BUDGET, BURN_PER_ROUND))
     print('     expect: CAP BANKRUPT banner; the post-loop line must NOT print')
 
 
