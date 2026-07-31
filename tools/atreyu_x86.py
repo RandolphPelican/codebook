@@ -101,6 +101,7 @@ OP_CAP_USED        = 0xB9
 
 # --- Pod 2.2 Cap texture accessor (D2.2.1) ---
 OP_CAP_BITMAP      = 0xBA
+OP_CAP_DISPATCHED  = 0xBB
 
 # --- Pod 3 Sign embedding-handle side-table accessor (D3.4) ---
 OP_SIGN_EMBEDDING_HANDLE = 0xA7
@@ -504,6 +505,11 @@ class AtreyuX86:
             self._expr(n['operand']); e.emit(OP_CAP_BUDGET); e.emit(OP_OUTCOME_UNWRAP_OK)
         elif t == 'cap_used':
             self._expr(n['operand']); e.emit(OP_CAP_USED); e.emit(OP_OUTCOME_UNWRAP_OK)
+        elif t == 'cap_dispatched':
+            # V1.1 - reads the dispatch ledger (+0x48), the field bankruptcy checks.
+            # Observer effect: this op costs 1j and .fetch debits before the handler
+            # runs, so a cap reading its own consumption includes the read.
+            self._expr(n['operand']); e.emit(OP_CAP_DISPATCHED); e.emit(OP_OUTCOME_UNWRAP_OK)
         elif t == 'cap_budget_raw_id':
             # Test primitive — push raw cap_id, emit OP_CAP_BUDGET, no UNWRAP_OK
             # (caller wants the raw outcome_id for invalid-id tests).
