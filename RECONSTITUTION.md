@@ -19,6 +19,7 @@ v10 sealed Cap design canon (Pod 1.10.1) and Pod 1.10 split. v11 records what ha
 **The substrate is V1.0.** Six Maid capability variants live; five typed pools; 44 codified architectural doctrines; ~25 KB of hand-crafted NASM auditable in a fortnight; SipHash MAC integrity per primitive; F32 IEEE 754 byte-exact determinism per Form A canon; energy accounting at opcode level; capability-typed security from layer 1; two-build determinism preserved across the V1.0 sequence.
 
 V1.0 SEAL contract: **`c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900`** (load-bearing reference for regression discipline across Pod 4.0 polish work).
+V1.1 SEAL contract: **`58823aa9e9ad17c3fd0975cad557c934599c22588c38506d4454b6dbe1b5db6a`** (Pod 5 metabolic enforcement; the live contract from V1.1 onward, chained per Pod 5 convention).
 
 ---
 
@@ -74,7 +75,7 @@ V1.0 SEAL contract: **`c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b2
 
 ### Two-build determinism
 
-Substrate compiles to byte-exact identical BOOTX64.EFI across two clean rebuilds at **`c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900`** — V1.0 SEAL contract sha.
+Substrate compiles to byte-exact identical BOOTX64.EFI across two clean rebuilds at **`c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900`** — V1.0 SEAL contract sha. V1.1 reseals at **`58823aa9e9ad17c3fd0975cad557c934599c22588c38506d4454b6dbe1b5db6a`** after Pod 5 metabolic enforcement.
 
 Two-build determinism preserved across the full V1.0 sequence (Pod 1.6 → Pod 3.12; 16+ substrate-pod commits).
 

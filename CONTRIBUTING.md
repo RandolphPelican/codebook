@@ -100,7 +100,7 @@ If predictions match: doctrine-confirming. If they differ: investigate; either t
 
 ## How to extend the substrate
 
-Substrate-tier changes are V2.0 work. The bar is high: every substrate change rewrites the V1.0 SEAL contract sha. **At V1.0 SHIP, the substrate is byte-locked at `c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900`** (per D4.1 polish-vs-credential separation). Polish-tier work must not touch any file under `boot/`.
+Substrate-tier changes require a decision record in `recon/` and reseal the contract sha. The bar is high: every substrate change rewrites the SEAL contract sha, and the new sha is **chained** into the docs rather than overwriting the old one. **The substrate is byte-locked per release — V1.0 at `c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900`, V1.1 at `58823aa9e9ad17c3fd0975cad557c934599c22588c38506d4454b6dbe1b5db6a`** (per D4.1 polish-vs-credential separation; V1.1 reseal per Pod 5). Polish-tier work must not touch any file under `boot/`.
 
 ### Substrate change checklist (V2.0+)
 

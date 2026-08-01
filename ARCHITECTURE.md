@@ -3,6 +3,7 @@
 CodebookOS is built as a substrate of **five typed primitives** orchestrated by a **stack-VM** that dispatches **energy-accounted opcodes**, with a **capability framework** that bounds every authority-bearing operation. This document traces those structures: the mythology that names them, the typed primitives that ground them, and the doctrinal corpus that constrains every decision.
 
 V1.0 SEAL substrate contract: `c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900`.
+V1.1 SEAL substrate contract: `58823aa9e9ad17c3fd0975cad557c934599c22588c38506d4454b6dbe1b5db6a`. Seal shas are chained, never overwritten.
 
 ---
 

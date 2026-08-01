@@ -123,7 +123,7 @@ See `recon/POD4.0_RECON_NOTES.md` for HALT 1 architectural calls and the full Po
 
 ## V1.0 SEAL contract reference
 
-The substrate at V1.0 SEAL is byte-locked at `c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900`. The polish layer here adds nothing to that contract — substrate stays unchanged through V1.0 SHIP except for OP_READ_KEY addition at Pod 4.0.F (per D4.2).
+The substrate at V1.0 SEAL is byte-locked at `c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900`. The polish layer here adds nothing to that contract — substrate stays unchanged through V1.0 SHIP except for OP_READ_KEY addition at Pod 4.0.F (per D4.2). V1.1 reseals the substrate at `58823aa9e9ad17c3fd0975cad557c934599c22588c38506d4454b6dbe1b5db6a` (Pod 5 metabolic enforcement — a credential-tier change, outside the polish layer).
 
 V1.0 SHIP tag (`v1.0-ship`) will mark the full release at Pod 4.0.J — substrate + polish + release artifacts + public repo flip.
 

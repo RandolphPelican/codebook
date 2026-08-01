@@ -242,7 +242,7 @@ The canary harness boots the substrate, runs your CBS program via Gmork's `load`
 
 ## Substrate determinism
 
-Two-build determinism: assembling `boot/boot.asm` twice produces byte-exact identical `BOOTX64.EFI`. The V1.0 SEAL contract sha is `c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900`. Any code change that affects substrate behavior shifts this sha; pure documentation changes do not.
+Two-build determinism: assembling `boot/boot.asm` twice produces byte-exact identical `BOOTX64.EFI`. The V1.0 SEAL contract sha is `c9923b8cf9fb6caf4c195e2d0d0ea2ed4a8e51e4e9f827b1fc24dd0b28c1d900`. Any code change that affects substrate behavior shifts this sha; pure documentation changes do not. The V1.1 SEAL contract sha is `58823aa9e9ad17c3fd0975cad557c934599c22588c38506d4454b6dbe1b5db6a` (Pod 5 metabolic enforcement); seal shas are chained, never overwritten.
 
 F32 IEEE 754 byte-exact determinism: every f32 computation in the Maid V1.0 surface (cosine, project, reject, etc.) uses Form A canonical evaluation order (per D3.14). The same input vector produces the same f32 bit pattern across two runs, two builds, two architectures (when ported).
 
